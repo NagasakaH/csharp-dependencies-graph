@@ -348,7 +348,14 @@ public sealed class ReferenceScanner
             case ParenthesizedExpressionSyntax paren:
                 return ResolveExpr(paren.Expression, ts, ns, file, scope, depth + 1);
             case AwaitExpressionSyntax awaitExpr:
-                return FromType(TypeText.UnwrapTask(ResolveExpr(awaitExpr.Expression, ts, ns, file, scope, depth + 1).TypeRaw));
+            {
+                var inner = ResolveExpr(awaitExpr.Expression, ts, ns, file, scope, depth + 1);
+                // Task<List<A>> を畳む前に剥がさないと内側のジェネリックが消える
+                return FromType(TypeText.UnwrapTask(inner.RawType ?? inner.TypeRaw));
+            }
+            // `new Holder().Items` のように new の結果をそのまま使う式
+            case ObjectCreationExpressionSyntax creation:
+                return FromType(creation.Type.ToString());
             case CastExpressionSyntax cast:
                 return FromType(cast.Type.ToString());
             case BinaryExpressionSyntax asBinary when asBinary.IsKind(SyntaxKind.AsExpression):
@@ -561,6 +568,7 @@ public sealed class ReferenceScanner
     {
         var scope = new Scope();
         var deferred = new List<(string Name, ExpressionSyntax Value, int Pos)>();
+        var deferredElements = new List<(string Name, ExpressionSyntax Expr, int Pos)>();
 
         foreach (var parameter in DeclaredParameters(member))
         {
@@ -581,8 +589,9 @@ public sealed class ReferenceScanner
                     break;
 
                 case LocalFunctionStatementSyntax local:
-                    // ローカル関数はこの名前で呼ばれる。同名の型メンバに張り替えない。
-                    scope.Declare(local.Identifier.Text, "", local.Identifier.SpanStart);
+                    // ローカル関数は宣言より前でも呼べる。メンバ全体で同名の型メンバを遮蔽し、
+                    // 型は決めない（決まらないまま this.X に落とすのが最も危険な誤り）。
+                    scope.DeclareAnywhere(local.Identifier.Text, "");
                     break;
 
                 case CatchDeclarationSyntax catchDecl:
@@ -610,11 +619,15 @@ public sealed class ReferenceScanner
                 {
                     if (IsVar(forEach.Type))
                     {
-                        var collection = ResolveExpr(forEach.Expression, ts, ns, file, scope, 0);
-                        // Normalize はジェネリックを畳むので、要素型は畳む前の表記から取る
-                        var raw = collection.RawType ?? collection.TypeRaw ?? collection.StaticTypeName;
-                        var args = raw is null ? new List<string>() : TypeText.GenericArgs(raw);
-                        scope.Declare(forEach.Identifier.Text, args.Count > 0 ? args[0] : "", forEach.Identifier.SpanStart);
+                        var element = ElementOf(forEach.Expression, ts, ns, file, scope);
+                        if (element is not null) scope.Declare(forEach.Identifier.Text, element, forEach.Identifier.SpanStart);
+                        else
+                        {
+                            // コレクション側が `var items = Build()` の遅延推論待ちのことがある。
+                            // 名前だけ塞いでおき、2 ラウンド目で要素型を埋める
+                            scope.Declare(forEach.Identifier.Text, "", forEach.Identifier.SpanStart);
+                            deferredElements.Add((forEach.Identifier.Text, forEach.Expression, forEach.Identifier.SpanStart));
+                        }
                     }
                     else
                     {
@@ -658,23 +671,65 @@ public sealed class ReferenceScanner
         foreach (var (name, value, pos) in deferred)
         {
             var resolved = ResolveExpr(value, ts, ns, file, scope, 0);
-            var raw = resolved.TypeRaw ?? resolved.StaticTypeName;
+            var raw = resolved.RawType ?? resolved.TypeRaw ?? resolved.StaticTypeName;
             if (raw is not null) scope.Declare(name, raw, pos);
+        }
+
+        // 3 ラウンド目: 2 ラウンド目で型が決まったコレクションの foreach 要素型
+        foreach (var (name, expr, pos) in deferredElements)
+        {
+            var element = ElementOf(expr, ts, ns, file, scope);
+            if (element is not null) scope.Declare(name, element, pos);
         }
 
         return scope;
     }
 
+    /// <summary>`foreach (var x in expr)` の要素型。ジェネリック引数を畳む前の表記から取る。</summary>
+    string? ElementOf(ExpressionSyntax expr, TypeSymbol ts, string ns, FileResult file, Scope scope)
+    {
+        var collection = ResolveExpr(expr, ts, ns, file, scope, 0);
+        var raw = collection.RawType ?? collection.TypeRaw ?? collection.StaticTypeName;
+        var args = raw is null ? new List<string>() : TypeText.GenericArgs(raw);
+        return args.Count > 0 ? args[0] : null;
+    }
+
     /// <summary>出現位置つきのローカル名の集まり。</summary>
     sealed class Scope
     {
+        /// <summary>メンバ内のどこからでも見える宣言を示す、先頭の位置。</summary>
+        public const int Anywhere = -1;
+
         readonly Dictionary<string, List<(int Pos, string Type)>> _map = new(StringComparer.Ordinal);
+
+        /// <summary>メンバ全体で有効な宣言。C# のローカル関数は宣言より前でも呼べるため、</summary>
+        /// <summary>宣言位置まで遡って遮蔽しないと型メンバへの誤エッジになる。</summary>
+        public void DeclareAnywhere(string name, string type) => Declare(name, type, Anywhere);
 
         public void Declare(string name, string type, int pos)
         {
             if (!_map.TryGetValue(name, out var entries)) _map[name] = entries = new List<(int, string)>();
-            if (entries.Count > 0 && entries[^1].Pos == pos && entries[^1].Type == type) return;
-            entries.Add((pos, type));
+
+            // 列は必ず Pos の昇順に保つ。順が崩れると「識別子の直前に見えた宣言」を間違え、
+            // 後勝ちの推論が後のブロックの有効な宣言を押し潰す。
+            var at = entries.Count;
+            for (var i = 0; i < entries.Count; i++)
+            {
+                if (entries[i].Pos > pos)
+                {
+                    at = i;
+                    break;
+                }
+
+                if (entries[i].Pos == pos)
+                {
+                    // 同じ宣言位置の書き換え（2 ラウンド目の型推論）。型なし → 具体的な型へだけ更新
+                    if (entries[i].Type.Length == 0 && type.Length > 0) entries[i] = (pos, type);
+                    return;
+                }
+            }
+
+            entries.Insert(at, (pos, type));
         }
 
         /// <summary>pos の位置で name がローカル名として見えているか（型が不明でも塞ぐ）。</summary>

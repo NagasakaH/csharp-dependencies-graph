@@ -109,6 +109,27 @@ check('foreach の要素型を引数から推論する', sHas('calls', 'ForeachE
 check('foreach の要素型をプロパティの戻り値から推論する', sHas('calls', 'ForeachElements.FromProperty', 'Item.Handle'),
   sScopeEdges('ForeachElements.FromProperty'));
 
+// 2 ラウンド目の型推論が後続ブロックの宣言を潰さない（列の順序が崩れるとの再起する）
+check('遅延推論が後続ブロックの宣言を潰さない',
+  sHas('calls', 'DeferredShadowing.Run', 'Widget.Handle') && sHas('calls', 'DeferredShadowing.Run', 'Gadget.Handle'),
+  sScopeEdges('DeferredShadowing.Run'));
+
+check('型が決まらない var を先頭ブロックの型に化かさない',
+  !sHas('calls', 'UnknownShadowing.Run', 'Widget.Handle') && sHas('calls', 'UnknownShadowing.Guard', 'Widget.Handle'),
+  sScopeEdges('UnknownShadowing.Run'));
+
+check('宣言前で呼んだローカル関数を this.Handle にしない',
+  !sHas('calls', 'EarlyLocalFunction.Run', 'EarlyLocalFunction.Handle'),
+  sScopeEdges('EarlyLocalFunction.Run'));
+
+// foreach の要素型: 遅延推論したローカル / new / await の経由
+check('foreach の要素型を遅延推論したローカルから推論する', sHas('calls', 'ForeachDeferred.ViaAlias', 'Item.Handle'),
+  sScopeEdges('ForeachDeferred.ViaAlias'));
+check('foreach の要素型を new の型から推論する', sHas('calls', 'ForeachDeferred.ViaNew', 'Item.Handle'),
+  sScopeEdges('ForeachDeferred.ViaNew'));
+check('foreach の要素型を await の内側から推論する', sHas('calls', 'ForeachDeferred.ViaAwait', 'Item.Handle'),
+  sScopeEdges('ForeachDeferred.ViaAwait'));
+
 rmSync(dir, { recursive: true, force: true });
 console.log(`\n${pass}/${pass + failures.length} 件成功`);
 if (failures.length) { console.log('失敗: ' + failures.join(' / ')); process.exit(1); }

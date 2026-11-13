@@ -20,13 +20,13 @@ open out/graph/graph.html
 
 | 対象 | ノード / エッジ | 内容 |
 | --- | --- | --- |
-| [elsa-core](https://github.com/elsa-workflows/elsa-core) | 51,166 / 54,964（C# 解析 3 秒、HTML 20MB） | 336 csproj、6,754 ファイル、8,223 型、32,572 メンバ、calls 14,696 / accesses 13,484 / references 16,401、898 ファイルが AWS/DB シグナル |
+| [elsa-core](https://github.com/elsa-workflows/elsa-core) | 51,166 / 55,081（C# 解析 3 秒、HTML 20MB） | 336 csproj、6,754 ファイル、8,223 型、32,572 メンバ、calls 14,762 / accesses 13,514 / references 16,401、898 ファイルが AWS/DB シグナル |
 | `demo/orders-api-lambda` | 70 / 60（静的 27 / Terraform 25 / LLM 8） | C# Lambda 3 csproj + Terraform 16 リソース + LLM 注釈 8 エッジ |
 
 検証は 2 系統あり、どちらも対象プロジェクト非依存で動く。
 
 ```sh
-node skill/scripts/test-analyzer.mjs                          # 静的解析の精度（16 項目、ブラウザ不要）
+node skill/scripts/test-analyzer.mjs                          # 静的解析の精度（22 項目、ブラウザ不要）
 node skill/scripts/verify.mjs --html out/graph/graph.html --shots out/shots   # ブラウザ実操作（24 項目）
 ```
 

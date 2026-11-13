@@ -66,3 +66,81 @@ public class Shadowing
         w.Go();
     }
 }
+
+public class Widget { public void Handle() { } public int Size; }
+public class Gadget { public void Handle() { } public int Size; }
+
+public class Maker
+{
+    public static Widget Make() => new();
+
+    /// <summary>静的解析では型が決まらない経路（dynamic）で、有効な C# のまま未解決を再現する。</summary>
+    public static dynamic Unknown() => new object();
+}
+
+/// <summary>
+/// `var` の型を 2 ラウンド目で推論するとき、その結果が後続ブロックの宣言を潰さないこと。
+/// 推論結果を列の末尾に足すと「直前に見えた宣言」の順序が崩れて後勝ちになる（レビュー指摘）。
+/// </summary>
+public class DeferredShadowing
+{
+    public void Run()
+    {
+        { var x = Maker.Make(); x.Handle(); _ = x.Size; }
+        { var x = new Gadget(); x.Handle(); _ = x.Size; }
+    }
+}
+
+/// <summary>型が決まらない `var` を、先頭ブロックの型で断定しないこと（偽陽性の回帰）。</summary>
+public class UnknownShadowing
+{
+    public void Run()
+    {
+        { var x = Maker.Make(); _ = x.Size; }
+        { var x = Maker.Unknown(); x.Handle(); }
+    }
+
+    public void Guard()
+    {
+        var y = Maker.Make();
+        y.Handle();
+    }
+}
+
+/// <summary>C# のローカル関数は宣言より前でも呼べる。宣言位置より前で型メンバに化けないこと。</summary>
+public class EarlyLocalFunction
+{
+    public void Handle() { }
+
+    public void Run()
+    {
+        Handle();
+        void Handle() { }
+    }
+}
+
+/// <summary>遅延推論したローカルや `await` / `new` を foreach したときの要素型。</summary>
+public class ForeachDeferred
+{
+    private readonly System.Collections.Generic.List<Item> _direct = new();
+    public System.Collections.Generic.List<Item> Items => _direct;
+
+    public void ViaAlias()
+    {
+        var items = Items;
+        foreach (var x in items) x.Handle();
+    }
+
+    public void ViaNew()
+    {
+        foreach (var x in new System.Collections.Generic.List<Item>()) x.Handle();
+    }
+
+    public async System.Threading.Tasks.Task ViaAwait()
+    {
+        foreach (var x in await LoadAsync()) x.Handle();
+    }
+
+    private static System.Threading.Tasks.Task<System.Collections.Generic.List<Item>> LoadAsync()
+        => System.Threading.Tasks.Task.FromResult(new System.Collections.Generic.List<Item>());
+}
