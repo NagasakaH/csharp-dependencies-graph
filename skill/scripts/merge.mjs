@@ -142,7 +142,7 @@ for (const path of opts.annotations) {
       kind: edge.kind || 'annotates',
       provenance: edge.provenance || 'llm',
       detail: edge.note || edge.detail,
-      count: 1,
+      count: edge.count || 1,
       metadata: edge.confidence !== undefined ? { confidence: edge.confidence } : undefined,
     });
   }

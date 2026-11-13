@@ -355,6 +355,25 @@ const mergedMeta = await page.evaluate((id) => {
 record('同じノードへの後付けメタデータは書き出しでマージされる',
   !!mergedMeta && mergedMeta.team === 'verify-team' && mergedMeta.owner === 'verify-owner', JSON.stringify(mergedMeta));
 
+// 7f. 保存した注釈を再読込しても edge の count が失われない（merge.mjs への入力の信頼性）
+const countKept = await page.evaluate(([from]) => {
+  const id = 'ext:probe/count-keep';
+  const frag = {
+    schemaVersion: 1,
+    producer: 'viewer',
+    nodes: [{ id, kind: 'resource', name: 'count-keep' }],
+    edges: [{ source: from, target: id, kind: 'annotates', provenance: 'human', count: 3 }],
+  };
+  // ローカルストレージから復元するときと同じ経路（applyAnnotation → exportable）
+  window.__csdg.applyAnnotation(frag);
+  window.__csdg.exportable.push(frag);
+  const t = window.__csdg.byId.get(id);
+  const live = window.__csdg.edges.find((e) => e.kind === 'annotates' && t && e.t === t.i);
+  const dump = window.__csdg.collectAnnotations().edges.find((e) => e.target === id);
+  return { live: live ? live.count : null, dump: dump ? dump.count : null };
+}, [memberTarget.id]);
+record('注釈 edge を再読込しても count が失われない', countKept.live === 3 && countKept.dump === 3, JSON.stringify(countKept));
+
 // 8. ディープリンクで同じ展開状態を開ける
 const baseUrl = page.url().split('#')[0];
 await page.goto('about:blank');

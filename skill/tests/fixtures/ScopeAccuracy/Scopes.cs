@@ -159,3 +159,68 @@ public class BlockScopeLeak
         widget.Handle();
     }
 }
+
+/// <summary>
+/// ラムダ引数・catch 変数・switch の節と腕は、その内側だけの名前。
+/// 外側へ漏らすと、後続や他腕で触る同名フィールドを誤った型に化かす（レビュー指摘）。
+/// </summary>
+public class InnerNamesOnly
+{
+    private readonly Widget x = new();
+
+    public void Lambda()
+    {
+        System.Action<Gadget> act = (Gadget x) => x.Handle();
+        act(new Gadget());
+        x.Handle();
+    }
+
+    public void Catch()
+    {
+        try { }
+        catch (System.InvalidOperationException x) { x.GetHashCode(); }
+        x.Handle();
+    }
+
+    public int Arm(object o) => o switch
+    {
+        Gadget x => 1,
+        _ => x.Size,
+    };
+
+    public void Section(object o)
+    {
+        switch (o)
+        {
+            case Gadget x: x.Handle(); break;
+            default: x.Handle(); break;
+        }
+    }
+}
+
+/// <summary>
+/// `if` の条件に出た out var / パターン変数は外側ブロックまで見える（コンパイラで実測）。
+/// ガード節の後の参照を同名フィールドに化かさないこと。
+/// </summary>
+public class GuardClause
+{
+    private readonly Widget x = new();
+
+    public void Pattern(object o)
+    {
+        if (o is not Gadget x) return;
+        x.Handle();
+    }
+
+    public static bool TryGet(out Gadget result)
+    {
+        result = new Gadget();
+        return true;
+    }
+
+    public void OutVar()
+    {
+        if (!TryGet(out var x)) return;
+        x.Handle();
+    }
+}

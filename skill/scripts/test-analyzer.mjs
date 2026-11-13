@@ -134,6 +134,26 @@ check('内側ブロックの宣言が外側の後続まで型メンバを隠さ�
   sHas('calls', 'BlockScopeLeak.Run', 'Gadget.Handle') && sHas('calls', 'BlockScopeLeak.Run', 'Widget.Handle'),
   sScopeEdges('BlockScopeLeak.Run'));
 
+// ラムダ / catch / switch の腕と節は内側だけの名前（外側の同名フィールドを化かさない）
+check('ラムダ引数が外側の同名フィールドを隠さない',
+  sHas('calls', 'InnerNamesOnly.Lambda', 'Gadget.Handle') && sHas('calls', 'InnerNamesOnly.Lambda', 'Widget.Handle'),
+  sScopeEdges('InnerNamesOnly.Lambda'));
+check('catch 変数が catch の外に漏れない', sHas('calls', 'InnerNamesOnly.Catch', 'Widget.Handle'),
+  sScopeEdges('InnerNamesOnly.Catch'));
+check('switch 式の腕のパターン変数が他の腕に漏れない', sHas('accesses', 'InnerNamesOnly.Arm', 'Widget.Size'),
+  sScopeEdges('InnerNamesOnly.Arm'));
+check('switch の節の変数が他の節に漏れない',
+  sHas('calls', 'InnerNamesOnly.Section', 'Gadget.Handle') && sHas('calls', 'InnerNamesOnly.Section', 'Widget.Handle'),
+  sScopeEdges('InnerNamesOnly.Section'));
+
+// `if` 条件の out var / パターン変数は外側ブロックまで見える
+check('ガード節の後でパターン変数をフィールドに化かさない',
+  sHas('calls', 'GuardClause.Pattern', 'Gadget.Handle') && !sHas('calls', 'GuardClause.Pattern', 'Widget.Handle'),
+  sScopeEdges('GuardClause.Pattern'));
+check('out var の型は決めないが名前は塞いでフィールドに化かさない',
+  !sHas('calls', 'GuardClause.OutVar', 'Widget.Handle'),
+  sScopeEdges('GuardClause.OutVar'));
+
 rmSync(dir, { recursive: true, force: true });
 console.log(`\n${pass}/${pass + failures.length} 件成功`);
 if (failures.length) { console.log('失敗: ' + failures.join(' / ')); process.exit(1); }

@@ -607,9 +607,16 @@ public sealed class ReferenceScanner
                     break;
 
                 case DeclarationExpressionSyntax declaration when declaration.Designation is SingleVariableDesignationSyntax outName:
-                    scope.Declare(outName.Identifier.Text, declaration.Type.ToString(), outName.Identifier.SpanStart,
-                        DeclarationSpace(declaration, member));
+                {
+                    // `M(out Gadget x)` は型が書かれているのでそのまま使える。`out var x` は
+                    // 呼び出し先の out 引数を見ないと決まらない（意味解析はしないので決めない）。
+                    // 型を決めないだけでも名前を塞げば誤エッジは出ない。
+                    var name = outName.Identifier.Text;
+                    if (name.Length == 0) break;
+                    var type = IsVar(declaration.Type) ? "" : declaration.Type.ToString();
+                    scope.Declare(name, type, outName.Identifier.SpanStart, DeclarationSpace(declaration, member));
                     break;
+                }
 
                 // LINQ の範囲変数（from x in … / let y = …）。型は決めないが名前は塞ぐ
                 case FromClauseSyntax range:
@@ -773,10 +780,16 @@ public sealed class ReferenceScanner
     {
         for (var current = node; current is not null && current != member; current = current.Parent)
         {
-            if (current is BlockSyntax or ForStatementSyntax or IfStatementSyntax or UsingStatementSyntax
+            // 境界は C# のコンパイラで実測した宣言領域に合わせている（`if` の条件に出た
+            // out var / パターン変数は外側ブロックまで見えるが、`while` / `for` / `using` /
+            // `catch` / `switch` の節・腕はその中だけ）。`if` を境界にするとガード節の後の
+            // 参照を同名フィールドに誤解決し、ラムダ・catch を閉じないと外側を化かす。
+            if (current is BlockSyntax or ForStatementSyntax or UsingStatementSyntax
                 or ForEachStatementSyntax or WhileStatementSyntax or DoStatementSyntax or LockStatementSyntax
-                or SwitchStatementSyntax or SwitchExpressionSyntax or LocalFunctionStatementSyntax
-                or QueryExpressionSyntax or AccessorDeclarationSyntax or ConstructorInitializerSyntax)
+                or SwitchStatementSyntax or SwitchExpressionSyntax or SwitchExpressionArmSyntax
+                or SwitchSectionSyntax or LocalFunctionStatementSyntax
+                or QueryExpressionSyntax or AccessorDeclarationSyntax or ConstructorInitializerSyntax
+                or CatchClauseSyntax or FixedStatementSyntax or AnonymousFunctionExpressionSyntax)
             {
                 return current;
             }

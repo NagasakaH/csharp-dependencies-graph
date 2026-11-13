@@ -640,7 +640,7 @@
 
   function applyAnnotation(obj) {
     for (const n of obj.nodes || []) addNode({ id: n.id, kind: n.kind || 'resource', name: n.name, parent: (byId.get(n.parent) || ROOT).i, path: n.path, metadata: n.metadata });
-    for (const e of obj.edges || []) addEdge({ source: e.source, target: e.target, kind: e.kind, provenance: e.provenance || 'llm', detail: e.note || e.detail });
+    for (const e of obj.edges || []) addEdge({ source: e.source, target: e.target, kind: e.kind, provenance: e.provenance || 'llm', detail: e.note || e.detail, count: e.count });
   }
   function collectAnnotations() {
     const nodesMap = new Map(), edgeList = [];
@@ -812,7 +812,10 @@
     if (state.selected != null) params.set('select', nodes[state.selected].id);
     return '#' + params.toString();
   }
-  window.__csdg = { state, nodes, edges, byId, reveal, focusNeighbors, render, collectAnnotations, storedAnnotations: readStoredAnnotations };
+  window.__csdg = {
+    state, nodes, edges, byId, reveal, focusNeighbors, render, collectAnnotations,
+    applyAnnotation, exportable, storedAnnotations: readStoredAnnotations,
+  };
   document.getElementById('btn-link').addEventListener('click', async () => {
     const url = location.href.split('#')[0] + currentHash();
     try { await navigator.clipboard.writeText(url); setStatus('この表示の URL をコピーしました'); }
