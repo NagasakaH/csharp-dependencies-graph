@@ -144,3 +144,18 @@ public class ForeachDeferred
     private static System.Threading.Tasks.Task<System.Collections.Generic.List<Item>> LoadAsync()
         => System.Threading.Tasks.Task.FromResult(new System.Collections.Generic.List<Item>());
 }
+
+/// <summary>
+/// 内側ブロックの宣言が、外側の後続コードまで同名の型メンバを隠さないこと。
+/// 位置だけで見た場合、この `widget` は後続でも見えてしまいフィールドを誤って隠す。
+/// </summary>
+public class BlockScopeLeak
+{
+    private readonly Widget widget = new();
+
+    public void Run()
+    {
+        { var widget = new Gadget(); widget.Handle(); }
+        widget.Handle();
+    }
+}

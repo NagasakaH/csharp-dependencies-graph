@@ -130,6 +130,10 @@ check('foreach の要素型を new の型から推論する', sHas('calls', 'For
 check('foreach の要素型を await の内側から推論する', sHas('calls', 'ForeachDeferred.ViaAwait', 'Item.Handle'),
   sScopeEdges('ForeachDeferred.ViaAwait'));
 
+check('内側ブロックの宣言が外側の後続まで型メンバを隠さない',
+  sHas('calls', 'BlockScopeLeak.Run', 'Gadget.Handle') && sHas('calls', 'BlockScopeLeak.Run', 'Widget.Handle'),
+  sScopeEdges('BlockScopeLeak.Run'));
+
 rmSync(dir, { recursive: true, force: true });
 console.log(`\n${pass}/${pass + failures.length} 件成功`);
 if (failures.length) { console.log('失敗: ' + failures.join(' / ')); process.exit(1); }

@@ -185,7 +185,7 @@ public sealed class ReferenceScanner
             // 名前のない receiver の呼び出しは self / this を仮定する。
             // ただしその名前が局所変数・パラメータ・デリゲード型メンバーを指しているなら、
             // それはメソッド呼び出しではなく変数のデリゲート実行なので断定しない。
-            if (scope.IsShadowed(name!, inv.SpanStart) || IsNonInvocableMember(ts, name!))
+            if (scope.IsShadowed(name!, inv) || IsNonInvocableMember(ts, name!))
             {
                 Unresolved(symbol, file, raw);
                 return;
@@ -380,10 +380,10 @@ public sealed class ReferenceScanner
             case PredefinedTypeSyntax predefined:
                 return new ExprType(null, predefined.Keyword.Text);
             case IdentifierNameSyntax identifier:
-                return ResolveIdentifier(identifier.Identifier.Text, identifier.SpanStart, ts, scope);
+                return ResolveIdentifier(identifier.Identifier.Text, identifier, ts, scope);
             case GenericNameSyntax generic:
             {
-                var resolved = ResolveIdentifier(generic.Identifier.Text, generic.SpanStart, ts, scope);
+                var resolved = ResolveIdentifier(generic.Identifier.Text, generic, ts, scope);
                 if (resolved.TypeRaw is not null || resolved.StaticTypeName is not null) return resolved;
                 return new ExprType(null, generic.Identifier.Text);
             }
@@ -416,15 +416,15 @@ public sealed class ReferenceScanner
         }
     }
 
-    ExprType ResolveIdentifier(string id, int pos, TypeSymbol ts, Scope scope)
+    ExprType ResolveIdentifier(string id, SyntaxNode node, TypeSymbol ts, Scope scope)
     {
         if (id == "this") return FromType(ts.Qualified);
         if (id == "base") return FromType(ClassBaseOf(ts));
-        var scopeType = scope.TypeOf(id, pos);
+        var scopeType = scope.TypeOf(id, node);
         if (scopeType is not null) return FromType(scopeType);
         // 型は決まらないが名前はローカル（var x = 何か / 型を省略したラムダ引数など）。
         // ここで this.X に落とすと誤った static エッジになるので未解決で止める。
-        if (scope.IsShadowed(id, pos)) return ExprType.Unknown;
+        if (scope.IsShadowed(id, node)) return ExprType.Unknown;
         var member = _index.FindMember(ts, id);
         if (member is not null && member.Kind is "field" or "property" or "event")
         {
@@ -503,7 +503,7 @@ public sealed class ReferenceScanner
         if (receiver is null)
         {
             // receiver なしでも、名前が局所変数やデリゲード型メンバーなら this のメソッドではない。
-            if (scope.IsShadowed(name!, inv.SpanStart) || IsNonInvocableMember(ts, name!)) return ExprType.Unknown;
+            if (scope.IsShadowed(name!, inv) || IsNonInvocableMember(ts, name!)) return ExprType.Unknown;
 
             var own = _index.FindMember(ts, name!);
             if (own?.ReturnType is not null) return FromType(TypeText.UnwrapTask(own.ReturnType));
@@ -574,7 +574,8 @@ public sealed class ReferenceScanner
         {
             if (parameter.Type is not null)
             {
-                scope.Declare(parameter.Identifier.Text, parameter.Type.ToString(), parameter.Identifier.SpanStart);
+                scope.Declare(parameter.Identifier.Text, parameter.Type.ToString(), parameter.Identifier.SpanStart,
+                    DeclarationSpace(parameter, member));
             }
         }
 
@@ -585,7 +586,8 @@ public sealed class ReferenceScanner
                 case ParameterSyntax parameter:
                     // 型を省略したラムダ引数も「その名前はローカル」として塞ぐ。
                     // 型は決まらないので、this.X との混同だけを止める。
-                    scope.Declare(parameter.Identifier.Text, parameter.Type?.ToString() ?? "", parameter.Identifier.SpanStart);
+                    scope.Declare(parameter.Identifier.Text, parameter.Type?.ToString() ?? "", parameter.Identifier.SpanStart,
+                        DeclarationSpace(parameter, member));
                     break;
 
                 case LocalFunctionStatementSyntax local:
@@ -595,24 +597,27 @@ public sealed class ReferenceScanner
                     break;
 
                 case CatchDeclarationSyntax catchDecl:
-                    scope.Declare(catchDecl.Identifier.Text, catchDecl.Type.ToString(), catchDecl.Identifier.SpanStart);
+                    scope.Declare(catchDecl.Identifier.Text, catchDecl.Type.ToString(), catchDecl.Identifier.SpanStart,
+                        DeclarationSpace(catchDecl, member));
                     break;
 
                 case DeclarationPatternSyntax pattern when pattern.Designation is SingleVariableDesignationSyntax patternName:
-                    scope.Declare(patternName.Identifier.Text, pattern.Type.ToString(), patternName.Identifier.SpanStart);
+                    scope.Declare(patternName.Identifier.Text, pattern.Type.ToString(), patternName.Identifier.SpanStart,
+                        DeclarationSpace(pattern, member));
                     break;
 
                 case DeclarationExpressionSyntax declaration when declaration.Designation is SingleVariableDesignationSyntax outName:
-                    scope.Declare(outName.Identifier.Text, declaration.Type.ToString(), outName.Identifier.SpanStart);
+                    scope.Declare(outName.Identifier.Text, declaration.Type.ToString(), outName.Identifier.SpanStart,
+                        DeclarationSpace(declaration, member));
                     break;
 
                 // LINQ の範囲変数（from x in … / let y = …）。型は決めないが名前は塞ぐ
                 case FromClauseSyntax range:
-                    scope.Declare(range.Identifier.Text, "", range.Identifier.SpanStart);
+                    scope.Declare(range.Identifier.Text, "", range.Identifier.SpanStart, DeclarationSpace(range, member));
                     break;
 
                 case LetClauseSyntax ranged:
-                    scope.Declare(ranged.Identifier.Text, "", ranged.Identifier.SpanStart);
+                    scope.Declare(ranged.Identifier.Text, "", ranged.Identifier.SpanStart, DeclarationSpace(ranged, member));
                     break;
 
                 case ForEachStatementSyntax forEach:
@@ -620,18 +625,18 @@ public sealed class ReferenceScanner
                     if (IsVar(forEach.Type))
                     {
                         var element = ElementOf(forEach.Expression, ts, ns, file, scope);
-                        if (element is not null) scope.Declare(forEach.Identifier.Text, element, forEach.Identifier.SpanStart);
+                        if (element is not null) scope.Declare(forEach.Identifier.Text, element, forEach.Identifier.SpanStart, forEach);
                         else
                         {
                             // コレクション側が `var items = Build()` の遅延推論待ちのことがある。
                             // 名前だけ塞いでおき、2 ラウンド目で要素型を埋める
-                            scope.Declare(forEach.Identifier.Text, "", forEach.Identifier.SpanStart);
+                            scope.Declare(forEach.Identifier.Text, "", forEach.Identifier.SpanStart, forEach);
                             deferredElements.Add((forEach.Identifier.Text, forEach.Expression, forEach.Identifier.SpanStart));
                         }
                     }
                     else
                     {
-                        scope.Declare(forEach.Identifier.Text, forEach.Type.ToString(), forEach.Identifier.SpanStart);
+                        scope.Declare(forEach.Identifier.Text, forEach.Type.ToString(), forEach.Identifier.SpanStart, forEach);
                     }
 
                     break;
@@ -647,18 +652,19 @@ public sealed class ReferenceScanner
                     var name = variable.Identifier.Text;
                     if (name.Length == 0) break;
                     var pos = variable.Identifier.SpanStart;
+                    var space = DeclarationSpace(variable, member);
 
                     if (!IsVar(declaration.Type))
                     {
-                        scope.Declare(name, declaration.Type.ToString(), pos);
+                        scope.Declare(name, declaration.Type.ToString(), pos, space);
                     }
                     else if (variable.Initializer?.Value is ObjectCreationExpressionSyntax creation)
                     {
-                        scope.Declare(name, creation.Type.ToString(), pos);
+                        scope.Declare(name, creation.Type.ToString(), pos, space);
                     }
                     else
                     {
-                        scope.Declare(name, "", pos);
+                        scope.Declare(name, "", pos, space);
                         if (variable.Initializer is not null) deferred.Add((name, variable.Initializer.Value, pos));
                     }
 
@@ -672,14 +678,14 @@ public sealed class ReferenceScanner
         {
             var resolved = ResolveExpr(value, ts, ns, file, scope, 0);
             var raw = resolved.RawType ?? resolved.TypeRaw ?? resolved.StaticTypeName;
-            if (raw is not null) scope.Declare(name, raw, pos);
+            if (raw is not null) scope.Declare(name, raw, pos, DeclarationSpace(value, member));
         }
 
         // 3 ラウンド目: 2 ラウンド目で型が決まったコレクションの foreach 要素型
         foreach (var (name, expr, pos) in deferredElements)
         {
             var element = ElementOf(expr, ts, ns, file, scope);
-            if (element is not null) scope.Declare(name, element, pos);
+            if (element is not null) scope.Declare(name, element, pos, null);
         }
 
         return scope;
@@ -694,24 +700,26 @@ public sealed class ReferenceScanner
         return args.Count > 0 ? args[0] : null;
     }
 
-    /// <summary>出現位置つきのローカル名の集まり。</summary>
+    /// <summary>
+    /// メンバ内のローカル名の集まり。各宣言は「有効になる位置」と「宣言領域（ブロック）」を持つ。
+    /// 見え方は両方で見極める —— 位置だけだと内側ブロックの宣言が外側の後続に漏れ、
+    /// 後続で触る同名のフィールドを誤って隠してしまう。
+    /// </summary>
     sealed class Scope
     {
         /// <summary>メンバ内のどこからでも見える宣言を示す、先頭の位置。</summary>
         public const int Anywhere = -1;
 
-        readonly Dictionary<string, List<(int Pos, string Type)>> _map = new(StringComparer.Ordinal);
+        readonly Dictionary<string, List<(int Pos, string Type, SyntaxNode? Space)>> _map = new(StringComparer.Ordinal);
 
-        /// <summary>メンバ全体で有効な宣言。C# のローカル関数は宣言より前でも呼べるため、</summary>
-        /// <summary>宣言位置まで遡って遮蔽しないと型メンバへの誤エッジになる。</summary>
-        public void DeclareAnywhere(string name, string type) => Declare(name, type, Anywhere);
+        /// <summary>メンバ全体で有効な宣言。C# のローカル関数は宣言より前でも呼べる。</summary>
+        public void DeclareAnywhere(string name, string type) => Declare(name, type, Anywhere, null);
 
-        public void Declare(string name, string type, int pos)
+        public void Declare(string name, string type, int pos, SyntaxNode? space)
         {
-            if (!_map.TryGetValue(name, out var entries)) _map[name] = entries = new List<(int, string)>();
+            if (!_map.TryGetValue(name, out var entries)) _map[name] = entries = new List<(int, string, SyntaxNode?)>();
 
-            // 列は必ず Pos の昇順に保つ。順が崩れると「識別子の直前に見えた宣言」を間違え、
-            // 後勝ちの推論が後のブロックの有効な宣言を押し潰す。
+            // 列は必ず Pos の昇順に保つ。順が崩れると「識別子の直前に見えた宣言」を間違える
             var at = entries.Count;
             for (var i = 0; i < entries.Count; i++)
             {
@@ -723,35 +731,58 @@ public sealed class ReferenceScanner
 
                 if (entries[i].Pos == pos)
                 {
-                    // 同じ宣言位置の書き換え（2 ラウンド目の型推論）。型なし → 具体的な型へだけ更新
-                    if (entries[i].Type.Length == 0 && type.Length > 0) entries[i] = (pos, type);
+                    // 同じ宣言位置の書き換え（型決めラウンド）。型なし → 具体的な型へだけ更新
+                    if (entries[i].Type.Length == 0 && type.Length > 0) entries[i] = (pos, type, entries[i].Space);
                     return;
                 }
             }
 
-            entries.Insert(at, (pos, type));
+            entries.Insert(at, (pos, type, space));
         }
 
-        /// <summary>pos の位置で name がローカル名として見えているか（型が不明でも塞ぐ）。</summary>
-        public bool IsShadowed(string name, int pos)
+        /// <summary>node の位置で name がローカル名として見えているか（型が不明でも塞ぐ）。</summary>
+        public bool IsShadowed(string name, SyntaxNode node)
         {
             if (!_map.TryGetValue(name, out var entries)) return false;
-            for (var i = entries.Count - 1; i >= 0; i--) if (entries[i].Pos <= pos) return true;
+            for (var i = entries.Count - 1; i >= 0; i--) if (Visible(entries[i], node)) return true;
             return false;
         }
 
-        /// <summary>pos の位置で見える型。型が決まらないローカルなら null を返す。</summary>
-        public string? TypeOf(string name, int pos)
+        /// <summary>node の位置で見える型。型が決まらないローカルなら null を返す。</summary>
+        public string? TypeOf(string name, SyntaxNode node)
         {
             if (!_map.TryGetValue(name, out var entries)) return null;
             for (var i = entries.Count - 1; i >= 0; i--)
             {
-                if (entries[i].Pos > pos) continue;
+                if (!Visible(entries[i], node)) continue;
                 return entries[i].Type.Length == 0 ? null : entries[i].Type;
             }
 
             return null;
         }
+
+        static bool Visible((int Pos, string Type, SyntaxNode? Space) entry, SyntaxNode node)
+            => entry.Pos <= node.SpanStart && (entry.Space is null || entry.Space.Contains(node));
+    }
+
+    /// <summary>
+    /// 宣言の有効領域。C# の宣言領域に合わせた節まで上る（メソッド本体のブロック、
+    /// `for` / `if` / `foreach` のような節、クエリ式、アクセサなど）。
+    /// </summary>
+    static SyntaxNode DeclarationSpace(SyntaxNode node, MemberDeclarationSyntax member)
+    {
+        for (var current = node; current is not null && current != member; current = current.Parent)
+        {
+            if (current is BlockSyntax or ForStatementSyntax or IfStatementSyntax or UsingStatementSyntax
+                or ForEachStatementSyntax or WhileStatementSyntax or DoStatementSyntax or LockStatementSyntax
+                or SwitchStatementSyntax or SwitchExpressionSyntax or LocalFunctionStatementSyntax
+                or QueryExpressionSyntax or AccessorDeclarationSyntax or ConstructorInitializerSyntax)
+            {
+                return current;
+            }
+        }
+
+        return member;
     }
 
     static IEnumerable<ParameterSyntax> DeclaredParameters(MemberDeclarationSyntax member)
