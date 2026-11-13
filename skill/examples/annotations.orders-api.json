@@ -1,0 +1,122 @@
+{
+  "schemaVersion": 1,
+  "producer": "llm",
+  "generatedAt": "2026-11-14T03:40:00+09:00",
+  "notes": "静的解析では決まらない対応付けを LLM が追記した例。csproj / メンバ と Terraform リソースの紐づけ、Terraform 管理外のストレージノードの追加を含む。",
+  "nodes": [
+    {
+      "id": "ext:rds/orders-analytics",
+      "kind": "resource",
+      "name": "orders-analytics",
+      "parent": "folder:.",
+      "metadata": {
+        "resourceType": "aws-rds-postgres",
+        "category": "rds",
+        "managedBy": "別の Terraform ルート（このリポジトリ外）",
+        "notes": "注文の分析用warehouse。orders-api-lambda の外側にあるため静的解析では現れない"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "sourceMatch": {
+        "kind": "project",
+        "path": "src/Orders.Api/Orders.Api.csproj"
+      },
+      "target": "tf:aws_lambda_function.orders_api",
+      "kind": "deploys",
+      "provenance": "llm",
+      "confidence": 0.95,
+      "note": "main.tf の handler 文字列 Orders.Api::Orders.Api.Functions::CreateOrder がアセンブリ名／型名／メソッド名と一致"
+    },
+    {
+      "sourceMatch": {
+        "kind": "project",
+        "path": "src/Orders.Infrastructure/Orders.Infrastructure.csproj"
+      },
+      "target": "tf:aws_lambda_function.notify",
+      "kind": "deploys",
+      "provenance": "llm",
+      "confidence": 0.9,
+      "note": "handler Orders.Infrastructure::Orders.Infrastructure.NotifyHandler::FunctionHandler と一致"
+    },
+    {
+      "source": "member:Orders.Api.Functions.CreateOrder",
+      "target": "tf:aws_api_gateway_method.post_order",
+      "kind": "exposed-by",
+      "provenance": "llm",
+      "confidence": 0.92,
+      "note": "POST /orders の統合先が Orders.Api.Functions::CreateOrder"
+    },
+    {
+      "source": "member:Orders.Infrastructure.StepFunctionsOrderProcessLauncher.StartAsync",
+      "target": "tf:aws_sfn_state_machine.order_process",
+      "kind": "invokes",
+      "provenance": "llm",
+      "confidence": 0.88,
+      "note": "ORDER_PROCESS_ARN 環境変数経由で order-process ステートマシンを起動"
+    },
+    {
+      "source": "member:Orders.Infrastructure.DynamoDbOrderRepository.SaveAsync",
+      "target": "tf:aws_dynamodb_table.orders",
+      "kind": "writes",
+      "provenance": "llm",
+      "confidence": 0.9,
+      "note": "DynamoDBContext.SaveAsync(order, \"orders\") のテーブル名が aws_dynamodb_table.orders と一致"
+    },
+    {
+      "source": "member:Orders.Infrastructure.DynamoDbOrderRepository.FindAsync",
+      "target": "tf:aws_dynamodb_table.orders",
+      "kind": "reads",
+      "provenance": "llm",
+      "confidence": 0.9,
+      "note": "同じテーブルの LoadAsync"
+    },
+    {
+      "source": "member:Orders.Infrastructure.NotifyHandler.FunctionHandler",
+      "target": "tf:aws_sqs_queue.fulfilment",
+      "kind": "writes",
+      "provenance": "llm",
+      "confidence": 0.85,
+      "note": "FULFIL_QUEUE_URL 経由で fulfilment キューへ SendMessage"
+    },
+    {
+      "source": "ext:rds/orders-analytics",
+      "target": "tf:aws_dynamodb_table.orders",
+      "kind": "reads",
+      "provenance": "llm",
+      "confidence": 0.6,
+      "note": "DynamoDB → Redshift への週次エクスポート（運用上の知識。コードには現れない）"
+    }
+  ],
+  "metadata": [
+    {
+      "match": {
+        "kind": "project",
+        "path": "src/Orders.Api/Orders.Api.csproj"
+      },
+      "set": {
+        "owner": "orders-team",
+        "deployedBy": "infra/main.tf:aws_lambda_function.orders_api",
+        "environment": "prod"
+      }
+    },
+    {
+      "match": {
+        "kind": "file",
+        "path": "src/Orders.Infrastructure/DynamoDbOrderRepository.cs"
+      },
+      "set": {
+        "storage": "dynamodb:orders",
+        "dataOwner": "orders-team"
+      }
+    },
+    {
+      "target": "member:Orders.Api.Functions.CreateOrder",
+      "set": {
+        "publicApi": true,
+        "route": "POST /orders"
+      }
+    }
+  ]
+}

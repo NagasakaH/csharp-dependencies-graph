@@ -1,0 +1,752 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>C# 依存関係グラフ</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #161a21; --panel-2: #1c2129; --line: #2a313c;
+    --fg: #dbe2ec; --dim: #8b97a8; --accent: #4aa8ff;
+    --folder: #d9a441; --solution: #9c7bff; --project: #6ea8fe; --file: #58c39a;
+    --type: #f2777a; --member: #e0a4d0; --resource: #2fd6c3;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg); color: var(--fg); font: 13px/1.5 "SF Mono", "Hiragino Kaku Gothic ProN", "Noto Sans JP", monospace;
+    display: grid; grid-template-rows: auto 1fr; overflow: hidden;
+  }
+  header {
+    display: flex; align-items: center; gap: 10px; padding: 8px 12px;
+    background: var(--panel); border-bottom: 1px solid var(--line); flex-wrap: wrap;
+  }
+  header h1 { font-size: 13px; margin: 0 6px 0 0; font-weight: 600; letter-spacing: .02em; }
+  header .sub { color: var(--dim); font-size: 11px; }
+  #search { flex: 1 1 260px; min-width: 200px; position: relative; }
+  #search input {
+    width: 100%; padding: 6px 8px; background: var(--panel-2); border: 1px solid var(--line);
+    color: var(--fg); border-radius: 6px; font: inherit;
+  }
+  #search input:focus { outline: 1px solid var(--accent); }
+  #results {
+    position: absolute; top: 32px; left: 0; right: 0; max-height: 46vh; overflow: auto; z-index: 40;
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; display: none;
+    box-shadow: 0 12px 32px rgba(0,0,0,.5);
+  }
+  #results.open { display: block; }
+  #results .row { padding: 5px 9px; cursor: pointer; display: flex; gap: 8px; align-items: baseline; border-bottom: 1px solid #202632; }
+  #results .row:hover, #results .row.sel { background: #223046; }
+  #results .kind { font-size: 10px; color: var(--dim); min-width: 58px; }
+  #results .path { color: var(--dim); font-size: 11px; margin-left: auto; white-space: nowrap; }
+  main { display: grid; grid-template-columns: minmax(220px, 300px) 1fr minmax(260px, 360px); min-height: 0; }
+  #tree, #detail { background: var(--panel); overflow: auto; }
+  #tree { border-right: 1px solid var(--line); }
+  #detail { border-left: 1px solid var(--line); }
+  .pane-title {
+    position: sticky; top: 0; background: var(--panel); padding: 7px 10px; font-size: 11px;
+    color: var(--dim); text-transform: uppercase; letter-spacing: .08em; border-bottom: 1px solid var(--line); z-index: 2;
+  }
+  .tnode { white-space: nowrap; cursor: pointer; padding: 2px 6px 2px 0; display: flex; align-items: center; gap: 5px; }
+  .tnode:hover { background: #1f2731; }
+  .tnode.active { background: #223a5c; }
+  .tnode .tw { width: 12px; text-align: center; color: var(--dim); flex: 0 0 12px; }
+  .tnode .label { overflow: hidden; text-overflow: ellipsis; }
+  .tnode .badge { color: var(--dim); font-size: 10px; margin-left: 4px; }
+  .dot { width: 8px; height: 8px; border-radius: 2px; flex: 0 0 8px; display: inline-block; }
+  #canvas-wrap { position: relative; min-width: 0; }
+  svg { width: 100%; height: 100%; display: block; cursor: grab; }
+  svg.panning { cursor: grabbing; }
+  .edge { fill: none; stroke-opacity: .55; }
+  .edge.dim { stroke-opacity: .1; }
+  .edge.hot { stroke-opacity: .95; stroke-width: 2.2px; }
+  .gnode { cursor: pointer; }
+  .gnode rect { stroke: var(--line); stroke-width: 1; rx: 5px; }
+  .gnode text { font-size: 11px; fill: #eef3fa; pointer-events: none; }
+  .gnode .sub { font-size: 9.5px; fill: #96a3b5; }
+  .gnode.selected rect { stroke: var(--accent); stroke-width: 2; }
+  .gnode.ghost rect { stroke-dasharray: 4 3; }
+  .gnode .twist { fill: #9fb0c4; font-size: 12px; }
+  #toolbar {
+    position: absolute; left: 10px; top: 10px; display: flex; gap: 6px; flex-wrap: wrap; max-width: 70%; z-index: 5;
+  }
+  .chip, button, select {
+    background: var(--panel-2); color: var(--fg); border: 1px solid var(--line); border-radius: 20px;
+    padding: 3px 9px; font: inherit; font-size: 11px; cursor: pointer;
+  }
+  .chip.off { opacity: .38; }
+  .chip.static { border-color: #35506e; }
+  .chip.llm { border-color: #6e5a2f; }
+  .chip.terraform { border-color: #2f6e5a; }
+  button.primary { background: #235c9c; border-color: #3574bd; }
+  #hint {
+    position: absolute; right: 10px; bottom: 8px; color: var(--dim); font-size: 11px; z-index: 5;
+    background: rgba(15,17,21,.75); padding: 3px 8px; border-radius: 6px;
+  }
+  #detail .body { padding: 10px; }
+  #detail h2 { font-size: 14px; margin: 0 0 2px; word-break: break-all; }
+  #detail .path { color: var(--dim); font-size: 11px; word-break: break-all; margin-bottom: 8px; }
+  table.meta { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+  table.meta td { padding: 2px 4px; vertical-align: top; border-bottom: 1px solid #212836; word-break: break-all; }
+  table.meta td.k { color: var(--dim); width: 34%; }
+  .section { margin-top: 12px; }
+  .section > h3 { font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: .07em; margin: 0 0 5px; }
+  .edge-row { display: flex; gap: 6px; padding: 3px 4px; border-radius: 5px; cursor: pointer; align-items: baseline; }
+  .edge-row:hover { background: #1f2731; }
+  .edge-row .k { font-size: 10px; padding: 0 5px; border-radius: 4px; background: #232c39; color: #a9c3e0; flex: 0 0 auto; }
+  .edge-row .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .form { display: grid; gap: 6px; margin-top: 6px; }
+  .form input, .form select { width: 100%; padding: 5px 6px; background: var(--panel-2); border: 1px solid var(--line); color: var(--fg); border-radius: 5px; font: inherit; }
+  .row-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+  .prov { font-size: 10px; padding: 0 5px; border-radius: 4px; }
+  
+  
+  #status { color: var(--dim); font-size: 11px; }
+  .notice { color: #ffcf6b; font-size: 11px; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">C# 依存関係グラフ</h1>
+  <span class="sub" id="stats"></span>
+  <div id="search">
+    <input id="q" type="text" placeholder="メソッド / クラス / ファイル を検索（部分一致、Enter で先頭へ）" autocomplete="off">
+    <div id="results"></div>
+  </div>
+  <select id="kind-filter" title="検索するノードの種類">
+    <option value="">すべての種類</option>
+    <option value="member">member</option>
+    <option value="type">type</option>
+    <option value="file">file</option>
+    <option value="project">project</option>
+    <option value="folder">folder</option>
+    <option value="resource">resource</option>
+  </select>
+  <button id="btn-anno">注釈 JSON</button>
+  <button id="btn-link">表示を共有</button>
+  <button id="btn-fit">画面に合わせる</button>
+  <button id="btn-collapse">1 階層に戻る</button>
+  <span id="status"></span>
+</header>
+<main>
+  <nav id="tree"><div class="pane-title">フォルダ階層（クリックで展開）</div><div id="tree-body"></div></nav>
+  <section id="canvas-wrap">
+    <div id="toolbar"></div>
+    <svg id="svg"><g id="vp"><g id="edges"></g><g id="nodes"></g></g></svg>
+    <div id="hint">クリック=展開 / ⇧クリック=依存をたどる / ドラッグ=スクロール / ホイール=拡大縮小</div>
+  </section>
+  <aside id="detail"><div class="pane-title">詳細</div><div class="body" id="detail-body">ノードを選ぶと詳細が表示されます。</div></aside>
+</main>
+<script id="graph-data">__CSDG_INLINE__</script>
+<script>
+(() => {
+  const DATA = window.__CSDG__;
+  if (!DATA) { document.getElementById('detail-body').textContent = 'グラフデータが埋め込まれていません。'; return; }
+
+  const KIND = DATA.nodeKinds, EDGE_KINDS = DATA.edgeKinds, PROV = DATA.provenances, DETAILS = DATA.details;
+  const KIND_COLOR = { folder: '#d9a441', solution: '#9c7bff', project: '#6ea8fe', file: '#58c39a', type: '#f2777a', member: '#e0a4d0', resource: '#2fd6c3' };
+  const EDGE_COLOR = {
+    calls: '#5b9dff', creates: '#7ee0a3', accesses: '#9aa7b8', references: '#6f7d90',
+    inherits: '#ff9f6e', implements: '#ffd166', attribute: '#c792ea', 'project-reference': '#6ea8fe',
+    contains: '#3b4757', deploys: '#2fd6c3', invokes: '#2fd6c3', triggers: '#2fd6c3', reads: '#f2777a', writes: '#f2777a', annotates: '#ffcf6b'
+  };
+
+  // ---- ペイロードを構造化（配列エンコード → Map / 配列）
+  const nodes = DATA.nodes.map((r, i) => ({ i, id: r[0], kind: KIND[r[1]], name: r[2], parent: r[3], path: r[4], meta: r[5] || null }));
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const childrenOf = new Map();
+  const outEdges = new Map(), inEdges = new Map();
+  const edges = DATA.edges.map((r, i) => ({
+    i, s: r[0], t: r[1], kind: EDGE_KINDS[r[2]], count: r[3], prov: PROV[r[4]], detail: r[5] == null ? null : DETAILS[r[5]], line: r[6]
+  }));
+  for (const n of nodes) {
+    if (n.parent == null) continue;
+    if (!childrenOf.has(n.parent)) childrenOf.set(n.parent, []);
+    childrenOf.get(n.parent).push(n.i);
+  }
+  for (const e of edges) {
+    if (!outEdges.has(e.s)) outEdges.set(e.s, []);
+    outEdges.get(e.s).push(e);
+    if (!inEdges.has(e.t)) inEdges.set(e.t, []);
+    inEdges.get(e.t).push(e);
+  }
+  const ROOT = byId.get('folder:.') || nodes[0];
+  ROOT.parent = null;
+  const kindRankCache = new Map([['folder', 0], ['solution', 1], ['project', 2], ['file', 3], ['type', 4], ['member', 5], ['resource', 6]]);
+  function kindRank(k) { return kindRankCache.get(k) ?? 7; }
+
+  for (const file of readStoredAnnotations()) applyAnnotation(file, { persist: false });
+
+  // ---- 表示状態
+  const state = { expanded: new Set([ROOT.i]), selected: null, visible: new Set(), ghost: new Map(), links: new Map(), filters: new Set(EDGE_KINDS.filter((k) => k !== 'references' && k !== 'accesses')), prov: new Set(PROV), layout: null };
+
+  function childNodes(i) { return (childrenOf.get(i) || []).filter((c) => kindAllowed(nodes[c].kind)); }
+  function kindAllowed(k) { return state.filters.size === EDGE_KINDS.length || true; }
+
+  function visibleNodes() {
+    const vis = new Set();
+    const stack = [ROOT.i];
+    while (stack.length) {
+      const i = stack.pop();
+      if (vis.has(i)) continue;
+      vis.add(i);
+      if (state.expanded.has(i)) for (const c of childNodes(i)) stack.push(c);
+    }
+    for (const [i] of state.ghost) vis.add(i);
+    return vis;
+  }
+
+  // ---- エッジの可視化（畳んだノードは可視な子孫/祖先へリフトして集約）
+  function rep(i, vis) {
+    if (vis.has(i)) return i;
+    let cur = nodes[i].parent;
+    while (cur != null && !vis.has(cur)) cur = nodes[cur].parent;
+    return cur;
+  }
+  function buildAggregatedEdges(vis) {
+    const agg = new Map();
+    for (const e of edges) {
+      if (!state.prov.has(e.prov)) continue;
+      if (e.kind === 'contains' || !state.filters.has(e.kind)) continue;
+      let s = rep(e.s, vis), t = rep(e.t, vis);
+      if (s == null || t == null || s === t) continue;
+      const key = s + '|' + t + '|' + e.kind;
+      const cur = agg.get(key);
+      if (cur) cur.count += e.count;
+      else agg.set(key, { s, t, kind: e.kind, count: e.count, prov: e.prov, aggregated: false });
+    }
+    // ゴースト（明示的に展開した外部ノード）間のエッジは生のまま残す
+    const raw = [...state.links.values()].filter((e) => vis.has(e.s) && vis.has(e.t));
+    return { agg: [...agg.values()], raw };
+  }
+
+  // ---- レイアウト（ツリーに沿った整列レイアウト：展開した階層だけが増える）
+  const MAX_FOCUS = 120;
+  const X_GAP = 258, Y_GAP = 44, NODE_W = 176, NODE_H = 34, MAX_KIDS = 400;
+  function sortKids(ids) {
+    return ids.slice().sort((a, b) => {
+      const ka = kindRank(nodes[a].kind), kb = kindRank(nodes[b].kind);
+      if (ka !== kb) return ka - kb;
+      return nodes[a].name.localeCompare(nodes[b].name, 'ja');
+    });
+  }
+  function layout(vis) {
+    const pos = new Map(), depth = new Map();
+    let nextY = 0, capped = 0;
+    const ghostKids = new Map();
+    for (const [g, anchor] of state.ghost) {
+      if (!ghostKids.has(anchor)) ghostKids.set(anchor, []);
+      ghostKids.get(anchor).push(g);
+    }
+    function place(i, d) {
+      if (pos.has(i)) return pos.get(i).y;
+      depth.set(i, d);
+      let kids = state.expanded.has(i) ? sortKids(childNodes(i).filter((c) => vis.has(c))) : [];
+      if (kids.length > MAX_KIDS) { capped += kids.length - MAX_KIDS; kids = kids.slice(0, MAX_KIDS); }
+      const children = [...kids, ...(ghostKids.get(i) || [])].filter((c) => c !== i);
+      if (!children.length) {
+        const y = nextY++ * Y_GAP;
+        pos.set(i, { x: 40 + d * X_GAP, y, w: NODE_W, h: NODE_H });
+        return y;
+      }
+      const ys = children.map((c) => place(c, d + 1));
+      const y = (Math.min(...ys) + Math.max(...ys)) / 2;
+      pos.set(i, { x: 40 + d * X_GAP, y, w: NODE_W, h: NODE_H });
+      return y;
+    }
+    place(ROOT.i, 0);
+    for (const i of vis) {
+      if (pos.has(i)) continue;
+      const y = nextY++ * Y_GAP;
+      depth.set(i, 1);
+      pos.set(i, { x: 40 + X_GAP, y, w: NODE_W, h: NODE_H });
+    }
+    const maxDepth = Math.max(...depth.values(), 1);
+    return { pos, depth, maxDepth, capped };
+  }
+
+  // ---- 描画
+  const svg = document.getElementById('svg'), vp = document.getElementById('vp'), gEdges = document.getElementById('edges'), gNodes = document.getElementById('nodes');
+  const NS = 'http://www.w3.org/2000/svg';
+  const el = (tag, attrs, text) => { const n = document.createElementNS(NS, tag); for (const k in attrs) n.setAttribute(k, attrs[k]); if (text != null) n.textContent = text; return n; };
+
+  function render() {
+    const vis = visibleNodes();
+    state.visible = vis;
+    const lay = layout(vis);
+    state.layout = lay;
+    const { agg, raw } = buildAggregatedEdges(vis);
+    gEdges.replaceChildren(); gNodes.replaceChildren();
+    const seenRaw = new Set(agg.map((e) => e.s + '|' + e.t + '|' + e.kind));
+    let drawn = [...agg, ...raw.filter((e) => !seenRaw.has(e.s + '|' + e.t + '|' + e.kind))].filter((e) => state.filters.has(e.kind));
+    const MAX_EDGES = 900;
+    if (drawn.length > MAX_EDGES) { drawn.sort((x, y) => y.count - x.count); drawn = drawn.slice(0, MAX_EDGES); state.edgeTruncated = true; } else state.edgeTruncated = false;
+    const depthOf = (i) => lay.depth.get(i) ?? 0;
+    for (const e of drawn) {
+      const a = lay.pos.get(e.s), b = lay.pos.get(e.t);
+      if (!a || !b) continue;
+      const da = depthOf(e.s), db = depthOf(e.t);
+      let d;
+      if (da === db) {
+        const x1 = a.x + a.w, y1 = a.y + a.h / 2, x2 = b.x + b.w, y2 = b.y + b.h / 2;
+        const bulge = 46 + Math.abs(y2 - y1) * 0.16;
+        d = `M${x1},${y1} C${x1 + bulge},${y1} ${x2 + bulge},${y2} ${x2},${y2}`;
+      } else if (db > da) {
+        const x1 = a.x + a.w, y1 = a.y + a.h / 2, x2 = b.x, y2 = b.y + b.h / 2;
+        const mx = (x1 + x2) / 2;
+        d = `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`;
+      } else {
+        const x1 = a.x, y1 = a.y + a.h / 2, x2 = b.x + b.w, y2 = b.y + b.h / 2;
+        const mx = (x1 + x2) / 2;
+        d = `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`;
+      }
+      const path = el('path', {
+        class: 'edge', d,
+        stroke: EDGE_COLOR[e.kind] || '#7f8ea3', 'stroke-width': Math.min(6, 1 + Math.log2(1 + e.count) * 1.1)
+      });
+      path.dataset.s = e.s; path.dataset.t = e.t;
+      path.appendChild(el('title', {}, `${e.kind} × ${e.count}\n${nodes[e.s].name} → ${nodes[e.t].name}${e.detail ? '\n' + e.detail : ''}`));
+      gEdges.appendChild(path);
+    }
+    for (const i of vis) {
+      const p = lay.pos.get(i);
+      if (!p) continue;
+      const n = nodes[i];
+      const g = el('g', { class: 'gnode' + (state.ghost.has(i) ? ' ghost' : '') + (state.selected === i ? ' selected' : ''), transform: `translate(${p.x},${p.y})` });
+      g.dataset.i = i;
+      g.dataset.id = n.id;
+      g.dataset.w = p.w;
+      const kids = childNodes(i).length;
+      const expandable = kids > 0 || state.ghost.size > 0;
+      g.appendChild(el('rect', { width: p.w, height: p.h, fill: shade(n.kind), rx: 5 }));
+      g.appendChild(el('rect', { x: 0, y: 0, width: 3, height: p.h, fill: KIND_COLOR[n.kind] || '#888', rx: 2 }));
+      const label = n.name.length > 22 ? n.name.slice(0, 21) + '…' : n.name;
+      g.appendChild(el('text', { x: 9, y: 13, class: 'name' }, label));
+      const sub = subtitle(n, kids);
+      g.appendChild(el('text', { x: 9, y: 25, class: 'sub' }, sub));
+      if (kids) g.appendChild(el('text', { x: p.w - 14, y: 19, class: 'twist' }, state.expanded.has(i) ? '−' : '+'));
+      g.addEventListener('click', (ev) => { ev.stopPropagation(); onSelect(i, ev); });
+      gNodes.appendChild(g);
+    }
+    clampLabels(gNodes);
+    renderTree();
+    renderStatus(vis, drawn);
+    if (state.selected != null) renderDetail(state.selected);
+  }
+
+  function clampLabels(layer) {
+    // ラベルがノード幅ではみ出すと、クリック判定が空振りして編集不能になるため幅で縮める
+    for (const g of layer.children) {
+      const w = Number(g.dataset.w || 0) - 14;
+      if (w <= 0) continue;
+      for (const t of g.querySelectorAll('text')) {
+        if (t.classList.contains('twist')) continue;
+        let len = 0;
+        try { len = t.getComputedTextLength(); } catch { continue; }
+        if (len > w) { t.setAttribute('textLength', w); t.setAttribute('lengthAdjust', 'spacingAndGlyphs'); }
+      }
+    }
+  }
+  function subtitle(n, kids) {
+    const m = n.meta || {};
+    if (n.kind === 'folder' && m.rollup) return `型 ${m.rollup.types} / メンバ ${m.rollup.members}`;
+    if (n.kind === 'project') return [m.targetFramework, m.outputType].filter(Boolean).join(' ') || 'csproj';
+    if (n.kind === 'file') return n.path ? n.path.split('/').slice(0, -1).join('/') || '.' : 'file';
+    if (n.kind === 'type') return (m.csKind || 'type') + (m.memberCount ? ` / ${m.memberCount}` : '');
+    if (n.kind === 'member') return m.memberKind || 'member';
+    if (n.kind === 'resource') return m.resourceType || n.id.split(':')[1] || 'resource';
+    return n.kind;
+  }
+  function shade(kind) {
+    return { folder: '#241f14', solution: '#1d1930', project: '#152238', file: '#12241e', type: '#2b1a1c', member: '#2a1d29', resource: '#0f2b28' }[kind] || '#1a1f27';
+  }
+
+  function onSelect(i, ev) {
+    state.selected = i;
+    if (ev && (ev.shiftKey || ev.metaKey)) { expandDependencies(i, ev.altKey ? 'in' : 'out'); return; }
+    const kids = childNodes(i);
+    if (kids.length) state.expanded.has(i) ? state.expanded.delete(i) : state.expanded.add(i);
+    render();
+  }
+
+  function focusNeighbors(i, hops) {
+    const queue = [[i, 0]];
+    const seen = new Set([i]);
+    let added = 0;
+    while (queue.length) {
+      const [cur, d] = queue.shift();
+      if (d >= hops) continue;
+      const around = [...(outEdges.get(cur) || []), ...(inEdges.get(cur) || [])];
+      for (const e of around) {
+        if (!state.prov.has(e.prov) || !state.filters.has(e.kind) || e.kind === 'contains') continue;
+        state.links.set(e.i, e);
+        const other = e.s === cur ? e.t : e.s;
+        if (seen.has(other)) continue;
+        seen.add(other);
+        if (!state.visible.has(other) && !state.ghost.has(other)) {
+          if (added < MAX_FOCUS) { state.ghost.set(other, cur); added++; }
+        }
+        queue.push([other, d + 1]);
+      }
+    }
+    reveal(i);
+    render();
+    renderDetail(i);
+    setStatus(added ? `周辺 ${hops} ホップで ${added} ノードを追加（近傍は合計 ${seen.size} 件）` : `このノードの ${hops} ホップ近傍には他にノードがありません`);
+  }
+
+  function expandDependencies(i, direction) {
+    const list = direction === 'in' ? (inEdges.get(i) || []) : (outEdges.get(i) || []);
+    const added = [];
+    for (const e of list) {
+      if (!state.prov.has(e.prov)) continue;
+      const other = direction === 'in' ? e.s : e.t;
+      if (other === i) continue;
+      state.links.set(e.i, e);
+      if (!state.visible.has(other) && !state.ghost.has(other)) { state.ghost.set(other, i); added.push(other); }
+    }
+    if (!added.length) setStatus(`このノードに ${direction === 'in' ? '入力' : '出力'}エッジはありません`);
+    render();
+    renderDetail(i);
+  }
+
+  // ---- ツリー
+  const treeBody = document.getElementById('tree-body');
+  function renderTree() {
+    treeBody.replaceChildren();
+    const walk = (i, depth, container) => {
+      const n = nodes[i];
+      const row = document.createElement('div');
+      row.className = 'tnode' + (state.selected === i ? ' active' : '');
+      row.style.paddingLeft = depth * 12 + 'px';
+      const kids = childNodes(i);
+      const tw = document.createElement('span'); tw.className = 'tw'; tw.textContent = kids.length ? (state.expanded.has(i) ? '▾' : '▸') : '·';
+      const dot = document.createElement('span'); dot.className = 'dot'; dot.style.background = KIND_COLOR[n.kind] || '#888';
+      const label = document.createElement('span'); label.className = 'label'; label.textContent = n.name;
+      row.append(tw, dot, label);
+      const badge = treeBadge(n);
+      if (badge) { const b = document.createElement('span'); b.className = 'badge'; b.textContent = badge; row.appendChild(b); }
+      row.addEventListener('click', () => { state.expanded.has(i) && kids.length ? state.expanded.delete(i) : state.expanded.add(i); state.selected = i; render(); centerOn(i); });
+      container.appendChild(row);
+      if (state.expanded.has(i)) {
+        const sorted = kids.slice().sort((a, b) => nodes[a].kind !== nodes[b].kind ? kindRank(nodes[a].kind) - kindRank(nodes[b].kind) : nodes[a].name.localeCompare(nodes[b].name, 'ja'));
+        for (const c of sorted.slice(0, 400)) walk(c, depth + 1, container);
+        if (sorted.length > 400) { const more = document.createElement('div'); more.className = 'tnode'; more.style.paddingLeft = (depth + 1) * 12 + 'px'; more.textContent = `… 他 ${sorted.length - 400} 件`; container.appendChild(more); }
+      }
+    };
+    walk(ROOT.i, 0, treeBody);
+  }
+
+  function treeBadge(n) {
+    const m = n.meta || {};
+    if (n.kind === 'folder' && m.rollup) return `${m.rollup.types}型`;
+    if (n.kind === 'type' && m.memberCount) return `${m.memberCount}`;
+    if (n.kind === 'project') return m.signals ? 'λ?' : '';
+    if (n.kind === 'file' && m.signals) return m.signals.length + '⚑';
+    return '';
+  }
+
+  // ---- 詳細パネル
+  const detail = document.getElementById('detail-body');
+  function renderDetail(i) {
+    const n = nodes[i];
+    const m = n.meta || {};
+    detail.replaceChildren();
+    const h = document.createElement('h2'); h.textContent = n.name; detail.appendChild(h);
+    const p = document.createElement('div'); p.className = 'path';
+    p.textContent = `${n.kind} · ${n.id}`;
+    detail.appendChild(p);
+    if (n.path) { const pp = document.createElement('div'); pp.className = 'path'; pp.textContent = n.path; detail.appendChild(pp); }
+
+    const btns = document.createElement('div'); btns.className = 'row-btns';
+    history.replaceState(null, '', currentHash());
+    const outCount = (outEdges.get(i) || []).length, inCount = (inEdges.get(i) || []).length;
+    btns.append(mkBtn(`出力 ${outCount}`, () => expandDependencies(i, 'out')), mkBtn(`入力 ${inCount}`, () => expandDependencies(i, 'in')), mkBtn('周辺 1', () => focusNeighbors(i, 1)), mkBtn('周辺 2', () => focusNeighbors(i, 2)), mkBtn('祖先を開く', () => reveal(i)));
+    detail.appendChild(btns);
+
+    section('メタデータ', metaTable(m));
+    section('出力エッジ', edgeList(outEdges.get(i), i, 'out'));
+    section('入力エッジ', edgeList(inEdges.get(i), i, 'in'));
+    section('このノードに情報を紐づける', annotationForm(i));
+
+    function section(title, node) {
+      if (!node || (node.querySelectorAll && node.querySelectorAll('.edge-row').length === 0 && !node.children.length)) return;
+      const s = document.createElement('div'); s.className = 'section';
+      const t = document.createElement('h3'); t.textContent = title; s.appendChild(t); s.appendChild(node);
+      detail.appendChild(s);
+    }
+  }
+  function metaTable(meta) {
+    const box = document.createElement('div');
+    const keys = Object.keys(meta || {});
+    if (!keys.length) return null;
+    const table = document.createElement('table'); table.className = 'meta';
+    for (const k of keys) {
+      const tr = document.createElement('tr');
+      const td1 = document.createElement('td'); td1.className = 'k'; td1.textContent = k;
+      const td2 = document.createElement('td');
+      const v = meta[k];
+      td2.textContent = typeof v === 'object' ? JSON.stringify(v) : String(v);
+      if (k === 'signals') td2.style.color = '#ffcf6b';
+      tr.append(td1, td2); table.appendChild(tr);
+    }
+    box.appendChild(table);
+    return box;
+  }
+  function edgeList(list, self, dir) {
+    const box = document.createElement('div');
+    if (!list || !list.length) return null;
+    const sorted = list.slice().sort((a, b) => b.count - a.count);
+    for (const e of sorted.slice(0, 60)) {
+      const other = nodes[dir === 'out' ? e.t : e.s];
+      const row = document.createElement('div'); row.className = 'edge-row';
+      const k = document.createElement('span'); k.className = 'k'; k.textContent = e.kind;
+      const n = document.createElement('span'); n.className = 'n'; n.textContent = other.name;
+      const c = document.createElement('span'); c.className = 'badge'; c.textContent = e.count > 1 ? '×' + e.count : '';
+      const pr = document.createElement('span'); pr.className = 'badge'; pr.textContent = e.prov === 'static' ? '' : e.prov;
+      row.append(k, n, c, pr);
+      row.title = e.detail || '';
+      row.addEventListener('click', () => { reveal(other.i); });
+      box.appendChild(row);
+    }
+    if (sorted.length > 60) { const more = document.createElement('div'); more.className = 'badge'; more.textContent = `… 他 ${sorted.length - 60} 件`; box.appendChild(more); }
+    return box;
+  }
+
+  // ---- 注釈（任意の外部リソースとリンクを後付けする）
+  function annotationForm(i) {
+    const box = document.createElement('div'); box.className = 'form';
+    const sel = document.createElement('select');
+    for (const t of ['lambda', 'stepfunctions', 'apigateway', 'dynamodb', 'rds', 's3', 'sqs', 'sns', 'secretsmanager', 'custom']) {
+      const o = document.createElement('option'); o.value = t; o.textContent = t; sel.appendChild(o);
+    }
+    const name = document.createElement('input'); name.placeholder = 'リソース名（例: orders-api）';
+    const kind = document.createElement('select');
+    for (const k of ['deploys', 'invokes', 'triggers', 'reads', 'writes', 'annotates']) { const o = document.createElement('option'); o.value = k; o.textContent = k; kind.appendChild(o); }
+    const note = document.createElement('input'); note.placeholder = '備考 / 根拠';
+    const btn = mkBtn('紐づける', () => {
+      const resourceName = name.value.trim() || 'unnamed';
+      const id = `ext:${sel.value}/${slug(resourceName)}`;
+      let target = byId.get(id);
+      if (!target) {
+        target = addNode({ id, kind: 'resource', name: resourceName, parent: ROOT.i, metadata: { resourceType: sel.value, notes: note.value || undefined, addedBy: 'viewer', addedAt: new Date().toISOString() } });
+      }
+      addEdge({ source: nodes[i].id, target: id, kind: kind.value, provenance: 'llm', detail: note.value || undefined });
+      persistAnnotation({ nodes: [target.raw], edges: [{ source: nodes[i].id, target: id, kind: kind.value, provenance: 'llm', note: note.value || undefined }] });
+      setStatus(`${nodes[i].name} → ${resourceName} を紐づけました（ブラウザに保存）`);
+      state.selected = target.i; render();
+    }, 'primary');
+    box.append(sel, name, kind, note, btn);
+    return box;
+  }
+  function slug(s) { return s.toLowerCase().replace(/[^a-z0-9_-]+/gi, '-').replace(/^-|-$/g, ''); }
+
+  function addNode(spec) {
+    const existing = byId.get(spec.id);
+    if (existing) { existing.meta = { ...(existing.meta || {}), ...(spec.metadata || {}) }; existing.raw = { id: existing.id, kind: existing.kind, name: existing.name, metadata: existing.meta }; return existing; }
+    const i = nodes.length;
+    const n = { i, id: spec.id, kind: spec.kind, name: spec.name, parent: spec.parent ?? ROOT.i, path: spec.path || null, meta: spec.metadata || null };
+    nodes.push(n); byId.set(n.id, n);
+    if (!childrenOf.has(n.parent)) childrenOf.set(n.parent, []);
+    childrenOf.get(n.parent).push(i);
+    n.raw = { id: n.id, kind: n.kind, name: n.name, parent: nodes[n.parent].id, metadata: n.meta };
+    return n;
+  }
+  function addEdge(spec) {
+    const s = byId.get(spec.source), t = byId.get(spec.target);
+    if (!s || !t) return null;
+    const e = { i: edges.length, s: s.i, t: t.i, kind: spec.kind, count: spec.count || 1, prov: spec.provenance || 'llm', detail: spec.detail || null, line: null };
+    edges.push(e);
+    (outEdges.get(s.i) || outEdges.set(s.i, []).get(s.i)).push(e);
+    (inEdges.get(t.i) || inEdges.set(t.i, []).get(t.i)).push(e);
+    return e;
+  }
+
+  const STORE_KEY = 'csdg:annotations';
+  function readStoredAnnotations() {
+    try { return JSON.parse(localStorage.getItem(STORE_KEY) || '[]'); } catch { return []; }
+  }
+  function persistAnnotation(obj) {
+    const all = readStoredAnnotations(); all.push(obj);
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(all)); } catch {}
+    exportable.push(obj);
+  }
+  const exportable = [];
+  function applyAnnotation(obj) {
+    for (const n of obj.nodes || []) addNode({ id: n.id, kind: n.kind || 'resource', name: n.name, parent: (byId.get(n.parent) || ROOT).i, path: n.path, metadata: n.metadata });
+    for (const e of obj.edges || []) addEdge({ source: e.source, target: e.target, kind: e.kind, provenance: e.provenance || 'llm', detail: e.note || e.detail });
+  }
+  function downloadAnnotations() {
+    const nodesMap = new Map(), edgeList = [];
+    for (const obj of exportable) {
+      for (const n of obj.nodes || []) nodesMap.set(n.id, n);
+      for (const e of obj.edges || []) edgeList.push(e);
+    }
+    const out = { schemaVersion: 1, producer: 'viewer', generatedAt: new Date().toISOString(), nodes: [...nodesMap.values()], edges: edgeList, metadata: [] };
+    const url = URL.createObjectURL(new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' }));
+    const a = document.createElement('a'); a.href = url; a.download = 'annotations.json'; a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  // ---- 検索
+  const qInput = document.getElementById('q'), results = document.getElementById('results'), kindFilter = document.getElementById('kind-filter');
+  let resultIndex = [], cursor = 0;
+  function doSearch() {
+    const q = qInput.value.trim().toLowerCase();
+    const kf = kindFilter.value;
+    if (!q) { results.classList.remove('open'); return; }
+    const scored = [];
+    for (const n of nodes) {
+      if (kf && n.kind !== kf) continue;
+      const name = n.name.toLowerCase();
+      let score = -1;
+      if (name === q) score = 0; else if (name.startsWith(q)) score = 1; else if (name.includes(q)) score = 2;
+      else if (n.path && n.path.toLowerCase().includes(q)) score = 3;
+      else if ((n.meta && n.meta.namespace && n.meta.namespace.toLowerCase().includes(q))) score = 4;
+      if (score < 0) continue;
+      if (n.kind === 'member') score -= 0.5;
+      scored.push([score, n.i]);
+      if (scored.length > 4000) break;
+    }
+    scored.sort((a, b) => a[0] - b[0] || nodes[a[1]].name.length - nodes[b[1]].name.length);
+    resultIndex = scored.slice(0, 200).map((x) => x[1]);
+    cursor = 0;
+    results.replaceChildren();
+    for (const i of resultIndex) {
+      const n = nodes[i];
+      const row = document.createElement('div'); row.className = 'row';
+      const k = document.createElement('span'); k.className = 'kind'; k.textContent = n.kind;
+      const label = document.createElement('span');
+      const owner = n.kind === 'member' && n.parent != null ? nodes[n.parent].name + '.' : '';
+      label.textContent = owner + n.name;
+      const path = document.createElement('span'); path.className = 'path'; path.textContent = n.path || (n.parent != null ? nodes[n.parent].name : '');
+      row.append(k, label, path);
+      row.addEventListener('click', () => { results.classList.remove('open'); reveal(i); });
+      results.appendChild(row);
+    }
+    if (!resultIndex.length) { const row = document.createElement('div'); row.className = 'row'; row.textContent = '該当なし'; results.appendChild(row); }
+    results.classList.add('open');
+    highlightResult();
+  }
+  function highlightResult() {
+    [...results.children].forEach((c, idx) => c.classList.toggle('sel', idx === cursor));
+    const active = results.children[cursor];
+    if (active) active.scrollIntoView({ block: 'nearest' });
+  }
+  qInput.addEventListener('input', doSearch);
+  qInput.addEventListener('keydown', (ev) => {
+    if (ev.key === 'ArrowDown') { cursor = Math.min(cursor + 1, resultIndex.length - 1); highlightResult(); ev.preventDefault(); }
+    else if (ev.key === 'ArrowUp') { cursor = Math.max(cursor - 1, 0); highlightResult(); ev.preventDefault(); }
+    else if (ev.key === 'Enter') { if (resultIndex.length) { results.classList.remove('open'); reveal(resultIndex[cursor]); } }
+    else if (ev.key === 'Escape') results.classList.remove('open');
+  });
+  document.addEventListener('click', (ev) => { if (!ev.target.closest('#search')) results.classList.remove('open'); });
+
+  function reveal(i) {
+    const chain = [];
+    let cur = nodes[i].parent;
+    while (cur != null) { chain.push(cur); cur = nodes[cur].parent; }
+    for (const c of chain) state.expanded.add(c);
+    state.selected = i;
+    render();
+    centerOn(i);
+  }
+
+  // ---- ズーム / パン
+  let view = { x: 0, y: 0, k: 1 };
+  function applyView() { vp.setAttribute('transform', `translate(${view.x},${view.y}) scale(${view.k})`); }
+  let panning = null;
+  svg.addEventListener('mousedown', (ev) => { if (ev.target === svg || ev.target.closest('#vp') === vp && !ev.target.closest('.gnode')) { panning = { x: ev.clientX - view.x, y: ev.clientY - view.y }; svg.classList.add('panning'); } });
+  window.addEventListener('mousemove', (ev) => { if (panning) { view.x = ev.clientX - panning.x; view.y = ev.clientY - panning.y; applyView(); } });
+  window.addEventListener('mouseup', () => { panning = null; svg.classList.remove('panning'); });
+  svg.addEventListener('wheel', (ev) => {
+    ev.preventDefault();
+    const k = Math.max(0.12, Math.min(2.5, view.k * (ev.deltaY < 0 ? 1.12 : 0.89)));
+    const rect = svg.getBoundingClientRect();
+    const mx = ev.clientX - rect.left, my = ev.clientY - rect.top;
+    view.x = mx - (mx - view.x) * (k / view.k); view.y = my - (my - view.y) * (k / view.k); view.k = k;
+    applyView();
+  }, { passive: false });
+  function centerOn(i) {
+    const p = state.layout && state.layout.pos.get(i);
+    if (!p) return;
+    const rect = svg.getBoundingClientRect();
+    view.x = rect.width / 3 - (p.x + p.w / 2) * view.k;
+    view.y = rect.height / 2 - (p.y + p.h / 2) * view.k;
+    applyView();
+  }
+  function fit() {
+    if (!state.visible.size) return;
+    let minX = 1e9, maxX = -1e9, minY = 1e9, maxY = -1e9;
+    for (const i of state.visible) { const p = state.layout.pos.get(i); if (!p) continue; minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x + p.w); minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y + p.h); }
+    const rect = svg.getBoundingClientRect();
+    const k = Math.min((rect.width - 60) / (maxX - minX || 1), (rect.height - 60) / (maxY - minY || 1), 1.4);
+    view.k = Math.max(0.12, k);
+    view.x = 30 - minX * view.k; view.y = 30 - minY * view.k;
+    applyView();
+  }
+
+  // ---- ツールバー
+  const toolbar = document.getElementById('toolbar');
+  function renderToolbar() {
+    toolbar.replaceChildren();
+    for (const p of PROV) {
+      const chip = document.createElement('button'); chip.className = 'chip ' + p + (state.prov.has(p) ? '' : ' off');
+      chip.textContent = `${p} ${PROV.length > 1 ? '' : ''}`;
+      chip.title = `由来 ${p} の表示切替`;
+      chip.addEventListener('click', () => { state.prov.has(p) ? state.prov.delete(p) : state.prov.add(p); renderToolbar(); render(); });
+      toolbar.appendChild(chip);
+    }
+    for (const k of EDGE_KINDS) {
+      if (k === 'contains' || k === 'project-reference') continue;
+      const chip = document.createElement('button'); chip.className = 'chip' + (state.filters.has(k) ? '' : ' off');
+      chip.textContent = k; chip.style.borderColor = EDGE_COLOR[k] || '';
+      chip.addEventListener('click', () => { state.filters.has(k) ? state.filters.delete(k) : state.filters.add(k); renderToolbar(); render(); });
+      toolbar.appendChild(chip);
+    }
+  }
+  function mkBtn(text, fn, cls) { const b = document.createElement('button'); if (cls) b.className = cls; b.textContent = text; b.addEventListener('click', fn); return b; }
+  function setStatus(text) { document.getElementById('status').textContent = text; setTimeout(() => { if (document.getElementById('status').textContent === text) document.getElementById('status').textContent = ''; }, 6000); }
+  function renderStatus(vis, drawn) {
+    document.getElementById('stats').textContent = `node ${nodes.length} / edge ${edges.length} / 表示 ${vis.size} / 描画エッジ ${drawn.length}`;
+    const chips = [...toolbar.querySelectorAll('.chip')].filter((c) => c.className.includes('chip') && !c.className.includes('static') && !c.className.includes('llm') && !c.className.includes('terraform'));
+    if (state.edgeTruncated) setStatus(`描画エッジが多いため上位 ${drawn.length} 本に絞っています（チップで kind を減らすと見やすくなります）`);
+    else if (chips.length && chips.some((c) => c.classList.contains('off'))) setStatus('一部の edge kind を隠しています（チップで切替）');
+  }
+
+  function applyHashState() {
+    const hash = new URLSearchParams(location.hash.replace(/^#/, ''));
+    const expand = (hash.get('expand') || '').split(',').filter(Boolean).map((id) => byId.get(id)).filter(Boolean);
+    for (const n of expand) state.expanded.add(n.i);
+    const select = hash.get('select') ? byId.get(hash.get('select')) : null;
+    if (select) { state.selected = select.i; let cur = select.parent; while (cur != null) { state.expanded.add(cur); cur = nodes[cur].parent; } }
+    return select;
+  }
+  function currentHash() {
+    const params = new URLSearchParams();
+    params.set('expand', [...state.expanded].map((i) => nodes[i].id).join(','));
+    if (state.selected != null) params.set('select', nodes[state.selected].id);
+    return '#' + params.toString();
+  }
+  window.__csdg = { state, nodes, byId, reveal, focusNeighbors, render };
+  document.getElementById('btn-link').addEventListener('click', async () => {
+    const url = location.href.split('#')[0] + currentHash();
+    try { await navigator.clipboard.writeText(url); setStatus('この表示の URL をコピーしました'); }
+    catch { setStatus(url); }
+  });
+  document.getElementById('btn-fit').addEventListener('click', fit);
+  document.getElementById('btn-collapse').addEventListener('click', () => { state.expanded = new Set([ROOT.i]); state.ghost.clear(); state.links.clear(); state.selected = null; render(); });
+  document.getElementById('btn-anno').addEventListener('click', () => {
+    downloadAnnotations();
+    setStatus(exportable.length ? 'annotations.json をダウンロードしました（merge.mjs に渡すと恒久化）' : 'まだブラウザ内で追加した注釈はありません');
+  });
+
+  document.getElementById('title').textContent = `C# 依存関係グラフ — ${DATA.name || DATA.root || ''}`;
+  renderToolbar();
+  const preselected = applyHashState();
+  render();
+  if (preselected) centerOn(preselected.i); else fit();
+})();
+</script>
+</body>
+</html>
