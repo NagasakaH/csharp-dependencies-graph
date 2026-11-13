@@ -606,6 +606,21 @@ public sealed class ReferenceScanner
                         DeclarationSpace(pattern, member));
                     break;
 
+                case VarPatternSyntax varPattern:
+                    // `g is var x` / `case var x:`。型は切り出し式の実型を見ないと決まらないので決めないが、
+                    // 名前を塞がないと外側の同名フィールドに化ける（レビュー指摘の誤エッジ）。
+                    DeclareDesignation(varPattern.Designation, "", DeclarationSpace(varPattern, member), scope);
+                    break;
+
+                case RecursivePatternSyntax recursive when recursive.Designation is not null:
+                {
+                    // `o is Gadget { Size: > 0 } x` の x。型はパターンに書かれているので使える。
+                    // プロパティパターンの中の宣言（`{ Size: var s }` の s）は別ノードとして拾える。
+                    var declared = recursive.Type is null ? "" : recursive.Type.ToString();
+                    DeclareDesignation(recursive.Designation, declared, DeclarationSpace(recursive, member), scope);
+                    break;
+                }
+
                 case DeclarationExpressionSyntax declaration when declaration.Designation is ParenthesizedVariableDesignationSyntax:
                     // `var (a, b) = pair;` の a, b。Deconstruct の out 引数の型は意味解析なしでは
                     // 決まらないので、名前だけ塞いで外側の同名フィールドに化けないようにする。
@@ -836,6 +851,10 @@ public sealed class ReferenceScanner
             // `catch` / `switch` の節・腕はその中だけ）。`if` を境界にするとガード節の後の
             // 参照を同名フィールドに誤解決し、ラムダ・catch を閉じないと外側を化かす。
             // `using var x = ...`（宣言形で本体なし）は外側ブロックの終わりまで見えるので境界にしない
+            // 保険: `using var x = ...` はこの Roslyn 版では using キーワード付きの
+            // LocalDeclarationStatementSyntax として現れる（= この分岐は素通り）。未来のパーサで
+            // 本体なし UsingStatementSyntax になったときは、外側ブロックの終わりまで見えるので
+            // 境界にしない。
             if (current is UsingStatementSyntax bare && bare.Statement is null) continue;
 
             // `if` の条件に出た out var / パターン変数は外側ブロックまで見える。ただし入れ子

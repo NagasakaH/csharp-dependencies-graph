@@ -357,3 +357,37 @@ public class EmbeddedIfs
         x.Handle();
     }
 }
+
+/// <summary>
+/// `is var x` と `case var x:`、プロパティパターンの末尾designationも、型は決めないが
+/// 名前は塞ぐ（塞がないと外側の同名フィールドに化ける）。
+/// </summary>
+public class VarPatterns
+{
+    private readonly Gadget x = new();
+
+    public int VarPattern(Widget w)
+    {
+        if (w is var x)
+        {
+            return x.Size;
+        }
+
+        return 0;
+    }
+
+    public int CaseVar(Widget w)
+    {
+        switch (w)
+        {
+            case var x:
+                return x.Size;
+        }
+    }
+
+    public void Recursive(object o)
+    {
+        if (o is not Widget { Size: > 0 } x) return;
+        x.Handle();
+    }
+}

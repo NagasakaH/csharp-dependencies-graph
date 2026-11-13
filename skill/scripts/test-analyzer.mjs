@@ -186,6 +186,15 @@ check('ガード節のパターン変数は if の外でも見える（過剰な
   sCount('calls', 'EmbeddedIfs.Guard', 'Gadget.Handle') === 1 && !sHas('calls', 'EmbeddedIfs.Guard', 'Widget.Handle'),
   sScopeEdges('EmbeddedIfs.Guard'));
 
+// `is var x` / `case var x:` / プロパティパターンの末尾 designation も名前を塞ぐ
+check('`is var` の名前をフィールドに化かさない', !sHas('accesses', 'VarPatterns.VarPattern', 'Gadget.Size'),
+  sScopeEdges('VarPatterns.VarPattern'));
+check('`case var` の名前をフィールドに化かさない', !sHas('accesses', 'VarPatterns.CaseVar', 'Gadget.Size'),
+  sScopeEdges('VarPatterns.CaseVar'));
+check('プロパティパターンの末尾 designation をフィールドに化かさない',
+  sHas('calls', 'VarPatterns.Recursive', 'Widget.Handle') && !sHas('calls', 'VarPatterns.Recursive', 'Gadget.Handle'),
+  sScopeEdges('VarPatterns.Recursive'));
+
 rmSync(dir, { recursive: true, force: true });
 console.log(`\n${pass}/${pass + failures.length} 件成功`);
 if (failures.length) { console.log('失敗: ' + failures.join(' / ')); process.exit(1); }
