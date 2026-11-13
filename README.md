@@ -20,20 +20,21 @@ open out/graph/graph.html
 
 | 対象 | ノード / エッジ | 内容 |
 | --- | --- | --- |
-| [elsa-core](https://github.com/elsa-workflows/elsa-core) | 51,166 / 54,776（C# 解析 3 秒、HTML 20MB） | 336 csproj、6,754 ファイル、8,223 型、32,572 メンバ、calls 14,672 / accesses 13,324 / references 16,401、898 ファイルが AWS/DB シグナル |
+| [elsa-core](https://github.com/elsa-workflows/elsa-core) | 51,166 / 54,964（C# 解析 3 秒、HTML 20MB） | 336 csproj、6,754 ファイル、8,223 型、32,572 メンバ、calls 14,696 / accesses 13,484 / references 16,401、898 ファイルが AWS/DB シグナル |
 | `demo/orders-api-lambda` | 70 / 60（静的 27 / Terraform 25 / LLM 8） | C# Lambda 3 csproj + Terraform 16 リソース + LLM 注釈 8 エッジ |
 
 検証は 2 系統あり、どちらも対象プロジェクト非依存で動く。
 
 ```sh
-node skill/scripts/test-analyzer.mjs                          # 静的解析の精度（8 項目、ブラウザ不要）
-node skill/scripts/verify.mjs --html out/graph/graph.html --shots out/shots   # ブラウザ実操作（22 項目）
+node skill/scripts/test-analyzer.mjs                          # 静的解析の精度（16 項目、ブラウザ不要）
+node skill/scripts/verify.mjs --html out/graph/graph.html --shots out/shots   # ブラウザ実操作（24 項目）
 ```
 
 `verify.mjs` は検査対象を `graph.json` から自動選択するので、どのプロジェクトにもそのまま使える
-（今の実測: demo 22/22、elsa-core 20/20。Terraform ノードが無い対象は該当 2 項目を省略する）。
-静的解析テストは「出てはいけないエッジ」も見る。名前の衝突で誤った `static` エッジを作る
-タイプの誤りに効く。
+（今の実測: demo 24/24、elsa-core 22/22。Terraform ノードが無い対象は該当 2 項目を省略する）。
+静的解析テストは「出てはいけないエッジ」と「消えてはいけないエッジ」の両方を見る。
+名前が型メンバを隠す構文（ラムダ引数・ローカル関数・兄弟ブロックの同名 var）と、
+`var` / `foreach` の型推論の回帰に効く。
 
 ## 構成
 

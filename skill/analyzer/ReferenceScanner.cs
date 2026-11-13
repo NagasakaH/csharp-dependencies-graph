@@ -158,7 +158,7 @@ public sealed class ReferenceScanner
     // ---------------------------------------------------------------- 呼び出し
 
     void HandleInvocation(MemberSymbol symbol, TypeSymbol ts, string ns, FileResult file,
-        InvocationExpressionSyntax inv, Dictionary<string, string> scope)
+        InvocationExpressionSyntax inv, Scope scope)
     {
         string? name;
         ExpressionSyntax? receiver;
@@ -185,7 +185,7 @@ public sealed class ReferenceScanner
             // 名前のない receiver の呼び出しは self / this を仮定する。
             // ただしその名前が局所変数・パラメータ・デリゲード型メンバーを指しているなら、
             // それはメソッド呼び出しではなく変数のデリゲート実行なので断定しない。
-            if (scope.ContainsKey(name!) || IsNonInvocableMember(ts, name!))
+            if (scope.IsShadowed(name!, inv.SpanStart) || IsNonInvocableMember(ts, name!))
             {
                 Unresolved(symbol, file, raw);
                 return;
@@ -248,7 +248,7 @@ public sealed class ReferenceScanner
     }
 
     void HandleMemberAccess(MemberSymbol symbol, TypeSymbol ts, string ns, FileResult file,
-        MemberAccessExpressionSyntax access, Dictionary<string, string> scope)
+        MemberAccessExpressionSyntax access, Scope scope)
     {
         var name = (access.Name as SimpleNameSyntax)?.Identifier.Text;
         if (string.IsNullOrEmpty(name)) return;
@@ -326,16 +326,20 @@ public sealed class ReferenceScanner
     {
         public readonly string? TypeRaw;
         public readonly string? StaticTypeName;
-        public ExprType(string? typeRaw, string? staticTypeName)
+
+        /// <summary>ジェネリック引数を畳む前の型表記。`List&lt;Worker&gt;` の要素型を取り出すときに使う。</summary>
+        public readonly string? RawType;
+        public ExprType(string? typeRaw, string? staticTypeName, string? rawType = null)
         {
             TypeRaw = typeRaw;
             StaticTypeName = staticTypeName;
+            RawType = rawType;
         }
         public static readonly ExprType Unknown = new(null, null);
     }
 
     ExprType ResolveExpr(ExpressionSyntax expr, TypeSymbol ts, string ns, FileResult file,
-        Dictionary<string, string> scope, int depth)
+        Scope scope, int depth)
     {
         if (depth > 10) return ExprType.Unknown;
 
@@ -369,10 +373,10 @@ public sealed class ReferenceScanner
             case PredefinedTypeSyntax predefined:
                 return new ExprType(null, predefined.Keyword.Text);
             case IdentifierNameSyntax identifier:
-                return ResolveIdentifier(identifier.Identifier.Text, ts, scope);
+                return ResolveIdentifier(identifier.Identifier.Text, identifier.SpanStart, ts, scope);
             case GenericNameSyntax generic:
             {
-                var resolved = ResolveIdentifier(generic.Identifier.Text, ts, scope);
+                var resolved = ResolveIdentifier(generic.Identifier.Text, generic.SpanStart, ts, scope);
                 if (resolved.TypeRaw is not null || resolved.StaticTypeName is not null) return resolved;
                 return new ExprType(null, generic.Identifier.Text);
             }
@@ -405,14 +409,15 @@ public sealed class ReferenceScanner
         }
     }
 
-    ExprType ResolveIdentifier(string id, TypeSymbol ts, Dictionary<string, string> scope)
+    ExprType ResolveIdentifier(string id, int pos, TypeSymbol ts, Scope scope)
     {
         if (id == "this") return FromType(ts.Qualified);
         if (id == "base") return FromType(ClassBaseOf(ts));
-        if (scope.TryGetValue(id, out var scopeType))
-        {
-            return string.IsNullOrEmpty(scopeType) ? ExprType.Unknown : FromType(scopeType);
-        }
+        var scopeType = scope.TypeOf(id, pos);
+        if (scopeType is not null) return FromType(scopeType);
+        // 型は決まらないが名前はローカル（var x = 何か / 型を省略したラムダ引数など）。
+        // ここで this.X に落とすと誤った static エッジになるので未解決で止める。
+        if (scope.IsShadowed(id, pos)) return ExprType.Unknown;
         var member = _index.FindMember(ts, id);
         if (member is not null && member.Kind is "field" or "property" or "event")
         {
@@ -422,7 +427,7 @@ public sealed class ReferenceScanner
     }
 
     ExprType ResolveMemberAccess(MemberAccessExpressionSyntax access, TypeSymbol ts, string ns, FileResult file,
-        Dictionary<string, string> scope, int depth)
+        Scope scope, int depth)
     {
         var inner = ResolveExpr(access.Expression, ts, ns, file, scope, depth + 1);
         var name = (access.Name as SimpleNameSyntax)?.Identifier.Text;
@@ -469,7 +474,7 @@ public sealed class ReferenceScanner
     }
 
     ExprType ResolveInvocationType(InvocationExpressionSyntax inv, TypeSymbol ts, string ns, FileResult file,
-        Dictionary<string, string> scope, int depth)
+        Scope scope, int depth)
     {
         string? name;
         ExpressionSyntax? receiver;
@@ -491,7 +496,7 @@ public sealed class ReferenceScanner
         if (receiver is null)
         {
             // receiver なしでも、名前が局所変数やデリゲード型メンバーなら this のメソッドではない。
-            if (scope.ContainsKey(name!) || IsNonInvocableMember(ts, name!)) return ExprType.Unknown;
+            if (scope.IsShadowed(name!, inv.SpanStart) || IsNonInvocableMember(ts, name!)) return ExprType.Unknown;
 
             var own = _index.FindMember(ts, name!);
             if (own?.ReturnType is not null) return FromType(TypeText.UnwrapTask(own.ReturnType));
@@ -526,7 +531,7 @@ public sealed class ReferenceScanner
     {
         if (string.IsNullOrWhiteSpace(raw)) return ExprType.Unknown;
         var normalized = TypeText.Normalize(raw!);
-        return normalized.Length == 0 ? ExprType.Unknown : new ExprType(normalized, null);
+        return normalized.Length == 0 ? ExprType.Unknown : new ExprType(normalized, null, raw);
     }
 
     static string LiteralType(LiteralExpressionSyntax literal) => literal.Kind() switch
@@ -548,104 +553,150 @@ public sealed class ReferenceScanner
         return member is not null && member.Kind is "field" or "property" or "event" or "constant";
     }
 
-    Dictionary<string, string> BuildScope(MemberDeclarationSyntax member, TypeSymbol ts, string ns, FileResult file)
+    /// <summary>
+    /// メンバ内の宣言を「出現位置つき」で集める。解決は常に「その識別子の直前に見えた宣言」で
+    /// 行う。メソッド全体で 1 つの辞書に畳むと、兄弟ブロックの同名 var が混同される。
+    /// </summary>
+    Scope BuildScope(MemberDeclarationSyntax member, TypeSymbol ts, string ns, FileResult file)
     {
-        var scope = new Dictionary<string, string>(StringComparer.Ordinal);
-        var deferred = new List<(string Name, ExpressionSyntax Value)>();
+        var scope = new Scope();
+        var deferred = new List<(string Name, ExpressionSyntax Value, int Pos)>();
 
         foreach (var parameter in DeclaredParameters(member))
         {
-            if (parameter.Type is not null) scope[parameter.Identifier.Text] = parameter.Type.ToString();
-        }
-        foreach (var lambda in member.DescendantNodes().OfType<ParenthesizedLambdaExpressionSyntax>())
-        {
-            foreach (var parameter in lambda.ParameterList.Parameters)
+            if (parameter.Type is not null)
             {
-                if (parameter.Type is not null) scope[parameter.Identifier.Text] = parameter.Type.ToString();
-            }
-        }
-        foreach (var lambda in member.DescendantNodes().OfType<SimpleLambdaExpressionSyntax>())
-        {
-            if (lambda.Parameter.Type is not null) scope[lambda.Parameter.Identifier.Text] = lambda.Parameter.Type.ToString();
-        }
-
-        foreach (var local in member.DescendantNodes().OfType<LocalFunctionStatementSyntax>())
-        {
-            foreach (var parameter in local.ParameterList.Parameters)
-            {
-                if (parameter.Type is not null) scope[parameter.Identifier.Text] = parameter.Type.ToString();
-            }
-        }
-        foreach (var catchDecl in member.DescendantNodes().OfType<CatchDeclarationSyntax>())
-        {
-            scope[catchDecl.Identifier.Text] = catchDecl.Type.ToString();
-        }
-        foreach (var pattern in member.DescendantNodes().OfType<DeclarationPatternSyntax>())
-        {
-            if (pattern.Designation is SingleVariableDesignationSyntax designator)
-            {
-                scope[designator.Identifier.Text] = pattern.Type.ToString();
-            }
-        }
-        foreach (var forEach in member.DescendantNodes().OfType<ForEachStatementSyntax>())
-        {
-            if (IsVar(forEach.Type))
-            {
-                var collection = ResolveExpr(forEach.Expression, ts, ns, file, scope, 0);
-                var raw = collection.TypeRaw ?? collection.StaticTypeName;
-                var args = raw is null ? new List<string>() : TypeText.GenericArgs(raw);
-                scope[forEach.Identifier.Text] = args.Count > 0 ? args[0] : "";
-            }
-            else
-            {
-                scope[forEach.Identifier.Text] = forEach.Type.ToString();
-            }
-        }
-        foreach (var variable in member.DescendantNodes().OfType<VariableDeclaratorSyntax>())
-        {
-            if (variable.Parent is not VariableDeclarationSyntax declaration) continue;
-            if (declaration.Parent is FieldDeclarationSyntax or EventFieldDeclarationSyntax) continue;
-            if (IsVar(declaration.Type))
-            {
-                var value = variable.Initializer?.Value;
-                if (value is ObjectCreationExpressionSyntax creation)
-                {
-                    scope[variable.Identifier.Text] = creation.Type.ToString();
-                }
-                else if (variable.Initializer is not null)
-                {
-                    scope.TryAdd(variable.Identifier.Text, "");
-                    deferred.Add((variable.Identifier.Text, variable.Initializer.Value));
-                }
-                else
-                {
-                    scope.TryAdd(variable.Identifier.Text, "");
-                }
-            }
-            else
-            {
-                scope[variable.Identifier.Text] = declaration.Type.ToString();
-            }
-        }
-        foreach (var usingStatement in member.DescendantNodes().OfType<UsingStatementSyntax>())
-        {
-            if (usingStatement.Declaration is null) continue;
-            foreach (var variable in usingStatement.Declaration.Variables)
-            {
-                if (IsVar(usingStatement.Declaration.Type)) continue;
-                scope[variable.Identifier.Text] = usingStatement.Declaration.Type.ToString();
+                scope.Declare(parameter.Identifier.Text, parameter.Type.ToString(), parameter.Identifier.SpanStart);
             }
         }
 
-        // 2 ラウンド目: `var x = Foo.Bar()` の型を、ここまで集めたスコープで推論する
-        foreach (var (name, value) in deferred)
+        foreach (var node in member.DescendantNodes())
+        {
+            switch (node)
+            {
+                case ParameterSyntax parameter:
+                    // 型を省略したラムダ引数も「その名前はローカル」として塞ぐ。
+                    // 型は決まらないので、this.X との混同だけを止める。
+                    scope.Declare(parameter.Identifier.Text, parameter.Type?.ToString() ?? "", parameter.Identifier.SpanStart);
+                    break;
+
+                case LocalFunctionStatementSyntax local:
+                    // ローカル関数はこの名前で呼ばれる。同名の型メンバに張り替えない。
+                    scope.Declare(local.Identifier.Text, "", local.Identifier.SpanStart);
+                    break;
+
+                case CatchDeclarationSyntax catchDecl:
+                    scope.Declare(catchDecl.Identifier.Text, catchDecl.Type.ToString(), catchDecl.Identifier.SpanStart);
+                    break;
+
+                case DeclarationPatternSyntax pattern when pattern.Designation is SingleVariableDesignationSyntax patternName:
+                    scope.Declare(patternName.Identifier.Text, pattern.Type.ToString(), patternName.Identifier.SpanStart);
+                    break;
+
+                case DeclarationExpressionSyntax declaration when declaration.Designation is SingleVariableDesignationSyntax outName:
+                    scope.Declare(outName.Identifier.Text, declaration.Type.ToString(), outName.Identifier.SpanStart);
+                    break;
+
+                // LINQ の範囲変数（from x in … / let y = …）。型は決めないが名前は塞ぐ
+                case FromClauseSyntax range:
+                    scope.Declare(range.Identifier.Text, "", range.Identifier.SpanStart);
+                    break;
+
+                case LetClauseSyntax ranged:
+                    scope.Declare(ranged.Identifier.Text, "", ranged.Identifier.SpanStart);
+                    break;
+
+                case ForEachStatementSyntax forEach:
+                {
+                    if (IsVar(forEach.Type))
+                    {
+                        var collection = ResolveExpr(forEach.Expression, ts, ns, file, scope, 0);
+                        // Normalize はジェネリックを畳むので、要素型は畳む前の表記から取る
+                        var raw = collection.RawType ?? collection.TypeRaw ?? collection.StaticTypeName;
+                        var args = raw is null ? new List<string>() : TypeText.GenericArgs(raw);
+                        scope.Declare(forEach.Identifier.Text, args.Count > 0 ? args[0] : "", forEach.Identifier.SpanStart);
+                    }
+                    else
+                    {
+                        scope.Declare(forEach.Identifier.Text, forEach.Type.ToString(), forEach.Identifier.SpanStart);
+                    }
+
+                    break;
+                }
+
+                case VariableDeclaratorSyntax variable:
+                {
+                    if (variable.Parent is not VariableDeclarationSyntax declaration) break;
+                    if (declaration.Parent is FieldDeclarationSyntax or EventFieldDeclarationSyntax) break;
+
+                    // `var (a, b) = ...` の要素名はこの Roslyn API では declarator にならない
+                    // （Identifier が空）。名前はここで打ち切り、要素名は塞がない。
+                    var name = variable.Identifier.Text;
+                    if (name.Length == 0) break;
+                    var pos = variable.Identifier.SpanStart;
+
+                    if (!IsVar(declaration.Type))
+                    {
+                        scope.Declare(name, declaration.Type.ToString(), pos);
+                    }
+                    else if (variable.Initializer?.Value is ObjectCreationExpressionSyntax creation)
+                    {
+                        scope.Declare(name, creation.Type.ToString(), pos);
+                    }
+                    else
+                    {
+                        scope.Declare(name, "", pos);
+                        if (variable.Initializer is not null) deferred.Add((name, variable.Initializer.Value, pos));
+                    }
+
+                    break;
+                }
+            }
+        }
+
+        // 2 ラウンド目: `var x = Foo.Bar()` の型を、宣言位置までに見える宣言で推論する
+        foreach (var (name, value, pos) in deferred)
         {
             var resolved = ResolveExpr(value, ts, ns, file, scope, 0);
             var raw = resolved.TypeRaw ?? resolved.StaticTypeName;
-            if (raw is not null) scope[name] = raw;
+            if (raw is not null) scope.Declare(name, raw, pos);
         }
 
         return scope;
+    }
+
+    /// <summary>出現位置つきのローカル名の集まり。</summary>
+    sealed class Scope
+    {
+        readonly Dictionary<string, List<(int Pos, string Type)>> _map = new(StringComparer.Ordinal);
+
+        public void Declare(string name, string type, int pos)
+        {
+            if (!_map.TryGetValue(name, out var entries)) _map[name] = entries = new List<(int, string)>();
+            if (entries.Count > 0 && entries[^1].Pos == pos && entries[^1].Type == type) return;
+            entries.Add((pos, type));
+        }
+
+        /// <summary>pos の位置で name がローカル名として見えているか（型が不明でも塞ぐ）。</summary>
+        public bool IsShadowed(string name, int pos)
+        {
+            if (!_map.TryGetValue(name, out var entries)) return false;
+            for (var i = entries.Count - 1; i >= 0; i--) if (entries[i].Pos <= pos) return true;
+            return false;
+        }
+
+        /// <summary>pos の位置で見える型。型が決まらないローカルなら null を返す。</summary>
+        public string? TypeOf(string name, int pos)
+        {
+            if (!_map.TryGetValue(name, out var entries)) return null;
+            for (var i = entries.Count - 1; i >= 0; i--)
+            {
+                if (entries[i].Pos > pos) continue;
+                return entries[i].Type.Length == 0 ? null : entries[i].Type;
+            }
+
+            return null;
+        }
     }
 
     static IEnumerable<ParameterSyntax> DeclaredParameters(MemberDeclarationSyntax member)

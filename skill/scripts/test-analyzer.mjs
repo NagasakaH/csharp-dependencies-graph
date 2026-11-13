@@ -77,6 +77,38 @@ check('member ノードの親は type ノード', g.nodes.filter((n) => n.kind =
 // 8) 同名メソッドの区別（overloads）
 check('partial / overload の id が重複しない', new Set(g.nodes.map((n) => n.id)).size === g.nodes.length);
 
+// ---- ScopeAccuracy: 名前解決の位置対応（レビュー指摘の回帰テスト）
+const sg = analyze('ScopeAccuracy');
+const sEdges = sg.edges.filter((e) => e.kind !== 'contains');
+const sHas = (kind, from, to) => sEdges.some((e) => e.kind === kind && shortName(e.source) === from && e.target === `member:Fixtures.ScopeAccuracy.${to}`);
+const sScopeEdges = (from) => JSON.stringify(sEdges.filter((e) => shortName(e.source) === from)
+  .map((e) => `${e.kind}:${e.target.split('.').slice(-2).join('.')}`));
+
+check('兄弟ブロックの同名 var を混同しない',
+  sHas('calls', 'SiblingBlocks.Run', 'A.Go') && sHas('calls', 'SiblingBlocks.Run', 'B.Go') &&
+  sHas('accesses', 'SiblingBlocks.Run', 'A.Value') && sHas('accesses', 'SiblingBlocks.Run', 'B.Value'),
+  sScopeEdges('SiblingBlocks.Run'));
+
+check('型を省略したラムダ引数を this.Go にしない', !sHas('calls', 'Shadowing.LambdaParameter', 'Shadowing.Go'),
+  sScopeEdges('Shadowing.LambdaParameter'));
+
+check('ローカル関数を this.Go にしない', !sHas('calls', 'Shadowing.LocalFunction', 'Shadowing.Go'),
+  sScopeEdges('Shadowing.LocalFunction'));
+
+check('兄弟ブロックより前の this.Go はちゃんと検出する', sHas('calls', 'Shadowing.SiblingThenCall', 'Shadowing.Go'),
+  sScopeEdges('Shadowing.SiblingThenCall'));
+
+check('スコープ書き換え後も var 推論が壊れない', sHas('calls', 'Shadowing.InferredVar', 'Worker.Go'),
+  sScopeEdges('Shadowing.InferredVar'));
+
+// foreach の要素型（List<Item> を Item に畳むと全滅する）
+check('foreach の要素型をフィールドから推論する', sHas('calls', 'ForeachElements.FromField', 'Item.Handle'),
+  sScopeEdges('ForeachElements.FromField'));
+check('foreach の要素型を引数から推論する', sHas('calls', 'ForeachElements.FromParameter', 'Item.Handle'),
+  sScopeEdges('ForeachElements.FromParameter'));
+check('foreach の要素型をプロパティの戻り値から推論する', sHas('calls', 'ForeachElements.FromProperty', 'Item.Handle'),
+  sScopeEdges('ForeachElements.FromProperty'));
+
 rmSync(dir, { recursive: true, force: true });
 console.log(`\n${pass}/${pass + failures.length} 件成功`);
 if (failures.length) { console.log('失敗: ' + failures.join(' / ')); process.exit(1); }

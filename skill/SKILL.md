@@ -151,11 +151,13 @@ LLM が書くときの決まりごと（これをやらないとグラフが嘘�
 ### 静的解析の精度（ブラウザ不要）
 
 ```sh
-node $SKILL/scripts/test-analyzer.mjs        # cgd がビルド済みなら即実行
+node $SKILL/scripts/test-analyzer.mjs        # cgd がビルド済みなら即実行（16 項目）
 ```
 
-`skill/tests/fixtures/` の C# に期待するエッジ・出してはいけないエッジを照合する。
-名前的な衝突（ローカル変数がメソッド名を隠す）や `var` の型推論の回帰をここで止める。
+`skill/tests/fixtures/` の C# を `cgd` にかけて、期待するエッジと「出してはいけない
+エッジ」を照合する（fixture は `dotnet build` で通ることを確認して置いてある）。押さえるのは
+ローカル変数・型を省略したラムダ引数・ローカル関数・兄弟ブロックの同名 var といった
+「名前が型メンバを隠す」構文と、`var` / `foreach` の型推論の回帰。
 
 ### ブラウザ実操作
 
@@ -163,9 +165,9 @@ node $SKILL/scripts/test-analyzer.mjs        # cgd がビルド済みなら即�
 node $SKILL/scripts/verify.mjs --html out/graph/graph.html --shots out/shots
 ```
 
-ヘッドレス Chromium で実際にクリックし、22 項目を確かめる。検査対象は `graph.json`
+ヘッドレス Chromium で実際にクリックし、24 項目を確かめる。検査対象は `graph.json`
 から自動選択するので、どのプロジェクトにもそのまま効く（Terraform ノードが無い場合は
-該当チェックを省略して 20 項目）。主な確認項目:
+該当チェックを省略して 22 項目）。主な確認項目:
 
 - ルート 1 段だけの初期表示／クリックしたフォルダだけの子展開
 - `.cs` クリック → 型 → メンバ（メソッド）の段階展開、ロールアップ値
@@ -173,7 +175,10 @@ node $SKILL/scripts/verify.mjs --html out/graph/graph.html --shots out/shots
 - ⇧クリックの周辺 N ホップ、`#expand=/#select=` ディープリンク
 - 注釈の 3 フォーム（既存ノード間リンク / 外部リソース後付け / メタデータ後付け）が
   localStorage に残り、**リロード後も再現され、`注釈 JSON` 書き出しに `provenance: human`
-  で乗る**（→ `merge.mjs --annotation` で恒久化できる）
+  で乗る**（→ `merge.mjs --annotation` で恒久化できる）。同じノードに 2 回後付けした
+  メタデータは書き出しでマージされる
+- UI で作った新しい edge kind がチップに登録され、表示フィルタを通過して描画される
+  （900 本上限で絞られる場合はその旨を検査が許容する）
 - コンソールエラーゼロ
 
 `--shots` にスクリーンショット（`01-root.png` ほか）が出るので、目でも確かめる。

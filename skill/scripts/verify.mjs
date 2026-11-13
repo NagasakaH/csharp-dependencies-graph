@@ -123,18 +123,29 @@ async function launchBrowser() {
     '/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser',
   ]) if (existsSync(candidate)) attempts.push({ path: candidate, why: 'システムのブラウザ' });
 
-  // サンドボックス内でも起動できるよう、一時ディレクトリ（Chromium のプロファイル置き場）を
-  // ワークスペース側に移し、--no-sandbox で走らせる
+  // サンドボックス内でも起動できるよう、一時ディレクトリと HOME を書き込み可能な場所
+  // （HTML と同じツリー）に置いてから起動する
   const tmp = join(dirname(resolve(opts.html)), '.tmp');
-  try { mkdirSync(tmp, { recursive: true }); process.env.TMPDIR = tmp; } catch {}
-  const baseArgs = { args: ['--no-sandbox', '--disable-gpu'] };
+  const fakeHome = join(tmp, 'home');
+  try { mkdirSync(fakeHome, { recursive: true }); } catch {}
+  try { process.env.TMPDIR = tmp; process.env.HOME = fakeHome; } catch {}
+  const profiles = [
+    { why: '既定', args: ['--no-sandbox', '--disable-gpu'] },
+    { why: 'サンドボックス回避', args: ['--no-sandbox', '--disable-gpu', '--no-zygote', '--single-process',
+        '--disable-crash-reporter', '--disable-breakpad', '--disable-dev-shm-usage',
+        '--disable-gpu-sandbox', '--disable-features=CrashReportingUploader'] },
+  ];
   for (const attempt of attempts) {
-    try {
-      const browser = await chromium.launch({ ...baseArgs, ...(attempt.path ? { executablePath: attempt.path } : {}) });
-      if (attempt.path) console.log(`[verify] ブラウザ: ${attempt.why} → ${attempt.path}`);
-      return browser;
-    } catch (error) {
-      tried.push(`${attempt.why}: ${String(error.message || error).split('\n')[0]}`);
+    for (const profile of profiles) {
+      try {
+        const browser = await chromium.launch({
+          executablePath: attempt.path, args: profile.args, env: { ...process.env },
+        });
+        console.log(`[verify] ブラウザ: ${attempt.why}${profile.why === '既定' ? '' : ' + ' + profile.why} → ${attempt.path || 'playwright 既定'}`);
+        return browser;
+      } catch (error) {
+        tried.push(`${attempt.why} / ${profile.why}: ${String(error.message || error).split('\n')[0]}`);
+      }
     }
   }
   console.error('[verify] ブラウザを起動できませんでした。`--browser <パス>` か環境変数 CSDG_BROWSER で Chrome を指定してください。');
@@ -257,12 +268,17 @@ await openDetail('member', query);
 // 7a. csproj に任意の key / value を後付けする
 if (projectTarget) {
   await openDetail('project', projectTarget.name);
-  await page.fill('#detail-body input[placeholder^="key"]', 'team');
-  await page.fill('#detail-body input[placeholder^="value"]', 'verify-team');
-  await page.locator('#detail-body button', { hasText: '追加' }).first().click();
-  await page.waitForTimeout(400);
+  const addMeta = async (key, value) => {
+    await page.fill('#detail-body input[placeholder^="key"]', key);
+    await page.fill('#detail-body input[placeholder^="value"]', value);
+    await page.locator('#detail-body button', { hasText: '追加' }).first().click();
+    await page.waitForTimeout(300);
+  };
+  await addMeta('team', 'verify-team');
   const metaShown = await page.locator('#detail-body td.k', { hasText: 'team' }).count();
   record('ノードに任意のメタデータを後付けできる', metaShown > 0, `key=team を ${projectTarget.name} に付与`);
+  await openDetail('project', projectTarget.name);
+  await addMeta('owner', 'verify-owner');
 }
 
 // 7b. グラフに既にあるノどうしを紐づける（tf リソースがあればそれを相手になる）
@@ -302,6 +318,21 @@ const stored = await page.evaluate(() => localStorage.getItem('csdg:annotations'
 record('ブラウザ内に注釈が保存される', !!stored && stored.includes('verify-orders-api'), '');
 const humanOnly = await page.evaluate(() => window.__csdg.collectAnnotations().edges.every((e) => e.provenance === 'human'));
 record('ブラウザでの手動追記は provenance: human', humanOnly, '');
+
+// 7c-2. UI で作った kind はチップに出て、エッジとして描画される（作れないと存在しないのと同じ）
+const extId = 'ext:lambda/verify-orders-api';
+const drawn = await page.evaluate(([from, to]) => {
+  const s = window.__csdg.byId.get(from), t = window.__csdg.byId.get(to);
+  if (!s || !t) return { ok: false, why: 'ノードが無い' };
+  const chip = [...document.querySelectorAll('#toolbar .chip')].map((c) => c.textContent.trim());
+  const path = document.querySelector(`#edges path[data-s="${s.i}"][data-t="${t.i}"][data-kind="annotates"]`);
+  // 描画エッジが上限（900 本）で絞られているときは path が無いのが正しいので、
+  // 「kind が登録され、フィルタが通り、チップに出ている」までを要求する
+  const ok = chip.includes('annotates') && window.__csdg.state.filters.has('annotates') &&
+    (!!path || window.__csdg.state.edgeTruncated);
+  return { ok, chip: chip.includes('annotates'), path: !!path, truncated: window.__csdg.state.edgeTruncated };
+}, [memberTarget.id, extId]);
+record('UI で作った kind もチップと描画に出る', drawn.ok, JSON.stringify(drawn));
 await shot('07-annotation.png');
 
 // 7d. 再読み込みしても注釈が残り、JSON 書き出し（→ merge の入力）に復元される
@@ -315,6 +346,14 @@ record('再読み込み後も注釈が再現され JSON に残る', restoredNode
   `node ${restoredNode} / edge ${restoredEdge} / 描画 ${visibleAfterReload}`);
 const metaPersisted = await page.evaluate(() => window.__csdg.storedAnnotations().some((f) => JSON.stringify(f).includes('verify-team')));
 record('後付けメタデータも再読み込みを通過する', !projectTarget || metaPersisted, '');
+
+// 7e. 同じノードに後から足したメタデータは、書き出しで後の追記に上書きされない
+const mergedMeta = await page.evaluate((id) => {
+  const n = window.__csdg.collectAnnotations().nodes.find((x) => x.id === id);
+  return n ? n.metadata : null;
+}, projectTarget ? projectTarget.id : '');
+record('同じノードへの後付けメタデータは書き出しでマージされる',
+  !!mergedMeta && mergedMeta.team === 'verify-team' && mergedMeta.owner === 'verify-owner', JSON.stringify(mergedMeta));
 
 // 8. ディープリンクで同じ展開状態を開ける
 const baseUrl = page.url().split('#')[0];

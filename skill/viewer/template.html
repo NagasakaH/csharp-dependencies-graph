@@ -313,7 +313,7 @@
         d = `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`;
       }
       const path = el('path', {
-        class: 'edge', d,
+        class: 'edge', d, 'data-kind': e.kind,
         stroke: EDGE_COLOR[e.kind] || '#7f8ea3', 'stroke-width': Math.min(6, 1 + Math.log2(1 + e.count) * 1.1)
       });
       path.dataset.s = e.s; path.dataset.t = e.t;
@@ -626,7 +626,13 @@
     if (dup) { dup.count += spec.count || 1; return dup; }
     const e = { i: edges.length, s: s.i, t: t.i, kind: spec.kind, count: spec.count || 1, prov: spec.provenance || 'llm', detail: spec.detail || null, line: null };
     edges.push(e);
-    if (!PROV.includes(e.prov)) { PROV.push(e.prov); state.prov.add(e.prov); renderToolbar(); }
+    let toolbar = false;
+    if (!PROV.includes(e.prov)) { PROV.push(e.prov); state.prov.add(e.prov); toolbar = true; }
+    // UI から作った kind は EDGE_KINDS に無いことがある。登録しないと
+    // チップも無く state.filters でも弾かれて描画されない。
+    if (!EDGE_KINDS.includes(e.kind)) { EDGE_KINDS.push(e.kind); toolbar = true; }
+    if (!state.filters.has(e.kind)) { state.filters.add(e.kind); toolbar = true; }
+    if (toolbar) renderToolbar();
     (outEdges.get(s.i) || outEdges.set(s.i, []).get(s.i)).push(e);
     (inEdges.get(t.i) || inEdges.set(t.i, []).get(t.i)).push(e);
     return e;
@@ -638,14 +644,23 @@
   }
   function collectAnnotations() {
     const nodesMap = new Map(), edgeList = [];
-    const edgeIds = new Set();
+    const edgeIds = new Map();
     for (const obj of exportable) {
-      for (const n of obj.nodes || []) if (n && n.id) nodesMap.set(n.id, n);
+      for (const n of obj.nodes || []) {
+        if (!n || !n.id) continue;
+        const prev = nodesMap.get(n.id);
+        // 同じノードへの後付けは前の情報を消さない（kind / name / parent は最初のものを残す）
+        if (!prev) { nodesMap.set(n.id, { ...n, metadata: { ...(n.metadata || {}) } }); continue; }
+        prev.metadata = { ...(prev.metadata || {}), ...(n.metadata || {}) };
+        for (const k of ['kind', 'name', 'parent', 'path']) if (prev[k] === undefined && n[k] !== undefined) prev[k] = n[k];
+      }
       for (const e of obj.edges || []) {
         if (!e || !e.source || !e.target || !e.kind) continue;
         const key = `${e.kind}:${e.source}->${e.target}`;
-        if (edgeIds.has(key)) continue;
-        edgeIds.add(key); edgeList.push(e);
+        const seen = edgeIds.get(key);
+        if (seen) { seen.count = (seen.count || 1) + (e.count || 1); continue; }
+        const copy = { ...e };
+        edgeIds.set(key, copy); edgeList.push(copy);
       }
     }
     return { schemaVersion: 1, producer: 'viewer', generatedAt: new Date().toISOString(), nodes: [...nodesMap.values()], edges: edgeList, metadata: [] };
