@@ -12,8 +12,12 @@
   "root": "folder:.",                  // ルートノードの ID
   "generatedAt": "2026-11-14T03:40:00+09:00",
   "rootPath": "/abs/path/to/repo",
-  "producers": ["scan", "csharp", "terraform", "annotation:annotations.json"],
-  "stats": { "nodes": 51309, "edges": 52174, "byKind": { "type": 8216, "member": 32541 }, "byProvenance": { "static": 51004, "llm": 8 } },
+  "producers": [                      // どの断片がこのグラフを作ったかの監査情報
+    { "producer": "directory-scanner", "fragment": "graph.scan.json", "role": "fragment", "nodes": 10371, "edges": 1344 },
+    { "producer": "csharp-analyzer", "fragment": "graph.csharp.json", "role": "fragment", "nodes": 40795, "edges": 51051 },
+    { "producer": "annotation", "fragment": "annotations.orders-api.json", "role": "annotation", "nodes": 1, "edges": 8, "metadata": 3 }
+  ],
+  "stats": { "nodes": 51166, "edges": 52221, "orphans": 0, "warnings": 97, "folders": 2826, "files": 7207, "projects": 336, "solutions": 2, "signalFiles": 898, "csharpFiles": 6754, "csharpParseFailures": 0, "csharpTypes": 8223, "csharpMembers": 32572, "csharpEdges": 51051, "csharpUnresolvedCalls": 96772, "csharpEdge_calls": 14128, "directory-scannerNodes": 10371, "csharp-analyzerNodes": 40795 },
   "nodes": [ /* Node */ ],
   "edges": [ /* Edge  */ ]
 }
@@ -26,7 +30,7 @@
 | `id` | グラフ全体で一意。下の「ID 規則」を参照 |
 | `kind` | `folder` `solution` `project` `file` `type` `member` `resource` |
 | `name` | 表示名（フォルダ名、クラス名、メソッドシグネチャの短い形） |
-| `parent` | 階層の親ノード ID。`contains` エッジと同時に張られる。ルートは `null` |
+| `parent` | 階層の親ノード ID。**階層は `parent` だけで決まる**（ビューアもこれでツリーを作る）。ルートは `null` |
 | `path` | リポジトリルートからの相対パス（`resource` は `.tf` のパス） |
 | `metadata` | 自由な辞書。静的解析の属性と注釈の `set` がマージされる |
 
@@ -55,7 +59,7 @@
 
 | `kind` | 出所 | 意味 |
 | --- | --- | --- |
-| `contains` | scan/cgd | 階層（フォルダ→ファイル→型→メンバー）。`parent` とは別軸で常にある |
+| `contains` | scan | `.sln` → csproj の包含だけ。フォルダ→…→メンバーの階層は `contains` ではなく `parent` で持つ |
 | `project-reference` | scan | csproj → csproj |
 | `calls` `creates` `accesses` `references` `inherits` `implements` `attribute` | cgd | C# 構文から決まる依存。`provenance` は `static` |
 | `invokes` `triggers` `references` | scan-terraform | `.tf` 内の参照。`invokes` は Step Functions→Lambda、`triggers` は API Gateway→Lambda |

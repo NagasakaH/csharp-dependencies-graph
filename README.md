@@ -7,7 +7,8 @@ Terraform で管理する Lambda / Step Functions / API Gateway / DynamoDB な�
 
 ```sh
 export DOTNET_ROOT=$HOME/.dotnet
-node skill/scripts/build.mjs --root /path/to/repo --out-dir out/graph --name my-service
+node skill/scripts/build.mjs --root /path/to/repo --out-dir out/graph --name my-service \ \
+  --exclude test,docs   # 既定で bin/obj/node_modules 等は除外。test は大きいので明示
 open out/graph/graph.html
 ```
 
@@ -19,8 +20,8 @@ open out/graph/graph.html
 
 | 対象 | ノード / エッジ | 内容 |
 | --- | --- | --- |
-| [elsa-core](https://github.com/elsa-workflows/elsa-core) | 51,309 / 52,174（C# 解析 2.9 秒、HTML 20MB） | 336 csproj、8,216 型、32,541 メンバ、898 ファイルが AWS/DB シグナル |
-| `demo/orders-api-lambda` | 71 / 59 | C# Lambda 3 csproj + Terraform 16 リソース + LLM 注釈 8 エッジ |
+| [elsa-core](https://github.com/elsa-workflows/elsa-core) | 51,166 / 52,221（C# 解析 3 秒、HTML 20MB） | 336 csproj、6,754 ファイル、8,223 型、32,572 メンバ、898 ファイルが AWS/DB シグナル |
+| `demo/orders-api-lambda` | 71 / 59（静的 25 / Terraform 26 / LLM 8） | C# Lambda 3 csproj + Terraform 16 リソース + LLM 注釈 8 エッジ |
 
 検証はヘッドレス Chromium で実操作する（`skill/scripts/verify.mjs`）。
 検査対象は `graph.json` から自動選択するので、どのプロジェクトにもそのまま使える。

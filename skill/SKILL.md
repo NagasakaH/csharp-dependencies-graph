@@ -46,7 +46,7 @@ node $SKILL/scripts/build.mjs \
 4. `merge.mjs` が断片を統合して `graph.json` と `graph.data.js` を作る
 5. `render.mjs` がビューアへデータを埋め込んで `graph.html` を出す
 
-よくある実行時間の実測（M マシン・syntax-only）: elsa-core 6,749 ファイルで C# 解析 2.9 秒、
+よくある実行時間の実測（M マシン・syntax-only）: elsa-core 6,754 ファイル（test / docs を除外）で C# 解析 3 秒、
 全体 30 秒弱、`graph.json` 45MB / `graph.html` 20MB。
 
 ## 使い方を選ぶ

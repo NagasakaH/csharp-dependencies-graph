@@ -37,14 +37,15 @@ async function loadChromium() {
 const chromium = await loadChromium();
 
 function parseArgs(argv) {
-  const opts = { shots: 'out/shots', query: null };
+  const opts = { shots: 'out/shots', query: null, browser: null };
   for (let i = 2; i < argv.length; i++) {
     switch (argv[i]) {
       case '--html': opts.html = resolve(argv[++i]); break;
       case '--graph': opts.graph = resolve(argv[++i]); break;
       case '--shots': opts.shots = resolve(argv[++i]); break;
       case '--query': opts.query = argv[++i]; break;
-      case '--help': console.log('使い方: verify.mjs --html graph.html [--graph graph.json] [--shots out/shots] [--query ExecuteAsync]'); process.exit(0);
+      case '--browser': opts.browser = resolve(argv[++i]); break;
+      case '--help': console.log('使い方: verify.mjs --html graph.html [--graph graph.json] [--shots out/shots] [--query ExecuteAsync] [--browser /path/to/Chrome]'); process.exit(0);
     }
   }
   if (!opts.html) { console.error('--html graph.html を指定してください'); process.exit(1); }
@@ -90,28 +91,40 @@ const results = [];
 const record = (name, ok, info = '') => { results.push({ name, ok, info }); console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${info ? '  — ' + info : ''}`); };
 
 async function launchBrowser() {
+  // 依存している playwright が期待する Chromium ビルドは、このマシンに無いことがある。
+  // 明示指定 → 既定 → キャッシュ済みビルド → システムの Chrome の順に試し、全部失敗したら理由を並べて落とす。
+  const attempts = [];
+  const tried = [];
+  if (opts.browser) attempts.push({ path: opts.browser, why: '--browser' });
+  if (process.env.CSDG_BROWSER) attempts.push({ path: process.env.CSDG_BROWSER, why: 'CSDG_BROWSER' });
+  attempts.push({ path: null, why: 'playwright 既定' });
+  const cache = join(process.env.HOME || '~', 'Library', 'Caches', 'ms-playwright');
   try {
-    return await chromium.launch();
-  } catch (error) {
-    const cache = join(process.env.HOME || '~', 'Library', 'Caches', 'ms-playwright');
-    const binaries = [];
-    try {
-      for (const dir of readdirSync(cache).sort().reverse()) {
-        if (!dir.startsWith('chromium')) continue;
-        for (const candidate of [
-          join(cache, dir, 'chrome-headless-shell-mac-arm64', 'chrome-headless-shell'),
-          join(cache, dir, 'chrome-mac-arm64', 'Chromium.app', 'Contents', 'MacOS', 'Chromium'),
-        ]) if (existsSync(candidate)) binaries.push(candidate);
-      }
-    } catch {}
-    for (const binary of binaries) {
-      try {
-        console.log(`[verify] キャッシュ済みの Chromium を使います: ${binary}`);
-        return await chromium.launch({ executablePath: binary });
-      } catch {}
+    for (const dir of readdirSync(cache).sort().reverse()) {
+      if (!dir.startsWith('chromium')) continue;
+      for (const candidate of [
+        join(cache, dir, 'chrome-headless-shell-mac-arm64', 'chrome-headless-shell'),
+        join(cache, dir, 'chrome-mac-arm64', 'Chromium.app', 'Contents', 'MacOS', 'Chromium'),
+      ]) if (existsSync(candidate)) attempts.push({ path: candidate, why: `キャッシュ ${dir}` });
     }
-    throw error;
+  } catch {}
+  for (const candidate of [
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    '/Applications/Chromium.app/Contents/MacOS/Chromium',
+  ]) if (existsSync(candidate)) attempts.push({ path: candidate, why: 'システムのブラウザ' });
+
+  for (const attempt of attempts) {
+    try {
+      const browser = await chromium.launch(attempt.path ? { executablePath: attempt.path } : {});
+      if (attempt.path) console.log(`[verify] ブラウザ: ${attempt.why} → ${attempt.path}`);
+      return browser;
+    } catch (error) {
+      tried.push(`${attempt.why}: ${String(error.message || error).split('\n')[0]}`);
+    }
   }
+  console.error('[verify] ブラウザを起動できませんでした。`--browser <パス>` か環境変数 CSDG_BROWSER で Chrome を指定してください。');
+  for (const line of tried) console.error('  試行: ' + line);
+  process.exit(1);
 }
 
 console.log(`[verify] ${basename(opts.html)} / 検索語 "${query}" / ファイル ${fileBase}`);

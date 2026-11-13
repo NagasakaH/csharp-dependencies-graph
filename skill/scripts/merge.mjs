@@ -2,7 +2,7 @@
 // 複数の断片（scan / csharp / terraform / annotations）を 1 つの graph.json に統合し、
 // ビューア用の軽量ペイロード（graph.data.js）も生成する。
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { basename, dirname, resolve } from 'node:path';
 
 const NODE_KIND_ORDER = ['folder', 'solution', 'project', 'file', 'type', 'member', 'resource'];
 
@@ -89,10 +89,12 @@ function mergeEdge(candidate) {
 }
 
 // ---- 断片の統合（scan → csharp → terraform の順でマージしても結果が変わらないよう、ノードはマージ優先）
+const producers = [];
 for (const path of opts.fragments) {
   const fragment = readJson(path);
   for (const node of fragment.nodes || []) mergeNode(node, path);
   stats[`${fragment.producer || 'unknown'}Nodes`] = (fragment.nodes || []).length;
+  producers.push({ producer: fragment.producer || 'unknown', fragment: basename(path), role: 'fragment', nodes: (fragment.nodes || []).length, edges: (fragment.edges || []).length });
 }
 for (const path of opts.fragments) {
   const fragment = readJson(path);
@@ -118,6 +120,14 @@ function resolveSelector(selector) {
 
 for (const path of opts.annotations) {
   const annotation = readJson(path);
+  producers.push({
+    producer: annotation.producer || 'annotation',
+    fragment: basename(path),
+    role: 'annotation',
+    nodes: (annotation.nodes || []).length,
+    edges: (annotation.edges || []).length,
+    metadata: (annotation.metadata || []).length,
+  });
   for (const node of annotation.nodes || []) mergeNode(node, path);
   for (const edge of annotation.edges || []) {
     const source = edge.source ? nodes.get(edge.source) : resolveSelector(edge.sourceMatch || {});
@@ -221,8 +231,11 @@ for (const node of nodes.values()) {
 const graph = {
   schemaVersion: 1,
   generatedAt: new Date().toISOString(),
-  root: opts.root,
+  // root は必ずノード ID（他の producer や注釈と同じ契約）。absolute パスは rootPath に入れる
+  root: nodes.has('folder:.') ? 'folder:.' : opts.root,
+  rootPath: opts.root || null,
   name: opts.name,
+  producers,
   nodes: [...nodes.values()],
   edges: [...edges.values()],
   stats: { ...stats, nodes: nodes.size, edges: edges.size, orphans, warnings: warnings.length },
@@ -269,7 +282,7 @@ if (opts.data) {
   const payload = {
     v: 1,
     name: opts.name,
-    root: opts.root,
+    root: graph.root,
     generatedAt: graph.generatedAt,
     stats: graph.stats,
     nodeKinds: [...nodeKindIndex.keys()],
