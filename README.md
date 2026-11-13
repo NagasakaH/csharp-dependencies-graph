@@ -26,7 +26,7 @@ open out/graph/graph.html
 検証は 2 系統あり、どちらも対象プロジェクト非依存で動く。
 
 ```sh
-node skill/scripts/test-analyzer.mjs                          # 静的解析の精度（29 項目、ブラウザ不要）
+node skill/scripts/test-analyzer.mjs                          # 静的解析の精度（37 項目、ブラウザ不要）
 node skill/scripts/verify.mjs --html out/graph/graph.html --shots out/shots   # ブラウザ実操作（24 項目）
 ```
 

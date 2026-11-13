@@ -606,6 +606,12 @@ public sealed class ReferenceScanner
                         DeclarationSpace(pattern, member));
                     break;
 
+                case DeclarationExpressionSyntax declaration when declaration.Designation is ParenthesizedVariableDesignationSyntax:
+                    // `var (a, b) = pair;` の a, b。Deconstruct の out 引数の型は意味解析なしでは
+                    // 決まらないので、名前だけ塞いで外側の同名フィールドに化けないようにする。
+                    DeclareDesignation(declaration.Designation, "", DeclarationSpace(declaration, member), scope);
+                    break;
+
                 case DeclarationExpressionSyntax declaration when declaration.Designation is SingleVariableDesignationSyntax outName:
                 {
                     // `M(out Gadget x)` は型が書かれているのでそのまま使える。`out var x` は
@@ -623,8 +629,33 @@ public sealed class ReferenceScanner
                     scope.Declare(range.Identifier.Text, "", range.Identifier.SpanStart, DeclarationSpace(range, member));
                     break;
 
+                case JoinClauseSyntax join:
+                    // `join o in b on ... equals o.X` の o。型は決めないが名前は塞ぐ。
+                    // 塞がないとクエリ内の `o.X` が外側の同名フィールドに化ける。
+                    scope.Declare(join.Identifier.Text, "", join.Identifier.SpanStart, DeclarationSpace(join, member));
+                    if (join.Into is not null)
+                    {
+                        scope.Declare(join.Into.Identifier.Text, "", join.Into.Identifier.SpanStart,
+                            DeclarationSpace(join, member));
+                    }
+
+                    break;
+
+                case QueryContinuationSyntax continuation when continuation.Identifier.Text.Length > 0:
+                    // `group ... into g` / `select ... into g` の g
+                    scope.Declare(continuation.Identifier.Text, "", continuation.Identifier.SpanStart,
+                        DeclarationSpace(continuation, member));
+                    break;
+
                 case LetClauseSyntax ranged:
                     scope.Declare(ranged.Identifier.Text, "", ranged.Identifier.SpanStart, DeclarationSpace(ranged, member));
+                    break;
+
+                case ForEachVariableStatementSyntax destructure
+                    when destructure.Variable is DeclarationExpressionSyntax destructured:
+                    // `foreach (var (key, value) in map)` の要素名。Deconstruct の out 引数の型を
+                    // 意味解析なしで決めるのは無理なので、名前だけ塞いで誤エッジを止める。
+                    DeclareDesignation(destructured.Designation, "", destructure, scope);
                     break;
 
                 case ForEachStatementSyntax forEach:
@@ -654,10 +685,10 @@ public sealed class ReferenceScanner
                     if (variable.Parent is not VariableDeclarationSyntax declaration) break;
                     if (declaration.Parent is FieldDeclarationSyntax or EventFieldDeclarationSyntax) break;
 
-                    // `var (a, b) = ...` の要素名はこの Roslyn API では declarator にならない
-                    // （Identifier が空）。名前はここで打ち切り、要素名は塞がない。
+                    // `var (a, b) = ...` は Identifier が空になる。要素名を塞がないと、
+                    // 分割した名前が外側の同名フィールドに化ける（実測で誤エッジ）。
                     var name = variable.Identifier.Text;
-                    if (name.Length == 0) break;
+                    if (name.Length == 0) break;   // タプル分割は DeclarationExpression 側で塞ぐ
                     var pos = variable.Identifier.SpanStart;
                     var space = DeclarationSpace(variable, member);
 
@@ -696,6 +727,26 @@ public sealed class ReferenceScanner
         }
 
         return scope;
+    }
+
+    /// <summary>分割宣言（`var (a, b) = ...`）の名前を再帰的に塞ぐ。型は決めない。</summary>
+    static void DeclareDesignation(VariableDesignationSyntax designation, string type, SyntaxNode space, Scope scope)
+    {
+        switch (designation)
+        {
+            case SingleVariableDesignationSyntax single:
+                if (single.Identifier.Text.Length > 0)
+                {
+                    scope.Declare(single.Identifier.Text, type, single.Identifier.SpanStart, space);
+                }
+
+                break;
+            case ParenthesizedVariableDesignationSyntax parenthesized:
+                foreach (var part in parenthesized.Variables) DeclareDesignation(part, type, space, scope);
+                break;
+            case DiscardDesignationSyntax:
+                break;
+        }
     }
 
     /// <summary>`foreach (var x in expr)` の要素型。ジェネリック引数を畳む前の表記から取る。</summary>
@@ -784,10 +835,30 @@ public sealed class ReferenceScanner
             // out var / パターン変数は外側ブロックまで見えるが、`while` / `for` / `using` /
             // `catch` / `switch` の節・腕はその中だけ）。`if` を境界にするとガード節の後の
             // 参照を同名フィールドに誤解決し、ラムダ・catch を閉じないと外側を化かす。
+            // `using var x = ...`（宣言形で本体なし）は外側ブロックの終わりまで見えるので境界にしない
+            if (current is UsingStatementSyntax bare && bare.Statement is null) continue;
+
+            // `if` の条件に出た out var / パターン変数は外側ブロックまで見える。ただし入れ子
+            // `if` の本体として宣言されたものはその入れ子の内側で閉じる（実測 CS0103）。
+            if (current is IfStatementSyntax condition)
+            {
+                if (condition.Condition.Contains(node)) continue;
+                return current;
+            }
+
+            // `switch` の節のパターン変数はその節だけ。通常のローカル宣言は switch ブロック
+            // 全体で共有され、節をまたいで見える（別節で再宣言すると CS0128）。
+            if (current is SwitchSectionSyntax labels && labels.Labels.Any((label) => label.Contains(node)))
+            {
+                return current;
+            }
+
+            if (current is SwitchSectionSyntax) continue;
+
             if (current is BlockSyntax or ForStatementSyntax or UsingStatementSyntax
                 or ForEachStatementSyntax or WhileStatementSyntax or DoStatementSyntax or LockStatementSyntax
                 or SwitchStatementSyntax or SwitchExpressionSyntax or SwitchExpressionArmSyntax
-                or SwitchSectionSyntax or LocalFunctionStatementSyntax
+                or LocalFunctionStatementSyntax
                 or QueryExpressionSyntax or AccessorDeclarationSyntax or ConstructorInitializerSyntax
                 or CatchClauseSyntax or FixedStatementSyntax or AnonymousFunctionExpressionSyntax)
             {

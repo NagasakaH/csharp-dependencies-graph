@@ -1,3 +1,5 @@
+using System.Linq;
+
 namespace Fixtures.ScopeAccuracy;
 
 public class A { public void Go() { } public int Value; }
@@ -221,6 +223,137 @@ public class GuardClause
     public void OutVar()
     {
         if (!TryGet(out var x)) return;
+        x.Handle();
+    }
+}
+
+public sealed class Lease : System.IDisposable
+{
+    public void Handle() { }
+    public void Dispose() { }
+}
+
+public class Pair
+{
+    public Gadget First = new();
+    public int Second;
+
+    public void Deconstruct(out Gadget first, out int second)
+    {
+        first = First;
+        second = Second;
+    }
+}
+
+/// <summary>
+/// `using var`・タプル分割・LINQ の join の名前も、決められない型で外側の同名
+/// フィールドに化かさない（レビューで実測した誤エッジ）。
+/// </summary>
+public class MoreNames
+{
+    private readonly Widget x = new();
+    private readonly Widget item = new();
+    private readonly Widget o = new();
+
+    public void UsingVar()
+    {
+        using var x = new Lease();
+        x.Handle();
+    }
+
+    public void UsingBlock()
+    {
+        using (var x = new Lease())
+        {
+            x.Handle();
+        }
+
+        x.Handle();
+    }
+
+    public void Destruct()
+    {
+        var pair = new Pair();
+        var (item, n) = pair;
+        item.Handle();
+        x.Handle();
+    }
+
+    public void ForeachDestruct()
+    {
+        var pairs = new System.Collections.Generic.List<Pair> { new Pair() };
+        foreach (var (item, n) in pairs)
+        {
+            item.Handle();
+        }
+
+        item.Handle();
+    }
+
+    public void Join()
+    {
+        var a = new[] { new Widget() };
+        var b = new[] { new Gadget() };
+        var q = from w in a join o in b on w.Size equals o.Size select o.Size;
+        o.Handle();
+    }
+}
+
+/// <summary>
+/// `switch` の節のパターン変数はその節だけ。通常のローカル宣言は switch ブロック
+/// 全体で共有され、節をまたいで見えるが、ブロックの外では見えない（コンパイラ実測）。
+/// </summary>
+public class SwitchLocals
+{
+    private readonly Widget x = new();
+
+    public void Local(int n)
+    {
+        switch (n)
+        {
+            case 0:
+                Gadget g = new();
+                g.Handle();
+                break;
+            default:
+                g = new Gadget();
+                g.Handle();
+                break;
+        }
+
+        x.Handle();
+    }
+
+    public void Pattern(object o)
+    {
+        switch (o)
+        {
+            case Gadget x:
+                x.Handle();
+                break;
+            default:
+                x.Handle();
+                break;
+        }
+    }
+}
+
+/// <summary>ブロックなしの入れ子 `if` のパターン変数は、入れ子の内側で閉じる。</summary>
+public class EmbeddedIfs
+{
+    private readonly Widget x = new();
+
+    public void Embedded(bool b, object o)
+    {
+        if (b)
+            if (o is Gadget x) x.Handle();
+
+        x.Handle();
+    }
+
+    public void Guard(object o)
+    {
+        if (o is not Gadget x) return;
         x.Handle();
     }
 }

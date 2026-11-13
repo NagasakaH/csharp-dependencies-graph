@@ -81,6 +81,10 @@ check('partial / overload の id が重複しない', new Set(g.nodes.map((n) =>
 const sg = analyze('ScopeAccuracy');
 const sEdges = sg.edges.filter((e) => e.kind !== 'contains');
 const sHas = (kind, from, to) => sEdges.some((e) => e.kind === kind && shortName(e.source) === from && e.target === `member:Fixtures.ScopeAccuracy.${to}`);
+const sCount = (kind, from, to) => {
+  const e = sEdges.find((x) => x.kind === kind && shortName(x.source) === from && x.target === `member:Fixtures.ScopeAccuracy.${to}`);
+  return e ? e.count || 1 : 0;
+};
 const sScopeEdges = (from) => JSON.stringify(sEdges.filter((e) => shortName(e.source) === from)
   .map((e) => `${e.kind}:${e.target.split('.').slice(-2).join('.')}`));
 
@@ -153,6 +157,34 @@ check('ガード節の後でパターン変数をフィールドに化かさな�
 check('out var の型は決めないが名前は塞いでフィールドに化かさない',
   !sHas('calls', 'GuardClause.OutVar', 'Widget.Handle'),
   sScopeEdges('GuardClause.OutVar'));
+
+// using var・タプル分割・LINQ の join の名前も外側の同名フィールドに化かさない
+check('using var の型で後続の同名フィールドを隠す',
+  sHas('calls', 'MoreNames.UsingVar', 'Lease.Handle') && !sHas('calls', 'MoreNames.UsingVar', 'Widget.Handle'),
+  sScopeEdges('MoreNames.UsingVar'));
+check('using 文のブロックの変数はブロックの外に出ない',
+  sHas('calls', 'MoreNames.UsingBlock', 'Lease.Handle') && sHas('calls', 'MoreNames.UsingBlock', 'Widget.Handle'),
+  sScopeEdges('MoreNames.UsingBlock'));
+check('タプル分割の名前をフィールドに化かさない',
+  !sHas('calls', 'MoreNames.Destruct', 'Gadget.Handle') && sHas('calls', 'MoreNames.Destruct', 'Widget.Handle'),
+  sScopeEdges('MoreNames.Destruct'));
+check('foreach のタプル分割が外側の同名フィールドと潰れない',
+  !sHas('calls', 'MoreNames.ForeachDestruct', 'Gadget.Handle') && sCount('calls', 'MoreNames.ForeachDestruct', 'Widget.Handle') === 1,
+  sScopeEdges('MoreNames.ForeachDestruct'));
+check('LINQ の join の範囲変数をフィールドに化かさない',
+  !sHas('accesses', 'MoreNames.Join', 'Widget.Size') && sHas('calls', 'MoreNames.Join', 'Widget.Handle'),
+  sScopeEdges('MoreNames.Join'));
+
+// switch の節と入れ子 if の宣言領域（コンパイラの実測どおり）
+check('switch の通常のローカルは節をまたいで見え、ブロックの外では消える',
+  sCount('calls', 'SwitchLocals.Local', 'Gadget.Handle') === 2 && sCount('calls', 'SwitchLocals.Local', 'Widget.Handle') === 1,
+  sScopeEdges('SwitchLocals.Local'));
+check('ブロックなし入れ子 if のパターン変数を外に漏らさない',
+  sCount('calls', 'EmbeddedIfs.Embedded', 'Gadget.Handle') === 1 && sCount('calls', 'EmbeddedIfs.Embedded', 'Widget.Handle') === 1,
+  sScopeEdges('EmbeddedIfs.Embedded'));
+check('ガード節のパターン変数は if の外でも見える（過剰な抑制にしない）',
+  sCount('calls', 'EmbeddedIfs.Guard', 'Gadget.Handle') === 1 && !sHas('calls', 'EmbeddedIfs.Guard', 'Widget.Handle'),
+  sScopeEdges('EmbeddedIfs.Guard'));
 
 rmSync(dir, { recursive: true, force: true });
 console.log(`\n${pass}/${pass + failures.length} 件成功`);

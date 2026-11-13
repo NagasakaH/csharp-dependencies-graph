@@ -151,7 +151,7 @@ LLM が書くときの決まりごと（これをやらないとグラフが嘘�
 ### 静的解析の精度（ブラウザ不要）
 
 ```sh
-node $SKILL/scripts/test-analyzer.mjs        # cgd がビルド済みなら即実行（29 項目）
+node $SKILL/scripts/test-analyzer.mjs        # cgd がビルド済みなら即実行（37 項目）
 ```
 
 `skill/tests/fixtures/` の C# を `cgd` にかけて、期待するエッジと「出してはいけない
