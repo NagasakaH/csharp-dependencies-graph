@@ -612,6 +612,12 @@ public sealed class ReferenceScanner
                     DeclareDesignation(varPattern.Designation, "", DeclarationSpace(varPattern, member), scope);
                     break;
 
+                case ListPatternSyntax list when list.Designation is not null:
+                    // `arr is [1, 2, ..] rest` の rest。要素内の宣言（`[var a, ..]` の a）は
+                    // VarPatternSyntax として別ノードで拾える。
+                    DeclareDesignation(list.Designation, "", DeclarationSpace(list, member), scope);
+                    break;
+
                 case RecursivePatternSyntax recursive when recursive.Designation is not null:
                 {
                     // `o is Gadget { Size: > 0 } x` の x。型はパターンに書かれているので使える。
@@ -874,8 +880,11 @@ public sealed class ReferenceScanner
 
             if (current is SwitchSectionSyntax) continue;
 
+            // `foreach` は分割形式（`foreach ((Gadget item, int n) in ...)`）も境界にしないと
+            // ループ変数がループ後の同名フィールドに化ける（実測 CS0103）。
             if (current is BlockSyntax or ForStatementSyntax or UsingStatementSyntax
-                or ForEachStatementSyntax or WhileStatementSyntax or DoStatementSyntax or LockStatementSyntax
+                or ForEachStatementSyntax or ForEachVariableStatementSyntax
+                or WhileStatementSyntax or DoStatementSyntax or LockStatementSyntax
                 or SwitchStatementSyntax or SwitchExpressionSyntax or SwitchExpressionArmSyntax
                 or LocalFunctionStatementSyntax
                 or QueryExpressionSyntax or AccessorDeclarationSyntax or ConstructorInitializerSyntax

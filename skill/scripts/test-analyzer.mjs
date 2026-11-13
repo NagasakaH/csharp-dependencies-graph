@@ -195,6 +195,18 @@ check('プロパティパターンの末尾 designation をフィールドに化
   sHas('calls', 'VarPatterns.Recursive', 'Widget.Handle') && !sHas('calls', 'VarPatterns.Recursive', 'Gadget.Handle'),
   sScopeEdges('VarPatterns.Recursive'));
 
+// 分割形式の foreach はループ変数を外へ漏らさない（レビュー指摘の誤エッジ）
+check('タプル foreach の型付きループ変数はループ内だけ',
+  sCount('calls', 'TupleForeach.Typed', 'Gadget.Handle') === 1
+    && sCount('calls', 'TupleForeach.Typed', 'Widget.Handle') === 1,
+  sScopeEdges('TupleForeach.Typed'));
+check('タプル foreach の var ループ変数はループ後に見えない',
+  sCount('calls', 'TupleForeach.Untyped', 'Widget.Handle') === 1
+    && !sHas('calls', 'TupleForeach.Untyped', 'Gadget.Handle'),
+  sScopeEdges('TupleForeach.Untyped'));
+check('リストパターンの末尾 designation をフィールドに化かさない',
+  !sHas('accesses', 'ListRest.Rest', 'Gadget.Length'), sScopeEdges('ListRest.Rest'));
+
 rmSync(dir, { recursive: true, force: true });
 console.log(`\n${pass}/${pass + failures.length} 件成功`);
 if (failures.length) { console.log('失敗: ' + failures.join(' / ')); process.exit(1); }

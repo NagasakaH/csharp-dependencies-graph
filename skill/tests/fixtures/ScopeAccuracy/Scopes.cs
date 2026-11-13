@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Linq;
 
 namespace Fixtures.ScopeAccuracy;
@@ -70,7 +71,7 @@ public class Shadowing
 }
 
 public class Widget { public void Handle() { } public int Size; }
-public class Gadget { public void Handle() { } public int Size; }
+public class Gadget { public void Handle() { } public int Size; public int Length; }
 
 public class Maker
 {
@@ -389,5 +390,45 @@ public class VarPatterns
     {
         if (o is not Widget { Size: > 0 } x) return;
         x.Handle();
+    }
+}
+
+/// <summary>
+/// 分割形式の foreach（タプル形式）はループ変数をループの内側に閉じる（実測 CS0103）。
+/// </summary>
+public class TupleForeach
+{
+    private readonly Widget item = new();
+
+    public void Typed(IEnumerable<Pair> pairs)
+    {
+        foreach ((Gadget item, int n) in pairs)
+        {
+            item.Handle();
+        }
+
+        item.Handle();
+    }
+
+    public void Untyped(IEnumerable<Pair> pairs)
+    {
+        foreach ((var item, var n) in pairs)
+        {
+            item.Handle();
+        }
+
+        item.Handle();
+    }
+}
+
+/// <summary>リストパターンの末尾 designation（`is [1, 2, ..] rest`）も名前を塞ぐ。</summary>
+public class ListRest
+{
+    private readonly Gadget rest = new();
+
+    public void Rest(int[] values)
+    {
+        if (values is not [1, 2, ..] rest) return;
+        _ = rest.Length;
     }
 }

@@ -75,6 +75,12 @@ node $SKILL/scripts/build.mjs \
 - 部分クラスとオーバーロードは 1 ノードにまとめる（`metadata.overloads`、`metadata.alsoDeclaredIn`）
 - 解決できなかった呼び出し名はノードの `metadata.unresolvedCalls` に残す
   （意味は構文だけからは決められないので、ここを LLM が注釈で埋める）
+- 型の単純名が複数の名前空間にあり、宣言元の名前空間と `using` でも判別できないときは、
+  得点が並んだ候補すべてにエッジを張り `detail` に `ambiguous` を残す（実測 elsa-core
+  429 本＝静的エッジの 0.8%、エッジにマウスを乗せると見える）。得点 0 の曖昧さは張らない
+- 型がソースコードに書かれていない名前（`out var`、`is var x` / `case var x`、タプル分割、
+  `foreach ((var a, b) in ...)`、LINQ の `join` の範囲変数、`dynamic`、外部型）は
+  名前だけ塞いで未解決にする。外側の同名フィールドに化けるより未解決のほうが正しい
 
 `.csproj` からは `targetFramework` `rootNamespace` `assemblyName` `packageReferences`
 `projectReferences` を取り、`.cs` / `.csproj` のテキストから AWS/DB のヒント
@@ -151,7 +157,7 @@ LLM が書くときの決まりごと（これをやらないとグラフが嘘�
 ### 静的解析の精度（ブラウザ不要）
 
 ```sh
-node $SKILL/scripts/test-analyzer.mjs        # cgd がビルド済みなら即実行（40 項目）
+node $SKILL/scripts/test-analyzer.mjs        # cgd がビルド済みなら即実行（43 項目）
 ```
 
 `skill/tests/fixtures/` の C# を `cgd` にかけて、期待するエッジと「出してはいけない
