@@ -1,0 +1,82 @@
+#!/usr/bin/env node
+// アナライザの静的解析の正確性テスト。fixtures/ 下の C# を cgd にかけ、
+// 「出てはいけないエッジ」と「出るべきエッジ」を検査する。
+// 使い方: node skill/scripts/test-analyzer.mjs [--cgd <パス>]
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const args = process.argv.slice(2);
+const flag = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : null; };
+
+function findCgd() {
+  const given = flag('--cgd') || process.env.CGD_BIN;
+  if (given) return resolve(given);
+  const candidates = ['Release', 'Debug'].flatMap((c) => ['net9.0', 'net8.0'].map((t) => join(HERE, '..', 'analyzer', 'bin', c, t, 'cgd')));
+  for (const c of candidates) if (existsSync(c)) return c;
+  console.error('[test] cgd が見つかりません。先に `dotnet build skill/analyzer/cgd.csproj -c Release` か、--cgd で指定してください。');
+  process.exit(1);
+}
+
+const cgd = findCgd();
+const dir = mkdtempSync(join(tmpdir(), 'cgd-test-'));
+let pass = 0;
+const failures = [];
+
+function check(label, ok, detail) {
+  if (ok) { pass++; console.log(`PASS ${label}`); } else { failures.push(label); console.log(`FAIL ${label}${detail ? `  ${detail}` : ''}`); }
+}
+
+function analyze(fixture) {
+  const out = join(dir, `${fixture}.json`);
+  const proc = spawnSync(cgd, ['--root', join(HERE, '..', 'tests', 'fixtures', fixture), '--out', out, '--quiet'], { encoding: 'utf8' });
+  if (proc.status !== 0) {
+    const log = (proc.stdout || '') + (proc.stderr || '');
+    if (log.includes('You must install or update .NET')) {
+      console.error('[test] cgd は .NET 9 実行時が必要です。`export DOTNET_ROOT=$HOME/.dotnet` をしてから再実行してください。');
+      console.error(log.trim().split('\n').slice(0, 4).join('\n'));
+    } else console.error(log);
+    process.exit(1);
+  }
+  return JSON.parse(readFileSync(out, 'utf8'));
+}
+
+const g = analyze('StaticAccuracy');
+const shortName = (id) => id.replace(/^member:/, '').split('.').slice(-2).join('.');
+const edges = g.edges.filter((e) => e.kind !== 'contains');
+const has = (kind, from, to) => edges.some((e) => e.kind === kind && shortName(e.source) === from && e.target === to);
+const member = (n) => `member:Fixtures.StaticAccuracy.${n}`;
+
+// 1) 局所変数がメソッド名を隠すケースで this.X を断定しない
+check('ローカル変数のデリゲート呼び出しを this.Go にしない', !has('calls', 'Caller.DelegateInVariable', member('Caller.Go')),
+  JSON.stringify(edges.filter((e) => shortName(e.source) === 'Caller.DelegateInVariable' && shortName(e.target) === 'Caller.Go').map((e) => `${e.kind}:${e.detail}`)));
+
+// 2) デリゲート型フィールドの呼び出しも同じ
+check('デリゲート型フィールドの呼び出しを this.Go にしない', !has('calls', 'Caller.DelegateField', member('Caller.Go')));
+
+// 3) 本物の this.Call() は残す（過剰な抑制にしない）
+check('this.Go() の呼び出しは検出する', has('calls', 'Caller.RealCalls', member('Caller.Go')));
+
+// 4) var の型推論（var を見落とすと x.Bar() のエッジが黙って消える）
+check('var で作った型のメソッド呼び出しを検出する', has('calls', 'Caller.RealCalls', member('Worker.Go')));
+
+// 5) 明示型のローカル変数
+check('明示型のローカル変数の呼び出しを検出する', has('calls', 'Caller.RealCalls', member('Worker.Go')) &&
+  edges.some((e) => e.kind === 'creates' && shortName(e.source) === 'Caller.RealCalls' && e.target === 'type:Fixtures.StaticAccuracy.Worker'));
+
+// 6) new の型参照
+check('new Worker() を creates にする', edges.some((e) => e.kind === 'creates' && e.target === 'type:Fixtures.StaticAccuracy.Worker'));
+
+// 7) member の親は必ず type
+const byId = new Map(g.nodes.map((n) => [n.id, n]));
+check('member ノードの親は type ノード', g.nodes.filter((n) => n.kind === 'member').every((n) => byId.get(n.parent)?.kind === 'type'));
+
+// 8) 同名メソッドの区別（overloads）
+check('partial / overload の id が重複しない', new Set(g.nodes.map((n) => n.id)).size === g.nodes.length);
+
+rmSync(dir, { recursive: true, force: true });
+console.log(`\n${pass}/${pass + failures.length} 件成功`);
+if (failures.length) { console.log('失敗: ' + failures.join(' / ')); process.exit(1); }

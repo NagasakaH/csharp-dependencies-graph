@@ -20,22 +20,28 @@ open out/graph/graph.html
 
 | 対象 | ノード / エッジ | 内容 |
 | --- | --- | --- |
-| [elsa-core](https://github.com/elsa-workflows/elsa-core) | 51,166 / 52,221（C# 解析 3 秒、HTML 20MB） | 336 csproj、6,754 ファイル、8,223 型、32,572 メンバ、898 ファイルが AWS/DB シグナル |
-| `demo/orders-api-lambda` | 71 / 59（静的 25 / Terraform 26 / LLM 8） | C# Lambda 3 csproj + Terraform 16 リソース + LLM 注釈 8 エッジ |
+| [elsa-core](https://github.com/elsa-workflows/elsa-core) | 51,166 / 54,776（C# 解析 3 秒、HTML 20MB） | 336 csproj、6,754 ファイル、8,223 型、32,572 メンバ、calls 14,672 / accesses 13,324 / references 16,401、898 ファイルが AWS/DB シグナル |
+| `demo/orders-api-lambda` | 70 / 60（静的 27 / Terraform 25 / LLM 8） | C# Lambda 3 csproj + Terraform 16 リソース + LLM 注釈 8 エッジ |
 
-検証はヘッドレス Chromium で実操作する（`skill/scripts/verify.mjs`）。
-検査対象は `graph.json` から自動選択するので、どのプロジェクトにもそのまま使える。
+検証は 2 系統あり、どちらも対象プロジェクト非依存で動く。
 
 ```sh
-node skill/scripts/verify.mjs --html out/graph/graph.html --shots out/shots
+node skill/scripts/test-analyzer.mjs                          # 静的解析の精度（8 項目、ブラウザ不要）
+node skill/scripts/verify.mjs --html out/graph/graph.html --shots out/shots   # ブラウザ実操作（22 項目）
 ```
+
+`verify.mjs` は検査対象を `graph.json` から自動選択するので、どのプロジェクトにもそのまま使える
+（今の実測: demo 22/22、elsa-core 20/20。Terraform ノードが無い対象は該当 2 項目を省略する）。
+静的解析テストは「出てはいけないエッジ」も見る。名前の衝突で誤った `static` エッジを作る
+タイプの誤りに効く。
 
 ## 構成
 
 ```
 skill/
   analyzer/            Roslyn 構文解析（net9.0, cgd）。ビルドは build.mjs がやる
-  scripts/             build / scan / scan-terraform / merge / render / verify
+  scripts/             build / scan / scan-terraform / merge / render / verify / test-analyzer
+  tests/fixtures/      静的解析の精度テスト用 C#
   viewer/template.html 単一ファイルのビューア（データ埋め込み）
   reference/schema.md  データ契約
   examples/            LLM 注釈の実例

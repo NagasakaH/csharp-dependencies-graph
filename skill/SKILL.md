@@ -134,20 +134,60 @@ LLM が書くときの決まりごと（これをやらないとグラフが嘘�
 書き換えた後は必ず再生成する（`build.mjs` に `--annotation path/to/annotations.json` を
 追加するだけ。複数渡せる）。
 
+### ブラウザから後付けする（人・LLM の両方向）
+
+詳細パネルの下に 3 つのフォームがあり、いずれも `provenance: human` でブラウザに保存される。
+
+1. **既存ノードと紐づける** — 相手ノードを検索して選択。`csproj → tf:aws_lambda_function.…`
+   のように、すでにグラフにいるノードどうしを結べる
+2. **外部リソースを後付けする** — `ext:<種別>/<名前>` を作って結ぶ（既存 ID と衝突したら結ぶだけ）
+3. **メタデータを後付けする** — 選択中のノード（csproj でも `.cs` でも）に任意の key / value
+
+「注釈 JSON」で書き出してリポジトリに置き、`--annotation` で再生成すると恒久化される。
+書き出しには localStorage から復元した注釈も含まれるので、リロードしても失えない。
+
 ## 検証する
 
-`verify.mjs` がヘッドレス Chromium で実際にクリックし、13 項目を確かめる
-（段階展開・ファイル→クラス→メソッドの展開・メソッド検索・詳細パネル・
-外部リソースの紐づけと localStorage 保存・コンソールエラーゼロ）。
+### 静的解析の精度（ブラウザ不要）
+
+```sh
+node $SKILL/scripts/test-analyzer.mjs        # cgd がビルド済みなら即実行
+```
+
+`skill/tests/fixtures/` の C# に期待するエッジ・出してはいけないエッジを照合する。
+名前的な衝突（ローカル変数がメソッド名を隠す）や `var` の型推論の回帰をここで止める。
+
+### ブラウザ実操作
 
 ```sh
 node $SKILL/scripts/verify.mjs --html out/graph/graph.html --shots out/shots
 ```
 
+ヘッドレス Chromium で実際にクリックし、22 項目を確かめる。検査対象は `graph.json`
+から自動選択するので、どのプロジェクトにもそのまま効く（Terraform ノードが無い場合は
+該当チェックを省略して 20 項目）。主な確認項目:
+
+- ルート 1 段だけの初期表示／クリックしたフォルダだけの子展開
+- `.cs` クリック → 型 → メンバ（メソッド）の段階展開、ロールアップ値
+- メソッド検索 → グラフ上で選択 → 詳細パネルにシグネチャ
+- ⇧クリックの周辺 N ホップ、`#expand=/#select=` ディープリンク
+- 注釈の 3 フォーム（既存ノード間リンク / 外部リソース後付け / メタデータ後付け）が
+  localStorage に残り、**リロード後も再現され、`注釈 JSON` 書き出しに `provenance: human`
+  で乗る**（→ `merge.mjs --annotation` で恒久化できる）
+- コンソールエラーゼロ
+
 `--shots` にスクリーンショット（`01-root.png` ほか）が出るので、目でも確かめる。
 `--query <メソッド名>` で検索対象をそのプロジェクトらしい名前に変える。
-Playwright が見つからないときは `npm i -g @playwright/cli` か、
-`~/Library/Caches/ms-playwright/` の既知の Chromium を使う。
+5 万ノード級でも前処理含め 20 秒程度。
+
+ブラウザ起動に失敗する環境（playwright の期待ビルドが無い、サンドボックスで起動制限）では:
+
+```sh
+node $SKILL/scripts/verify.mjs --html out/graph/graph.html --browser "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+```
+
+`--browser` / 環境変数 `CSDG_BROWSER` 指定 → playwright 既定 → キャッシュ済みビルド
+（macOS / Linux）→ システムの Chrome の順に試し、全失敗時は試行理由を並べて落ちる。
 
 ## よくある落とし穴
 

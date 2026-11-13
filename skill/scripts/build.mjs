@@ -50,6 +50,10 @@ function buildCgd() {
   for (const dotnet of [process.env.DOTNET_ROOT && join(process.env.DOTNET_ROOT, 'dotnet'), 'dotnet'].filter(Boolean)) {
     const probe = spawnSync(dotnet, ['--version'], { encoding: 'utf8' });
     if (probe.status === 0) {
+      const major = parseInt(String(probe.stdout).trim(), 10);
+      if (Number.isFinite(major) && major < 9) {
+        console.log(`[build] 注意: ${dotnet} は SDK ${probe.stdout.trim()}。cgd は net9.0 なので、9 以上の SDK が必要です（例: export DOTNET_ROOT=$HOME/.dotnet）。`);
+      }
       console.log(`[build] cgd をビルドします (${dotnet})`);
       run(dotnet, ['build', project, '-c', 'Release', '-v', 'q', '--nologo'], 'dotnet build');
       return findCgd();

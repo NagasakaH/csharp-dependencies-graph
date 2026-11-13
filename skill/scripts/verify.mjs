@@ -65,7 +65,14 @@ for (const n of graph.nodes) if (n.parent) childCount.set(n.parent, (childCount.
 const outCount = new Map();
 for (const e of graph.edges) if (e.kind !== 'contains') outCount.set(e.source, (outCount.get(e.source) || 0) + 1);
 
-const methodsOf = (typeId) => graph.nodes.filter((n) => n.parent === typeId && n.kind === 'member' && (n.metadata.memberKind || 'method') === 'method');
+// メンバ一覧を親で一度だけグルーピングする（5 万ノードで毎回 full scan すると前処理が数分になる）
+const methodsByType = new Map();
+for (const n of graph.nodes) {
+  if (n.kind !== 'member' || (n.metadata.memberKind || 'method') !== 'method') continue;
+  if (!methodsByType.has(n.parent)) methodsByType.set(n.parent, []);
+  methodsByType.get(n.parent).push(n);
+}
+const methodsOf = (typeId) => methodsByType.get(typeId) || [];
 const fileWithTypes = graph.nodes
   .filter((n) => n.kind === 'file' && (childCount.get(n.id) || 0) > 0)
   .sort((a, b) => (childCount.get(b.id) || 0) - (childCount.get(a.id) || 0))[0];
@@ -105,17 +112,25 @@ async function launchBrowser() {
       for (const candidate of [
         join(cache, dir, 'chrome-headless-shell-mac-arm64', 'chrome-headless-shell'),
         join(cache, dir, 'chrome-mac-arm64', 'Chromium.app', 'Contents', 'MacOS', 'Chromium'),
+        join(cache, dir, 'chrome-headless-shell-linux', 'chrome-headless-shell'),
+        join(cache, dir, 'chrome-linux', 'chrome'),
       ]) if (existsSync(candidate)) attempts.push({ path: candidate, why: `キャッシュ ${dir}` });
     }
   } catch {}
   for (const candidate of [
     '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
     '/Applications/Chromium.app/Contents/MacOS/Chromium',
+    '/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser',
   ]) if (existsSync(candidate)) attempts.push({ path: candidate, why: 'システムのブラウザ' });
 
+  // サンドボックス内でも起動できるよう、一時ディレクトリ（Chromium のプロファイル置き場）を
+  // ワークスペース側に移し、--no-sandbox で走らせる
+  const tmp = join(dirname(resolve(opts.html)), '.tmp');
+  try { mkdirSync(tmp, { recursive: true }); process.env.TMPDIR = tmp; } catch {}
+  const baseArgs = { args: ['--no-sandbox', '--disable-gpu'] };
   for (const attempt of attempts) {
     try {
-      const browser = await chromium.launch(attempt.path ? { executablePath: attempt.path } : {});
+      const browser = await chromium.launch({ ...baseArgs, ...(attempt.path ? { executablePath: attempt.path } : {}) });
       if (attempt.path) console.log(`[verify] ブラウザ: ${attempt.why} → ${attempt.path}`);
       return browser;
     } catch (error) {
@@ -228,24 +243,78 @@ if (resourceCount) {
   record('Terraform リソースがノードとして入っている', chip > 0, `${resourceCount} 件 / provenance チップ ${chip}`);
 }
 
-// 7. 外部リソースを後から紐づけて保存できる
-await page.selectOption('#kind-filter', 'member');
-await page.fill('#q', query);
-await page.waitForTimeout(800);
-await page.press('#q', 'Enter');
-await page.waitForTimeout(600);
+// 7. 後付け注釈: メタデータ / 既存ノード間の紐づけ / 外部リソースの作成
+const openDetail = async (kind, text) => {
+  await page.selectOption('#kind-filter', kind);
+  await page.fill('#q', text);
+  await page.waitForTimeout(700);
+  await page.press('#q', 'Enter');
+  await page.waitForTimeout(500);
+};
+const projectTarget = graph.nodes.find((n) => n.kind === 'project');
+await openDetail('member', query);
+
+// 7a. csproj に任意の key / value を後付けする
+if (projectTarget) {
+  await openDetail('project', projectTarget.name);
+  await page.fill('#detail-body input[placeholder^="key"]', 'team');
+  await page.fill('#detail-body input[placeholder^="value"]', 'verify-team');
+  await page.locator('#detail-body button', { hasText: '追加' }).first().click();
+  await page.waitForTimeout(400);
+  const metaShown = await page.locator('#detail-body td.k', { hasText: 'team' }).count();
+  record('ノードに任意のメタデータを後付けできる', metaShown > 0, `key=team を ${projectTarget.name} に付与`);
+}
+
+// 7b. グラフに既にあるノどうしを紐づける（tf リソースがあればそれを相手になる）
+const linkable = graph.nodes.find((n) => n.kind === 'resource' && n.id !== projectTarget?.id);
+if (projectTarget && linkable) {
+  await openDetail('project', projectTarget.name);
+  await page.fill('#detail-body input[placeholder^="相手ノード"]', linkable.name);
+  await page.waitForTimeout(300);
+  const pick = page.locator('#detail-body select.pick').first();
+  await pick.selectOption({ index: 1 });
+  const pickedId = await pick.inputValue();
+  await page.locator('#detail-body button', { hasText: '紐づける' }).first().click();
+  await page.waitForTimeout(400);
+  const checked = await page.evaluate(([from, to]) => {
+    const s = window.__csdg.byId.get(from), t = window.__csdg.byId.get(to);
+    if (!s || !t) return { inGraph: false, edge: false };
+    return { inGraph: true, edge: window.__csdg.edges.some((e) => e.s === s.i && e.t === t.i) };
+  }, [projectTarget.id, pickedId]);
+  const exportedNow = await page.evaluate(() => window.__csdg.collectAnnotations());
+  const hasEdge = exportedNow.edges.some((e) => e.source === projectTarget.id && e.target === pickedId);
+  record('既存ノードどうしをブラウザから紐づけられる', checked.inGraph && checked.edge && hasEdge,
+    `${projectTarget.name} → ${pickedId}`);
+}
+
+// 7c. グラフに無い外部リソースを作ってから紐づける
+await openDetail('member', query);
 const nameInput = page.locator('#detail-body input[placeholder^="リソース名"]').first();
 await nameInput.scrollIntoViewIfNeeded();
 await nameInput.fill('verify-orders-api');
-const linkBtn = page.locator('#detail-body button', { hasText: '紐づける' }).first();
-await linkBtn.scrollIntoViewIfNeeded();
-await linkBtn.click();
+const createBtn = page.locator('#detail-body button', { hasText: '作成して紐づける' }).first();
+await createBtn.scrollIntoViewIfNeeded();
+await createBtn.click();
 await page.waitForTimeout(500);
 const resourceVisible = await page.locator('#nodes .gnode', { hasText: 'verify-orders-api' }).count();
 record('外部リソースを後から紐づけられる', resourceVisible > 0, `${resourceVisible} ノード`);
 const stored = await page.evaluate(() => localStorage.getItem('csdg:annotations'));
 record('ブラウザ内に注釈が保存される', !!stored && stored.includes('verify-orders-api'), '');
+const humanOnly = await page.evaluate(() => window.__csdg.collectAnnotations().edges.every((e) => e.provenance === 'human'));
+record('ブラウザでの手動追記は provenance: human', humanOnly, '');
 await shot('07-annotation.png');
+
+// 7d. 再読み込みしても注釈が残り、JSON 書き出し（→ merge の入力）に復元される
+await page.reload({ waitUntil: 'load' });
+await page.waitForTimeout(1000);
+const afterReload = await page.evaluate(() => window.__csdg.collectAnnotations());
+const restoredNode = afterReload.nodes.some((n) => n.id.endsWith('verify-orders-api'));
+const restoredEdge = afterReload.edges.some((e) => e.target.endsWith('verify-orders-api') && e.provenance === 'human');
+const visibleAfterReload = await page.locator('#nodes .gnode', { hasText: 'verify-orders-api' }).count();
+record('再読み込み後も注釈が再現され JSON に残る', restoredNode && restoredEdge && visibleAfterReload > 0,
+  `node ${restoredNode} / edge ${restoredEdge} / 描画 ${visibleAfterReload}`);
+const metaPersisted = await page.evaluate(() => window.__csdg.storedAnnotations().some((f) => JSON.stringify(f).includes('verify-team')));
+record('後付けメタデータも再読み込みを通過する', !projectTarget || metaPersisted, '');
 
 // 8. ディープリンクで同じ展開状態を開ける
 const baseUrl = page.url().split('#')[0];
@@ -258,6 +327,7 @@ await shot('08-deeplink.png');
 
 record('ブラウザコンソールエラーなし', errors.length === 0, errors.slice(0, 3).join(' | '));
 await browser.close();
+
 
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} 件成功  スクリーンショット: ${opts.shots}`);

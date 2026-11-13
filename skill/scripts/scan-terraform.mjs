@@ -82,7 +82,8 @@ function references(body, selfType, selfName) {
   while ((match = re.exec(body))) {
     const type = match[2], name = match[3];
     if (type === selfType && name === selfName) continue;
-    if (!type.startsWith('aws_') && !['module', 'data', 'local', 'var'].includes(type)) continue;
+    // local / var はリソースではなく設定値なので、ノード化しない（ルート表示がノイズで埋まる）
+    if (!type.startsWith('aws_') && !['module', 'data'].includes(type)) continue;
     refs.add(`${type}.${name}`);
   }
   return [...refs];

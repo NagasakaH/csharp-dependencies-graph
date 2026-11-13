@@ -95,6 +95,8 @@
   .edge-row:hover { background: #1f2731; }
   .edge-row .k { font-size: 10px; padding: 0 5px; border-radius: 4px; background: #232c39; color: #a9c3e0; flex: 0 0 auto; }
   .edge-row .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .form .form-h { color: var(--fg-dim); margin: 6px 0 2px; font-size: 11px; letter-spacing: .04em; }
+  .form .pick { width: 100%; background: #10161f; color: var(--fg); border: 1px solid #2a3444; border-radius: 6px; padding: 4px 6px; font: inherit; }
   .form { display: grid; gap: 6px; margin-top: 6px; }
   .form input, .form select { width: 100%; padding: 5px 6px; background: var(--panel-2); border: 1px solid var(--line); color: var(--fg); border-radius: 5px; font: inherit; }
   .row-btns { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -175,7 +177,17 @@
   const kindRankCache = new Map([['folder', 0], ['solution', 1], ['project', 2], ['file', 3], ['type', 4], ['member', 5], ['resource', 6]]);
   function kindRank(k) { return kindRankCache.get(k) ?? 7; }
 
-  for (const file of readStoredAnnotations()) applyAnnotation(file, { persist: false });
+  const STORE_KEY = 'csdg:annotations';
+  function readStoredAnnotations() {
+    try { return JSON.parse(localStorage.getItem(STORE_KEY) || '[]'); } catch { return []; }
+  }
+  function persistAnnotation(obj) {
+    const all = readStoredAnnotations(); all.push(obj);
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(all)); } catch {}
+    exportable.push(obj);
+  }
+  const exportable = [];
+
 
   // ---- 表示状態
   const state = { expanded: new Set([ROOT.i]), selected: null, visible: new Set(), ghost: new Map(), links: new Map(), filters: new Set(EDGE_KINDS.filter((k) => k !== 'references' && k !== 'accesses')), prov: new Set(PROV), layout: null };
@@ -513,32 +525,87 @@
     return box;
   }
 
-  // ---- 注釈（任意の外部リソースとリンクを後付けする）
+  // ---- 注釈（既存ノード同士の紐づけ / 外部リソースの後付け / メタデータの後付け）
+  const ANNO_KINDS = ['annotates', 'deploys', 'invokes', 'triggers', 'reads', 'writes', 'exposed-by', 'references'];
+  const RESOURCE_KINDS = ['lambda', 'stepfunctions', 'apigateway', 'dynamodb', 'rds', 's3', 'sqs', 'sns', 'secretsmanager', 'custom'];
+  function kindSelect(items) {
+    const sel = document.createElement('select');
+    for (const k of items) { const o = document.createElement('option'); o.value = k; o.textContent = k; sel.appendChild(o); }
+    return sel;
+  }
   function annotationForm(i) {
     const box = document.createElement('div'); box.className = 'form';
-    const sel = document.createElement('select');
-    for (const t of ['lambda', 'stepfunctions', 'apigateway', 'dynamodb', 'rds', 's3', 'sqs', 'sns', 'secretsmanager', 'custom']) {
-      const o = document.createElement('option'); o.value = t; o.textContent = t; sel.appendChild(o);
-    }
-    const name = document.createElement('input'); name.placeholder = 'リソース名（例: orders-api）';
-    const kind = document.createElement('select');
-    for (const k of ['deploys', 'invokes', 'triggers', 'reads', 'writes', 'annotates']) { const o = document.createElement('option'); o.value = k; o.textContent = k; kind.appendChild(o); }
-    const note = document.createElement('input'); note.placeholder = '備考 / 根拠';
-    const btn = mkBtn('紐づける', () => {
-      const resourceName = name.value.trim() || 'unnamed';
-      const id = `ext:${sel.value}/${slug(resourceName)}`;
-      let target = byId.get(id);
-      if (!target) {
-        target = addNode({ id, kind: 'resource', name: resourceName, parent: ROOT.i, metadata: { resourceType: sel.value, notes: note.value || undefined, addedBy: 'viewer', addedAt: new Date().toISOString() } });
+    const from = nodes[i];
+
+    // (a) グラフに既にあるノードどうしを紐づける（csproj → tf:aws_lambda_function… など）
+    const head = document.createElement('div'); head.className = 'form-h'; head.textContent = '既存ノードと紐づける';
+    const search = mkInput('相手ノードを検索（名前 or ID）');
+    const pick = document.createElement('select'); pick.className = 'pick';
+    const fill = () => {
+      const q = search.value.trim().toLowerCase();
+      pick.innerHTML = '';
+      const blank = document.createElement('option'); blank.value = ''; blank.textContent = q ? '（一致なし）' : '（検索してください）';
+      pick.appendChild(blank);
+      if (!q) return;
+      for (const n of nodes.filter((x) => x.id !== from.id && (x.id.toLowerCase().includes(q) || x.name.toLowerCase().includes(q))).slice(0, 60)) {
+        const o = document.createElement('option'); o.value = n.id; o.textContent = `${n.name}  [${n.kind}]`;
+        pick.appendChild(o);
       }
-      addEdge({ source: nodes[i].id, target: id, kind: kind.value, provenance: 'llm', detail: note.value || undefined });
-      persistAnnotation({ nodes: [target.raw], edges: [{ source: nodes[i].id, target: id, kind: kind.value, provenance: 'llm', note: note.value || undefined }] });
-      setStatus(`${nodes[i].name} → ${resourceName} を紐づけました（ブラウザに保存）`);
-      state.selected = target.i; render();
+    };
+    search.addEventListener('input', fill);
+    const relKind = kindSelect(ANNO_KINDS);
+    const relNote = mkInput('備考 / 根拠');
+    const linkBtn = mkBtn('紐づける', () => {
+      const targetId = pick.value || (byId.has(search.value.trim()) ? search.value.trim() : null);
+      if (!targetId) { setStatus('相手ノードが見つかりません。検索して選択してください。'); return; }
+      const note = relNote.value.trim() || undefined;
+      addEdge({ source: from.id, target: targetId, kind: relKind.value, provenance: 'human', detail: note });
+      persistAnnotation({ nodes: [], edges: [{ source: from.id, target: targetId, kind: relKind.value, provenance: 'human', note }] });
+      setStatus(`${from.name} → ${byId.get(targetId).name} を紐づけました（ブラウザに保存）`);
+      render();
     }, 'primary');
-    box.append(sel, name, kind, note, btn);
+    box.append(head, search, pick, relKind, relNote, linkBtn);
+
+    // (b) グラフに無い外部リソースを作ってから紐づける（Lambda / RDS など）
+    const head2 = document.createElement('div'); head2.className = 'form-h'; head2.textContent = '外部リソースを後付けする';
+    const rKind = kindSelect(RESOURCE_KINDS);
+    const rName = mkInput('リソース名（例: orders-api）');
+    const linkKind = kindSelect(ANNO_KINDS);
+    const rNote = mkInput('備考 / 根拠');
+    const createBtn = mkBtn('作成して紐づける', () => {
+      const resourceName = rName.value.trim() || 'unnamed';
+      const id = `ext:${rKind.value}/${slug(resourceName)}`;
+      const note = rNote.value.trim() || undefined;
+      const known = byId.get(id);
+      // 既存ノードには触れず、新規のときだけメタデータを付与する
+      const node = known ? { id, kind: known.kind, name: known.name }
+        : { id, kind: 'resource', name: resourceName, parent: ROOT.id, metadata: cleanMeta({ resourceType: rKind.value, notes: note, addedBy: 'viewer', addedAt: new Date().toISOString() }) };
+      if (!known) addNode({ id, kind: 'resource', name: resourceName, parent: ROOT.i, metadata: node.metadata });
+      addEdge({ source: from.id, target: id, kind: linkKind.value, provenance: 'human', detail: note });
+      persistAnnotation({ nodes: [node], edges: [{ source: from.id, target: id, kind: linkKind.value, provenance: 'human', note }] });
+      setStatus(`${from.name} → ${resourceName} を作成して紐づけました（ブラウザに保存）`);
+      state.selected = byId.get(id).i; render();
+    }, 'primary');
+    box.append(head2, rKind, rName, linkKind, rNote, createBtn);
+
+    // (c) どのノードにでも任意の key / value を後付けする（csproj や .cs にも）
+    const head3 = document.createElement('div'); head3.className = 'form-h'; head3.textContent = `${from.name} にメタデータを後付け`;
+    const mKey = mkInput('key（例: team）');
+    const mVal = mkInput('value（例: orders-platform）');
+    const metaBtn = mkBtn('追加', () => {
+      const key = mKey.value.trim();
+      if (!key) { setStatus('key を入力してください。'); return; }
+      const value = mVal.value.trim();
+      addNode({ id: from.id, kind: from.kind, name: from.name, parent: from.parent, path: from.path, metadata: { [key]: value } });
+      persistAnnotation({ nodes: [{ id: from.id, kind: from.kind, name: from.name, metadata: { [key]: value } }], edges: [] });
+      setStatus(`${from.name} に ${key} を記憶させました（ブラウザに保存）`);
+      render();
+    });
+    box.append(head3, mKey, mVal, metaBtn);
     return box;
   }
+  function cleanMeta(meta) { const out = {}; for (const [k, v] of Object.entries(meta || {})) if (v !== undefined && v !== null && v !== '') out[k] = v; return out; }
+  function mkInput(placeholder) { const el = document.createElement('input'); el.placeholder = placeholder; return el; }
   function slug(s) { return s.toLowerCase().replace(/[^a-z0-9_-]+/gi, '-').replace(/^-|-$/g, ''); }
 
   function addNode(spec) {
@@ -554,35 +621,37 @@
   }
   function addEdge(spec) {
     const s = byId.get(spec.source), t = byId.get(spec.target);
-    if (!s || !t) return null;
+    if (!s || !t || (s.i === t.i && spec.kind !== 'annotates')) return null;
+    const dup = edges.find((x) => x.s === s.i && x.t === t.i && x.kind === spec.kind);
+    if (dup) { dup.count += spec.count || 1; return dup; }
     const e = { i: edges.length, s: s.i, t: t.i, kind: spec.kind, count: spec.count || 1, prov: spec.provenance || 'llm', detail: spec.detail || null, line: null };
     edges.push(e);
+    if (!PROV.includes(e.prov)) { PROV.push(e.prov); state.prov.add(e.prov); renderToolbar(); }
     (outEdges.get(s.i) || outEdges.set(s.i, []).get(s.i)).push(e);
     (inEdges.get(t.i) || inEdges.set(t.i, []).get(t.i)).push(e);
     return e;
   }
 
-  const STORE_KEY = 'csdg:annotations';
-  function readStoredAnnotations() {
-    try { return JSON.parse(localStorage.getItem(STORE_KEY) || '[]'); } catch { return []; }
-  }
-  function persistAnnotation(obj) {
-    const all = readStoredAnnotations(); all.push(obj);
-    try { localStorage.setItem(STORE_KEY, JSON.stringify(all)); } catch {}
-    exportable.push(obj);
-  }
-  const exportable = [];
   function applyAnnotation(obj) {
     for (const n of obj.nodes || []) addNode({ id: n.id, kind: n.kind || 'resource', name: n.name, parent: (byId.get(n.parent) || ROOT).i, path: n.path, metadata: n.metadata });
     for (const e of obj.edges || []) addEdge({ source: e.source, target: e.target, kind: e.kind, provenance: e.provenance || 'llm', detail: e.note || e.detail });
   }
-  function downloadAnnotations() {
+  function collectAnnotations() {
     const nodesMap = new Map(), edgeList = [];
+    const edgeIds = new Set();
     for (const obj of exportable) {
-      for (const n of obj.nodes || []) nodesMap.set(n.id, n);
-      for (const e of obj.edges || []) edgeList.push(e);
+      for (const n of obj.nodes || []) if (n && n.id) nodesMap.set(n.id, n);
+      for (const e of obj.edges || []) {
+        if (!e || !e.source || !e.target || !e.kind) continue;
+        const key = `${e.kind}:${e.source}->${e.target}`;
+        if (edgeIds.has(key)) continue;
+        edgeIds.add(key); edgeList.push(e);
+      }
     }
-    const out = { schemaVersion: 1, producer: 'viewer', generatedAt: new Date().toISOString(), nodes: [...nodesMap.values()], edges: edgeList, metadata: [] };
+    return { schemaVersion: 1, producer: 'viewer', generatedAt: new Date().toISOString(), nodes: [...nodesMap.values()], edges: edgeList, metadata: [] };
+  }
+  function downloadAnnotations() {
+    const out = collectAnnotations();
     const url = URL.createObjectURL(new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' }));
     const a = document.createElement('a'); a.href = url; a.download = 'annotations.json'; a.click();
     URL.revokeObjectURL(url);
@@ -728,7 +797,7 @@
     if (state.selected != null) params.set('select', nodes[state.selected].id);
     return '#' + params.toString();
   }
-  window.__csdg = { state, nodes, byId, reveal, focusNeighbors, render };
+  window.__csdg = { state, nodes, edges, byId, reveal, focusNeighbors, render, collectAnnotations, storedAnnotations: readStoredAnnotations };
   document.getElementById('btn-link').addEventListener('click', async () => {
     const url = location.href.split('#')[0] + currentHash();
     try { await navigator.clipboard.writeText(url); setStatus('この表示の URL をコピーしました'); }
@@ -743,6 +812,10 @@
 
   document.getElementById('title').textContent = `C# 依存関係グラフ — ${DATA.name || DATA.root || ''}`;
   renderToolbar();
+  // ブラウザ保存済みの注釈を復元してから初期描画する。JSON 出力の対象にも入れるので
+  // 「再読込 → 書き出し → merge --annotation」の往復が壊れない
+  for (const file of readStoredAnnotations()) { applyAnnotation(file); exportable.push(file); }
+
   const preselected = applyHashState();
   render();
   if (preselected) centerOn(preselected.i); else fit();

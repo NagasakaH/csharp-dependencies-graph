@@ -182,6 +182,15 @@ public sealed class ReferenceScanner
 
         if (receiver is null)
         {
+            // 名前のない receiver の呼び出しは self / this を仮定する。
+            // ただしその名前が局所変数・パラメータ・デリゲード型メンバーを指しているなら、
+            // それはメソッド呼び出しではなく変数のデリゲート実行なので断定しない。
+            if (scope.ContainsKey(name!) || IsNonInvocableMember(ts, name!))
+            {
+                Unresolved(symbol, file, raw);
+                return;
+            }
+
             var own = _index.FindMember(ts, name!);
             if (own is not null)
             {
@@ -481,6 +490,9 @@ public sealed class ReferenceScanner
 
         if (receiver is null)
         {
+            // receiver なしでも、名前が局所変数やデリゲード型メンバーなら this のメソッドではない。
+            if (scope.ContainsKey(name!) || IsNonInvocableMember(ts, name!)) return ExprType.Unknown;
+
             var own = _index.FindMember(ts, name!);
             if (own?.ReturnType is not null) return FromType(TypeText.UnwrapTask(own.ReturnType));
             return ExprType.Unknown;
@@ -528,6 +540,13 @@ public sealed class ReferenceScanner
     };
 
     // ---------------------------------------------------------------- スコープ
+
+    /// <summary>その名前のメンバーが呼び出し可能でない（フィールド／プロパティ／イベント）か。</summary>
+    bool IsNonInvocableMember(TypeSymbol ts, string name)
+    {
+        var member = _index.FindMember(ts, name);
+        return member is not null && member.Kind is "field" or "property" or "event" or "constant";
+    }
 
     Dictionary<string, string> BuildScope(MemberDeclarationSyntax member, TypeSymbol ts, string ns, FileResult file)
     {
@@ -642,8 +661,17 @@ public sealed class ReferenceScanner
         }
     }
 
-    static bool IsVar(TypeSyntax type) =>
-        type is PredefinedTypeSyntax predefined && predefined.Keyword.IsKind(SyntaxKind.VarKeyword);
+    /// <summary>
+    /// 暗黙的型指定（var）か。構文木では PredefinedTypeSyntax として現れない形があるため、
+    /// IdentifierName の "var" もここに通す。ここを取り逃すと var 変数の型が復元できず、
+    /// `var x = new Foo(); x.Bar();` の calls エッジが黙って落ちる。
+    /// </summary>
+    static bool IsVar(TypeSyntax type) => type switch
+    {
+        PredefinedTypeSyntax predefined => predefined.Keyword.IsKind(SyntaxKind.VarKeyword),
+        IdentifierNameSyntax identifier => identifier.Identifier.Text == "var",
+        _ => false,
+    };
 
     // ---------------------------------------------------------------- 出力
 
