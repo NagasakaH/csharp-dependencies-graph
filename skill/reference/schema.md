@@ -13,18 +13,35 @@
 - `direction` の値域は **`in` / `out` / `none`**（文字列。`null` は使わない）
   - `in` = 影響を受ける入口、`out` = 影響する先
   - `none` = **この表示経路に 向き を決める関係が無い**（Terraform の定義の縁だけを辿った行）。
-    「そのノードに他の有向関係が存在しない」意味ではない。動きの根拠が無いこと同義でもない
+    「そのノードに他の有向関係が存在しない」意味ではない。動きの根拠 が無いこととは同義でもない
     （以前の有向縁から 向き を継承した行もある）
+  - `null` を使わない理由: 「まだ調べていない」「値が未取得」は `evidence` / `movementEvidence`
+    の側で `null` を使うので、`direction` まで `null` にすると「未取得」と「関係が無い」が
+    区別できなくなる。値域を文字列 3 つに揃えれば、読み手は未知の値も同じ経路で扱える
   - `none` の行は `tier` を保ったまま中立欄（`wiring` / `sameApi` / `siblingEndpoints`）で受ける。
-    Markdown の 向き 列は「—」。Markdown には「無方向」という語を書かない
+    Markdown の**向き 列**は「—」に書く（Markdown の先頭注記では Terraform の定義閉包を
+    「無方向で閉じる」と書くので、「無方向」という語自体を避けているわけではない）
+- **契約の版**: レポート出力のトップレベルには `schemaVersion` が無い（v1 の出力契約のまま）。
+  第 46 ラウンドで `direction` の値域に `none` を足したので、**列挙値の追加という旧読者を壊し
+  得る拡張**が入っている。旧出力との見分け方は `summary.directionless` キーの有無
+  （無い出力が `in` / `out` のみの旧版）。読み手は `direction` の**未知の値を「方向を持たない」
+  ものとして扱い**、方向別の欄へ落とさないこと（既定値を中立にしておけば新版の出力でも行が
+  消えない）。同じ版で `summary.directionless` / `summary.directionlessPrimary` の 2 キーを
+  追加している。`schemaVersion` をレポート出力へ入れるかは未決定（v1 基準の更新と絡むため人の
+  承認を要する。`out/tmp-r46/REBASE.md`）
 - `direction === "none"` と `movementEvidence === null` は同義ではない（無方向の連鎖でも以前の
   有向縁から 向き を継承して `in` / `out` になる行がある）
 - `summary.directionless` = `direction === "none"` の行数、`summary.directionlessPrimary` =
-  のうち 本命（`tier === "primary"`）の行数。**方向別のカウンタ（`entryIn` / `entryOut` など）は
-  `none` を数えない**ので、`in` と `out` の合計が 総行数より少なくなるのが正しい
-- `--expect` の `direction` は `in` / `out` / `none` / `both` を受ける（既定 `both`）
-- 実測: 保存済み 18 レポート 441 行中 28 行が `none`（同じ API 17 / 定義上の関連 9 / 兄弟 2、
-  うち 本命 2）。レポート出力に `schemaVersion` は無い（v1 の出力契約のまま）
+  **`none` の行のうち** 本命（`tier === "primary"`）の行数。**方向別のカウンタ（`entryIn` /
+  `entryOut` など）は `none` を数えない**ので、`in` と `out` の合計が 総行数より少なくなるのが正しい
+- `--expect` の `direction` は `in` / `out` / `none` / `both` を受ける（既定 `both`）。`both` は
+  「向き で絞り込まない」意味で `none` ではない。`none` を指定したときの対象は
+  **本命（`tier === "primary"`）で、かつ中立欄（`sameApi` / 兄弟）でない行**
+  （採点の分母は外部リソースだけ）。保存済み 18 レポートでは **0 行**（`none` の 本命 2 行は
+  いずれも `sameApi` に並ぶ）で、`facts-preempt-none` の回帰テスト用の指定
+- 実測: 保存済み 18 レポート 441 行中 28 行が `none`（同じ API を定義するノード 17 /
+  定義上の関連 9 / 同じコードを使う別の API 2、うち 本命 2）。「同じコードを使う別の API」の
+  一覧は Markdown に 向き 列を出さないので、そこは JSON の `siblingEndpoints` で見る
 
 ## graph.json（生成物の本体）
 

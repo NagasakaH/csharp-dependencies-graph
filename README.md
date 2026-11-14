@@ -29,14 +29,14 @@ open out/graph/graph.html
 最低 5 組、組ごとの倍率の中央値で判定）**と 最大 RSS 800 MB（絶対上限）** で、**1.0 秒はゲートではなく
 UX 目標**、最大応答時間はゲートにしない。4 とおりの入力の倍率・最大 RSS・測定環境は
 [skill/SKILL.md](skill/SKILL.md) の「レポートの性能基準」に実測どおり置いてある
-（第 46 ラウンドの実測で 4 とおりすべて適合、重い `elsa-folder` でも倍率中央値 1.12 / 最大 RSS 642.1 MB。
+（第 47 ラウンドの実測で 4 とおりすべて適合、重い `elsa-folder` でも倍率中央値 1.07 / 最大 RSS 642.3 MB。
 かつて 1.67 で超過したときは、結果を 1 バイトも変えない軽量化で収束させ、時間で切り捨てる対応は採っていない）。
 
 検証は 2 系統あり、どちらも対象プロジェクト非依存で動く。
 
 ```sh
 node skill/scripts/test-analyzer.mjs                          # 静的解析の精度（96 項目、ブラウザ不要）
-node skill/scripts/test-report.mjs                            # 影響範囲レポート（107 項目）
+node skill/scripts/test-report.mjs                            # 影響範囲レポート（110 項目）
 node skill/scripts/test-query.mjs                             # 逆引き・影響範囲の照会（28 項目、.NET 不要）
 node skill/scripts/test-merge.mjs                             # Lambda handler の解決規則（12 項目、.NET 必要）
 node skill/scripts/test-terraform.mjs                         # API Gateway のパス組み立てと HTTP API (v2) の `target`（46 項目、.NET 不要）
@@ -108,6 +108,10 @@ node skill/scripts/report.mjs --graph out/demo/graph.json --api "POST /orders"
 | 同じコードを使う別の API | `### 同じコードを使う別の API（…）` | `siblingEndpoints` | `siblings`（内訳は `siblingEndpointsOnly` / `siblingDefs`） |
 | 定義上の関連 | `### 定義上の関連（…）` | `wiring` | `wiring` |
 
+Markdown 先頭の**集計行**だけ、欄名を短縮して「同じ API の定義」「同じコードを使う別の API」と書く
+（`--help` も同じ短縮形）。一覧の見出しは上の表の `### …` のとおり、JSON のキーと行の `bucket` は
+`sameApi` / `siblingEndpoints` の英字のままで、指している欄は同じ。
+
 **実行経路とみなす条件**（第 29 ラウンドの裁定）: `method → invokes → integration`（v2 の `target`、
 v1 の三点組）または統合からメソッドへの直接参照・注釈があるときだけ実行経路とみなす。無いものは
 定義上の関連 に残して対応未確定の警告を出す（「その API の下に method が 1 件しかない」で橋を掛けたり、
@@ -143,10 +147,14 @@ v1 の三点組）または統合からメソッドへの直接参照・注釈�
 `in` / `out` を継承した行もある）。`none` の行は `tier` を保ったまま 定義上の関連 / 同じ API を定義する
 ノード / 同じコードを使う別の API の中立欄で受け、Markdown の 向き 列は「—」。方向を持つ欄
 （外部・コードの入口・成果物の 先 / 受）に並べると `in` / `out` の意味をでっち上げることになるため。
-件数は `summary.directionless`（うち本命は `summary.directionlessPrimary`）に出す（実測: 保存済み
-18 レポート 441 行中 28 行 = 同じ API 17 / 定義上の関連 9 / 兄弟 2、うち本命 2）。`--expect` の
-`direction` は `in` / `out` / `none` / `both` を受け、既定の `both` は 向き で絞らないので `none` の
-着地を取りこぼさない。
+ただし「同じコードを使う別の API」の一覧は Markdown では 向き 列を出さないので、そこは JSON の
+`siblingEndpoints` で見る。件数は `summary.directionless`（うち本命は `summary.directionlessPrimary`）に
+出す（実測: 保存済み 18 レポート 441 行中 28 行 = 同じ API を定義するノード 17 / 定義上の関連 9 /
+同じコードを使う別の API 2、うち本命 2）。`--expect` の `direction` は `in` / `out` / `none` / `both` を
+受け、既定の `both` は 向き で絞らないので `none` の着地を取りこぼさない。`none` を指定すると
+本命かつ中立欄でない行だけを採点する（保存済み 18 レポートでは 0 行。`none` の 本命 2 行はどちらも
+「同じ API を定義するノード」に並ぶ）。契約の版と旧出力の見分け方は
+[skill/reference/schema.md](skill/reference/schema.md) の「レポート出力」に書く。
 
 **動きの根拠（`movementEvidence`）も同じ表示経路から**決め、表示経路の最終一歩が動きの縁のときだけ
 その縁を立てる（定義の縁なら `null`）。`movementEvidence === null` と `direction === "none"` は

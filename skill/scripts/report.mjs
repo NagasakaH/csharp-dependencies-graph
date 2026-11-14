@@ -43,9 +43,10 @@ const USAGE = `使い方: report.mjs --graph <graph.json> [--changed <変更フ�
               in = 影響を受ける入口、out = 影響する先、none = **この表示経路に 向き を決める
               関係が無い**（Terraform の定義の縁だけを辿った行）。Markdown の一覧の 向き 列では「—」と書く。
               none は「そのノードに他の有向関係が存在しない」意味ではなく、動きの根拠が
-              無いこと同義でもない（以前の有向縁から 向き を継承した行もある）。none の行は
+              無いこととは同義ではありません（以前の有向縁から 向き を継承した行もある）。none の行は
               定義上の関連 / 同じ API の定義 / 同じコードを使う別の API の欄に並び、
-              tier（本命の資格）はそのまま保つ。
+              tier（本命の資格）はそのまま保つ。「同じコードを使う別の API」の一覧は 向き 列を
+              出さないので、そこは JSON の siblingEndpoints で見る。
   変更ファイルがグラフに見当たらないときは、既定では起点にしません（--folder-start で初めて親フォルダ起点）。`;
 
 for (let i = 2; i < process.argv.length; i++) {
@@ -959,6 +960,14 @@ function mergeRecords(found) {
 // `ARROW_REVERSED` のどおり**コード側が下流**。コードを変更したときにそのエンドポイントを
 // 「読み書きする先」でなく「このコードを呼び込む側（影響を受ける入口）」と読む
 const MOVEMENT = new Set(['triggers', 'invokes', 'handler', 'exposed-by']);
+// **表示する縁は必ずこの 5 項目だけのコピーで出す**（第 46 ラウンド双人レビュー指摘）。
+// 隣エントリの表示用コピー `view`（:118）と、閉包が持つ生の縁（`metadata` や `count` を連れる）の
+// どちらが `evidence` / `movementEvidence` に入っても JSON の形が変わった。実測
+// `out/tmp-r46/review46-repro.py`: `out/tmp-r44/min-2.json` を縁の 24 とおりで回すと
+// `member:N1` の根拠は同じ `e2` なのに、片方の形にだけ `metadata: {}` が混入した
+const displayEdge = (e) => (e
+  ? { id: e.id, kind: e.kind, provenance: e.provenance, source: e.source, target: e.target }
+  : null);
 // 動きの縁は**矢印の先が下流**。`exposed-by` だけが逆で、「コードがこのエンドポイントを
 // 公開している」という向きなので、矢印の元側（コード）が下流になる
 const ARROW_REVERSED = new Set(['exposed-by']);
@@ -1654,10 +1663,19 @@ const heapLtWalk = (a, b) => {
 };
 // `from` から確定済みの `via` を辿った先に `target` があるか。確定は常に「確定済み親 + 1 縁」
 // で進むので、親の連鎖を見れば循環を確かめられる
-const chainCap = Math.max(opts.hops, opts.wiringHops) + 2;
+//
+// **経路を読む上限に探索の予算（`--hops` / `--wiring-hops`）は使わない**（第 46 ラウンド双人
+// レビュー P1）。ここを `Math.max(opts.hops, opts.wiringHops) + 2`（既定 10）にしていたとき、
+// 実測 `skill/tests/fixtures/ImpactFacts/code-chain-long.graph.json` の最初の縁だけ `human` に
+// 変えて既定値で `--from s` を走らせると、`r4` は 11 段の表示経路を持つのに
+// `correspondence: false`（根の側に注釈縁があるので期待は true）、`summary.correspondenceRows`
+// も 11 ではなく 10 になった。表示値は **確定した表示経路を根まで読んだ関数**でなければならず、
+// 探索の予算で打ち切ってはいけない（裁定「walk の予算は候補を発見する際の制約」）。
+// 実データの表示段数は最大 7（保存済み 18 レポート 441 行の実測）なので、これはコストにならない
+const chainCap = () => combined.size + 2;   // `via` の連鎖は高々これしか伸びない
 const onPickedChain = (from, target) => {
   let node = from;
-  for (let i = 0; node && i < chainCap; i++) {
+  for (let i = 0; node && i < chainCap(); i++) {
     if (node === target) return true;
     const rec = picked.get(node) || combined.get(node);
     node = rec ? rec.via : null;
@@ -1742,7 +1760,7 @@ const switchCount = (id, lookup, done) => {
   const seen = new Set();
   let total = 0;
   let cur = lookup(id);
-  for (let i = 0; cur && i <= chainCap; i += 1) {
+  for (let i = 0; cur && i <= chainCap(); i += 1) {
     if (done) {
       const hit = done.get(cur.id);
       if (hit !== undefined) return total + hit;
@@ -2080,7 +2098,7 @@ const dirOfStep = (id, edge, inherited) => {
 //    `summary.correspondenceRows` が 4 / 3 に割れた
 //  - 機械的な `mdir` / `info.dir`: `mergeFlags` は向きを先着のまま残すので、実在しない一歩の
 //    向きが混ざる（第 43 ラウンド実測 `out/tmp-r43-review/switch-a.json`）
-// 循環は `seen` で打ち切り、上限は選び直しと同じ `chainCap`、`edge` の無い一歩（起点）で打ち切る。
+// 循環は `seen` で打ち切り、**上限は経路の長さぶんだけ読む**（`chainCap()`。探索の予算で打ち切らない）、`edge` の無い一歩（起点）で打ち切る。
 // `tier`（本命 / 定義上）だけは受理事実（`bestState`）のままでよい — 「別経路に昇格の一歩が
 // あったか」は縁順に依らない事実なので、ここは表示経路の純関数にしない（裁定の「据えてよいもの」）
 const displayFacts = (id) => {
@@ -2088,7 +2106,7 @@ const displayFacts = (id) => {
   const chain = [];
   const seen = new Set();
   let cur = combined.get(id);
-  for (let i = 0; cur && i <= chainCap; i += 1) {
+  for (let i = 0; cur && i <= chainCap(); i += 1) {
     if (seen.has(cur.id)) break;              // `via` が循環している（あってはならない形）
     seen.add(cur.id);
     chain.unshift(cur);
@@ -2152,7 +2170,7 @@ for (const [id, info] of combined) {
     pathRoot: root, via: info.via || null,
     // 動きの根拠は表示経路に実際に含まれる縁だけ（`displayFacts`）。別経路で動きの縁が見つかって
     // いてもここへ出さない。表示の根拠（`evidence`）と同じ 1 本が動きの縁のときだけ、その 1 本が出る
-    movementEvidence: facts.movementEvidence,
+    movementEvidence: displayEdge(facts.movementEvidence),
     // 本命かどうかも受理済みの事実で決める（経路を切った行が定義上の関連に落ちないようにする）
     // 未受理の行は record 自身で決める。`wiring` だけでなく**連鎖に入っているか**も見る。
     // `wiring` は一歩ごとの昇格停止なので、親が連鎖外でも false になれる。実測: 起点の
@@ -2162,7 +2180,7 @@ for (const [id, info] of combined) {
     // 起点が API エンドポイントのとき、method / resource / rest_api / integration / deployment は
     // **起点となる API 自身を定義している**ので「影響を受ける外部リソース」に数えない
     sameApi: startIsEndpoint && !endpointOf(byId.get(id)) && startApiGroups.has(apiGroupOf(byId.get(id))),
-    reachedByInvokes: facts.reachedByInvokes, evidence: info.edge, path: p,
+    reachedByInvokes: facts.reachedByInvokes, evidence: displayEdge(info.edge), path: p,
   });
 }
 rows.sort((a, b) => a.switches - b.switches || a.hops - b.hops || a.id.localeCompare(b.id));
@@ -2419,7 +2437,7 @@ const siblingEpIds = new Set(siblingRows().filter((r) => !!r.endpoint).map((r) =
 const reachedRealEndpoints = reachedEndpoints.filter((e) => !siblingEpIds.has(e.id));
 const reachedSiblingEndpoints = reachedEndpoints.filter((e) => siblingEpIds.has(e.id));
 const SIBLING_LIST_HINT = '一覧は `--list-siblings`（本数は `--limit`）';
-let md = `# 影響範囲レポート\n\n- グラフ: \`${summary.graph}\`\n- 起点 ${summary.starts} 件（展開後 ${summary.expandedStarts} 件、グラフに無く起点にしなかった変更 ${summary.fallbacks} 件）\n- 探索 ${summary.hops} ホップ（向きの変えは探索中 1 回まで許可、表示経路で向き変えを含む行 ${summary.secondOrder} 件）/ Terraform の定義単位は ${summary.wiringHops} 段まで無方向で閉じる / 階層（parent・contains）は起点の展開にのみ使用\n- 本命: 影響する先 ${summary.primaryOut} / 影響を受ける入口 ${summary.primaryIn} / コード 出口 ${summary.entryOut}・入口 ${summary.entryIn} / 成果物 先 ${summary.artifactsOut}・受 ${summary.artifactsIn} / 定義上の関連 ${summary.wiring} / 同じ API の定義 ${summary.sameApi} / 同じコードを使う別の API ${summary.siblings}（エンドポイント ${summary.siblingEndpointsOnly}・定義ノード ${summary.siblingDefs}）/ 向き を決める関係が無い行 ${summary.directionless}（うち 本命 の資格を持つ行 ${summary.directionlessPrimary}）。**「本命」は「最短」を意味しません**\n- 行の 向き（JSON の direction）は in（影響を受ける入口）/ out（影響する先）/ none（**この表示経路に 向き を決める関係が無い**。Terraform の定義の縁だけを辿った行。一覧の 向き 列では「—」と書きます）。none は「そのノードに他の有向関係が存在しない」意味ではなく、動きの根拠 が無いこと同義でもありません（以前の有向縁から 向き を継承した行があります）。継承した in / out は、その無方向の縁自体が動作方向を証明した値ではありません。none の行は 定義上の関連・同じ API の定義・同じコードを使う別の API に並び、tier（本命の資格）はそのまま保ちます\n- 各段数欄は**表示経路の段数**です（起点 0 段、表示経路の関係 1 本を 1 段。表の値と行の経路表示は一致させます）。**最短とは限りません**。経路全体の整合性を保つため、より長い代表経路を表示する場合があります。この段数は影響の強さやレビューの優先度を示しません\n- 根拠の由来: ${Object.entries(summary.byProvenance).map(([k, v]) => `${provLabel(k)} ${v}`).join(' / ') || 'なし'}（**注釈由来 ${summary.annotationRows} 件**は静的解析では決まらない対応付け）\n\n`;
+let md = `# 影響範囲レポート\n\n- グラフ: \`${summary.graph}\`\n- 起点 ${summary.starts} 件（展開後 ${summary.expandedStarts} 件、グラフに無く起点にしなかった変更 ${summary.fallbacks} 件）\n- 探索 ${summary.hops} ホップ（向きの変えは探索中 1 回まで許可、表示経路で向き変えを含む行 ${summary.secondOrder} 件）/ Terraform の定義単位は ${summary.wiringHops} 段まで無方向で閉じる / 階層（parent・contains）は起点の展開にのみ使用\n- 本命: 影響する先 ${summary.primaryOut} / 影響を受ける入口 ${summary.primaryIn} / コード 出口 ${summary.entryOut}・入口 ${summary.entryIn} / 成果物 先 ${summary.artifactsOut}・受 ${summary.artifactsIn} / 定義上の関連 ${summary.wiring} / 同じ API の定義 ${summary.sameApi} / 同じコードを使う別の API ${summary.siblings}（エンドポイント ${summary.siblingEndpointsOnly}・定義ノード ${summary.siblingDefs}）/ 向き を決める関係が無い行 ${summary.directionless}（うち 本命 の資格を持つ行 ${summary.directionlessPrimary}）。**「本命」は「最短」を意味しません**\n- 行の 向き（JSON の direction）は in（影響を受ける入口）/ out（影響する先）/ none（**この表示経路に 向き を決める関係が無い**。Terraform の定義の縁だけを辿った行。一覧の 向き 列では「—」と書きます）。none は「そのノードに他の有向関係が存在しない」意味ではなく、動きの根拠 が無いこととは同義ではありません（以前の有向縁から 向き を継承した行があります）。継承した in / out は、その無方向の縁自体が動作方向を証明した値ではありません。none の行は 定義上の関連・同じ API の定義・同じコードを使う別の API に並び、tier（本命の資格）はそのまま保ちます（同じコードを使う別の API の一覧は 向き 列を出さないので、そこは JSON の \`siblingEndpoints\` で見ます）\n- 各段数欄は**表示経路の段数**です（起点 0 段、表示経路の関係 1 本を 1 段。表の値と行の経路表示は一致させます）。**最短とは限りません**。経路全体の整合性を保つため、より長い代表経路を表示する場合があります。この段数は影響の強さやレビューの優先度を示しません\n- 根拠の由来: ${Object.entries(summary.byProvenance).map(([k, v]) => `${provLabel(k)} ${v}`).join(' / ') || 'なし'}（**注釈由来 ${summary.annotationRows} 件**は静的解析では決まらない対応付け）\n\n`;
 if (result.score) {
   const s = result.score;
   md += `## 精度（期待一覧との突き合わせ）\n\n- ケース: ${s.case}（方向 ${s.direction}）\n- 期待 ${s.expected} 件 / 外部リソースへの着地 ${s.landedExternal} 件 / 的中 ${s.hitExternal} 件\n- **再現率 ${s.recall} / 適合率 ${s.precision}**\n- 取りこぼし: ${s.missed.map((x) => `\`${x}\``).join(', ') || 'なし'}\n- 余分な着地: ${s.extraExternal.map((x) => `\`${label(x)}\``).join(', ') || 'なし'}\n- 取りこぼしのうち到達はしていた（定義上の関連に回ったもの）: ${s.wiringOnly} 件\n${s.note ? `\n> ${s.note}\n` : ''}\n`;
@@ -2461,10 +2479,10 @@ if (reachedSiblingEndpoints.length) {
 }
 md += mdSection('影響する外部リソース（変更が読み書きする先）', externalRows(outRows), opts.limit);
 md += mdSection('影響を受ける入口（変更を使う呼び出し元・リソース）', externalRows(inRows), opts.limit);
-md += mdSection('影響を受けるコード側の入口（メソッド・型）', entryRows(inRows).slice(0, opts.limit), opts.limit);
+md += mdSection('影響を受けるコード側の入口（メソッド・型）', entryRows(inRows), opts.limit);
 // JSON には `entries.out` が入るのに Markdown に出ていなかった（実測 11 件が画面から見えない）。
 // エンドポイント起点のとき「Lambda が実際に実行するコード」がこれなので、欄を分けて出す
-md += mdSection('影響するコード側の出口（起点から届くメソッド・型）', entryRows(outRows).slice(0, opts.limit), opts.limit);
+md += mdSection('影響するコード側の出口（起点から届くメソッド・型）', entryRows(outRows), opts.limit);
 if (startIsEndpoint) md += mdSection('起点と同じ API を定義するノード（変更で値は動かないので見直しの候補）', sameApiRows(), opts.limit);
 if (startIsEndpoint && siblingRows().length) {
   md += `### 同じコードを使う別の API（エンドポイント ${summary.siblingEndpointsOnly} 件と、それを定義するノード ${summary.siblingDefs} 件。起点の定義ではなく、共有しているコードを変えたときに一緒に見る）\n\n`;
@@ -2477,6 +2495,10 @@ if (opts.listSiblings) {
     if (rest > 0) md += `他のルート ${rest} 件（\`--limit\` を上げるか \`--json\` 参照）\n\n`;
   }
 }
+// 一覧の切り詰めは `mdSection` の中でやる（`limit` を超えたら「（他 N 件は --json 参照）」を
+// 出す）。呼び出し側で先に `slice` すると件数が合わず注記が消えるので渡さない
+// （第 46 ラウンド双人レビュー指摘。実測 `--api "POST /orders" --limit 2` で
+// `entryOut` 10 に対して表 2 行の注記が出なかった）
 // 先（影響する側）と受（影響を受ける側）を 1 表に混ぜると、集計行の
 // 「成果物 先 X・受 Y」と対応が読めなかった（レビュー指摘）。分けて出す
 md += mdSection('影響するリポジトリ内の成果物（プロジェクト・ファイル。ビルドし直しが必要な範囲）',

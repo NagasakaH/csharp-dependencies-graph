@@ -53,13 +53,19 @@ if (build.status !== 0) {
 }
 const GRAPH = join(outDir, 'graph.json');
 
+// 実行した JSON を全部覚えておく（末尾で `evidence` の形を一括検査するため。第 46 ラウンド
+// 双人レビュー P2: 閉包が持つ生の縁（`count` / `metadata` を連れる）が JSON にそのまま混ざる
+// 経路があった。検査器は根拠縁の id しか見ていなかったので、JSON の形の非決定性を捕まえなかった）
+const allDocs = [];
 // report.mjs を実行して JSON を返す
 function run(args, label) {
   const json = join(dir, `${label}.json`);
   const proc = spawnSync(process.execPath, [join(HERE, 'report.mjs'), '--graph', GRAPH, ...args, '--json', json],
     { cwd: root, encoding: 'utf8' });
   if (proc.status !== 0) { console.error((proc.stdout || '') + (proc.stderr || '')); return null; }
-  return { result: JSON.parse(readFileSync(json, 'utf8')), stdout: proc.stdout, stderr: proc.stderr };
+  const result = JSON.parse(readFileSync(json, 'utf8'));
+  allDocs.push({ label, result });
+  return { result, stdout: proc.stdout, stderr: proc.stderr };
 }
 const list = (name, lines) => {
   const f = join(dir, name);
@@ -83,7 +89,9 @@ function run2(args, label) {
   const proc = spawnSync(process.execPath, [join(HERE, 'report.mjs'), '--graph', GRAPH2, ...args, '--json', json],
     { cwd: root, encoding: 'utf8' });
   if (proc.status !== 0) { console.error((proc.stdout || '') + (proc.stderr || '')); return null; }
-  return { result: JSON.parse(readFileSync(json, 'utf8')), stdout: proc.stdout, stderr: proc.stderr };
+  const result = JSON.parse(readFileSync(json, 'utf8'));
+  allDocs.push({ label, result });
+  return { result, stdout: proc.stdout, stderr: proc.stderr };
 }
 // 手作りのグラフをそのまま渡す実行（双人レビューの最小反例を回帰テストとして固定する）
 const FACTS = join(HERE, '..', 'tests', 'fixtures', 'ImpactFacts');
@@ -93,7 +101,9 @@ function runOn(graphFile, args, label) {
   const proc = spawnSync(process.execPath, [join(HERE, 'report.mjs'), '--graph', join(FACTS, graphFile),
     ...args, '--json', json, '--md', mdFile], { cwd: root, encoding: 'utf8' });
   if (proc.status !== 0) { console.error((proc.stdout || '') + (proc.stderr || '')); return null; }
-  return { result: JSON.parse(readFileSync(json, 'utf8')), stdout: proc.stdout, stderr: proc.stderr,
+  const result = JSON.parse(readFileSync(json, 'utf8'));
+  allDocs.push({ label, result });
+  return { result, stdout: proc.stdout, stderr: proc.stderr,
     md: readFileSync(mdFile, 'utf8') };
 }
 
@@ -842,11 +852,43 @@ check('--limit で一覧が切れてもカウンタの不変条件は保たれ�
     c ? JSON.stringify([c.result.summary.rounds, c.result.summary.maxRounds,
       c.result.summary.unresolved, /収束する前に/.test(c.stderr || ''), /収束していません/.test(cMd)]) : '実行失敗');
 
+  // `--limit` で一覧を切ったとき、Markdown の「（他 N 件は --json 参照）」が出るか。
+  // コード側の入口・出口の 2 欄は `mdSection` に渡す前に `slice` していたので、件数が合わず
+  // 注記が消えていた（実測 `--api "POST /orders" --limit 2`: `entryOut` 10 に表 2 行で注記なし）
+  const lim = runOn('down-inherit-record.graph.json', ['--from', '0', '--hops', '3', '--limit', '1'], 'limit-note');
+  const limSec = lim ? lim.md.split('\n### ').find((s) => s.startsWith('影響するコード側の出口')) : '';
+  check('--limit で切った一覧に「（他 N 件は --json 参照）」が出る（コード側の出口・入口）',
+    !!lim && lim.result.summary.entryOut === 2
+      && limSec.split('\n').filter((l) => l.startsWith('|')).length === 3   // 表ヘッダ 2 行 + 1 行
+      && /他 1 件は --json 参照/.test(limSec || ''),
+    lim ? `entryOut=${lim.result.summary.entryOut} 注記=${/他 1 件/.test(limSec || '')}` : '実行失敗');
+
   const d = runOn('code-chain-long.graph.json', ['--from', 's', '--hops', '100'], 'code-rounds');
   check('API を含まない Lambda の連鎖は既定の上限で切り詰めない（上限式はコードのノード数も数える）',
     !!d && d.result.summary.rows === 25 && d.result.summary.unresolved === false,
     d ? JSON.stringify([d.result.summary.rows, d.result.summary.rounds,
       d.result.summary.maxRounds, d.result.summary.unresolved]) : '実行失敗');
+
+  // 第 46 ラウンド双人レビュー P1。`code-chain-long.graph.json` の 11 段目の `r4` へ届く
+  // 表示経路の**最初の縁**を注釈（human）にすると、期待は 対応 = true。表示値の読みを
+  // `Math.max(hops, wiringHops) + 2`（既定 10）で打ち切っていた間は根の側を落として false だった
+  {
+    const g = JSON.parse(readFileSync(join(FACTS, 'code-chain-long.graph.json'), 'utf8'));
+    g.edges[0] = { ...g.edges[0], provenance: 'human' };
+    const gPath = join(dir, 'code-chain-long-human.graph.json');
+    writeFileSync(gPath, JSON.stringify(g));
+    const json = join(dir, 'long-root-annotation.json');
+    const proc = spawnSync(process.execPath, [join(HERE, 'report.mjs'), '--graph', gPath,
+      '--from', 's', '--json', json], { cwd: root, encoding: 'utf8' });
+    const doc = proc.status === 0 ? JSON.parse(readFileSync(json, 'utf8')) : null;
+    if (doc) allDocs.push({ label: 'long-root-annotation', result: doc });
+    const r4 = doc ? allRows(doc).find((x) => x.id === 'r4') : null;
+    check('表示経路が探索予算より長くても根の側の注釈縁を読んで 対応 を真にする（既定の --hops）',
+      !!r4 && r4.path.length === 12 && r4.correspondence === true
+        && doc.summary.correspondenceRows === 11,
+      r4 ? JSON.stringify([r4.path.length, r4.correspondence, doc.summary.correspondenceRows])
+        : '実行失敗');
+  }
 
   const e = runOn('budget-dominance.graph.json', ['--from', 'tf:aws_api_gateway_method.m1'], 'dominance');
   const lam2 = e ? [...e.result.external.out, ...e.result.external.in, ...e.result.wiring]
@@ -2009,6 +2051,24 @@ check('--limit で一覧が切れてもカウンタの不変条件は保たれ�
     d44 ? `回数=${JSON.stringify(allRows(d44.result).reduce((a, x) => {
       a[x.switches] = (a[x.switches] || 0) + 1; return a; }, {}))} secondOrder=${d44.result.summary.secondOrder}`
       : '実行失敗');
+}
+
+// ---- 実行した全レポート横断の検査（第 46 ラウンド双人レビュー P2）----
+{
+  const KEYS = ['id', 'kind', 'provenance', 'source', 'target'];
+  const bad = [];
+  for (const { label, result } of allDocs) {
+    for (const r of allRows(result)) {
+      const k = Object.keys(r.evidence || {}).sort();
+      if (k.join(',') !== KEYS.join(',')) bad.push(`${label}/${r.id} evidence=[${k.join(',')}]`);
+      if (r.movementEvidence) {
+        const m = Object.keys(r.movementEvidence).sort();
+        if (m.join(',') !== KEYS.join(',')) bad.push(`${label}/${r.id} 動きの根拠=[${m.join(',')}]`);
+      }
+    }
+  }
+  check(`表示する縁は 5 項目だけのコピー（全 ${allDocs.length} レポート。閉包の生の縁の count / metadata を混ぜない）`,
+    bad.length === 0, bad.slice(0, 3).join(' / ') || '混入 0 件');
 }
 
 rmSync(dir, { recursive: true, force: true });

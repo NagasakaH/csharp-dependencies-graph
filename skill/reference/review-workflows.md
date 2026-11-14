@@ -44,7 +44,8 @@ git diff --name-only origin/main... | node skill/scripts/report.mjs \
 `out` をでっち上げないためです。`tier`（本命の資格）はそのまま保つので、実測 441 行中 28 行が `none` で、
 うち 2 行は 本命 の資格を持っています。件数は `summary.directionless` / `summary.directionlessPrimary`。
 「向き を決められない」は「そのノードに関係が無い」意味ではなく、**表示経路が Terraform の定義の縁だけ
-だった**という意味です
+だった**という意味です（「同じコードを使う別の API」の一覧は Markdown に 向き 列を出さないので、
+そこは JSON の `siblingEndpoints` で見ます）
 
 **実行経路とみなす条件**（第 29 ラウンドの裁定。第 30 ラウンドの双人レビューで両名が文書化を要求）:
 `method → invokes → integration`（v2 の `target`、v1 の三点組）または統合からメソッドへの直接参照・
