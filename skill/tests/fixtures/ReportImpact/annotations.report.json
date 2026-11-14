@@ -1,0 +1,45 @@
+{
+  "producer": "human",
+  "source": "skill/tests/fixtures/ReportImpact/annotations.report.json",
+  "notes": "report.mjs の検査用。静的解析では決まらない対応付け（コード → テーブル、コード → 別 API の呼び出し）を 2 本だけ置く",
+  "nodes": [
+    {
+      "id": "ext:rds/orders",
+      "kind": "resource",
+      "name": "orders-db",
+      "metadata": {
+        "resourceType": "rds",
+        "category": "storage"
+      }
+    },
+    {
+      "id": "ext:rds-table/orders.public.orders",
+      "kind": "resource",
+      "name": "orders",
+      "parent": "ext:rds/orders",
+      "metadata": {
+        "resourceType": "rds-table",
+        "category": "storage",
+        "table": "public.orders"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "source": "member:ReportImpact.Handler.Handle",
+      "target": "ext:rds-table/orders.public.orders",
+      "kind": "writes",
+      "provenance": "human",
+      "detail": "Handler が DynamoDB の orders に書き込む（コードからは辿れない）",
+      "confidence": 0.9
+    },
+    {
+      "source": "member:ReportImpact.Handler.Handle",
+      "target": "tf:aws_api_gateway_method.get_users",
+      "kind": "invokes",
+      "provenance": "human",
+      "detail": "Handler が別 API の GET /users を呼びに出す（兄弟ではなく呼び出している側）",
+      "confidence": 0.9
+    }
+  ]
+}

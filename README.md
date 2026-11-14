@@ -28,9 +28,10 @@ open out/graph/graph.html
 
 ```sh
 node skill/scripts/test-analyzer.mjs                          # 静的解析の精度（96 項目、ブラウザ不要）
+node skill/scripts/test-report.mjs                            # 影響範囲レポート（33 項目）
 node skill/scripts/test-query.mjs                             # 逆引き・影響範囲の照会（17 項目、.NET 不要）
 node skill/scripts/test-merge.mjs                             # Lambda handler の解決規則（12 項目、.NET 必要）
-node skill/scripts/test-terraform.mjs                         # API Gateway のパス組み立て（10 項目、.NET 不要）
+node skill/scripts/test-terraform.mjs                         # API Gateway のパス組み立て（18 項目、.NET 不要）
 node skill/scripts/verify.mjs --html out/graph/graph.html --shots out/shots   # ブラウザ実操作（25 項目）
 ```
 
@@ -68,17 +69,29 @@ git diff --name-only origin/main... | node skill/scripts/report.mjs \
 node skill/scripts/report.mjs --graph out/demo/graph.json --api "POST /orders"
 ```
 
-出方は「影響する外部リソース」「影響を受ける入口」「定義上の関連（Terraform の `references`）」
-「同じ API の定義 / 同じコードを使う別エンドポイント」の 4 枠に分ける。混ぜるほど読み間違えるため。
-`--expect` に期待する着地を書くと再現率・適合率が出るので、計測値を記録できる。
+出方は次の 5 枠に分ける。混ぜるほど読み間違えるため、**どの行も必ずどれか 1 つの枠にしか入らない**
+（`summary.rows` と各枠の合計が必ず一致する）。
 
-| 実測したケース | 期待 | 着地 | 的中 | 再現率 | 適合率 |
+- 影響する外部リソース / 影響を受ける入口 — 動きの縁（`triggers` / `invokes` / `handler` / `calls` / 注釈）で届いたもの
+- 影響を受けるコード側の入口 / 出口 — 上記のうちコード（メソッド・型）のもの
+- 同じ API を定義するノード / 同じコードを使う別エンドポイント — 定義上で繋がっているだけ
+- 定義上の関連 — Terraform の `references`（ブロックを文中に書いただけ）
+
+`--expect` に期待する着地を書くと再現率・適合率が出る。**期待リストは自分の手で確認した列を
+書き写したもの**で、正解データではなく「前回と変わったかを見る整合の測定」だと思っている。
+だからリストを作った人間と同じ前提の誤りは消えない。そこを割り引いて読んでほしい。
+
+| 実測したケース（2026-11-14 計測） | 期待 | 外部着地 | 的中 | 再現率 | 適合率 |
 | --- | --- | --- | --- | --- | --- |
-| demo: `src/Orders.Domain/Order.cs` | 12 | 12 | 11 | 0.917 | 0.917 |
+| demo: `src/Orders.Domain/Order.cs` | 12 | 11 | 11 | 0.917 | 1 |
 | demo: `README.md`（グラフに無い変更） | 0 | 0 | 0 | 1 | 1 |
 | demo: `infra/main.tf`（Terraform 全部） | 0 | 3 | 0 | 1 | 0 |
 | 実プロジェクト: `--api "POST /messages"` | 1 | 1 | 1 | 1 | 1 |
 | 実プロジェクト: `cs/ExampleLambdaApi/Handler.cs` | 2 | 2 | 2 | 1 | 1 |
+
+demo の 1 件の「もれ」は届いていないのではなく**枠の分け方**の結果。
+`tf:aws_api_gateway_deployment.live` まで辿れているが、縁が `references` なので定義上の関連に落ちる
+（JSON の `score.wiringOnly` が 1 で、それがその 1 件）。着地そのものは出ている。
 
 実プロジェクトは [Pondidum/Terraform-Demos](https://github.com/Pondidum/Terraform-Demos) の
 `api-lambda`（C# と Terraform が同じリポジトリにある最小の実例）で、**注釈を 1 件も使わず**に
@@ -86,6 +99,11 @@ node skill/scripts/report.mjs --graph out/demo/graph.json --api "POST /orders"
 `infra/main.tf` をまとめて変えたケースが適合率 0 になるのは、Terraform 経由で注釈由来の
 外部リソース（`ext:rds/…`）まで届くため。粒度の荒い変更は `--provenance static,terraform` で
 注釈由来を切るか、`--from tf:aws_lambda_function.…` と 1 リソースに絞る。
+`--provenance` は Terraform の定義単位を結ぶ段階にも効くので、`static` だけなら API 起点でも着地 0 件になる。
+
+変更ファイルがグラフに無いときの `--folder-start` は、同じデモで **起点 1 件 → 49 件**に膨らんで
+外部着地 0 件・コードの入口 6 件だけ出た（`README.md` を変えたケースの実測）。雑に広げるより
+「そのファイルはグラフに無い」と出したほうがマシなので、既定はオフのままにしている。
 
 レシピ集（結合ハブの棚卸し、呼び出し集中の blast radius、注釈だけの依存のレビュー、
 誤読しないための前提）は [skill/reference/review-workflows.md](skill/reference/review-workflows.md)。
@@ -95,8 +113,8 @@ node skill/scripts/report.mjs --graph out/demo/graph.json --api "POST /orders"
 ```
 skill/
   analyzer/            Roslyn 構文解析（net9.0, cgd）。ビルドは build.mjs がやる
-  scripts/             build / scan / scan-terraform / merge / render / query / verify
-                       + test-analyzer / test-query / test-merge / test-terraform（回帰テスト）
+  scripts/             build / scan / scan-terraform / merge / render / query / report / verify
+                       + test-analyzer / test-query / test-merge / test-terraform / test-report（回帰テスト）
   tests/fixtures/      静的解析と照会のテスト用データ（C# と graph.json）
   viewer/template.html 単一ファイルのビューア（データ埋め込み）
   reference/schema.md  データ契約

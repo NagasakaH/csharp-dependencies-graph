@@ -211,12 +211,15 @@ node $SKILL/scripts/report.mjs --graph out/graph/graph.json --api "POST /orders"
   いるリソースを起点にする。グラフに無い変更ファイルは**起点にしない**（`fallbacks` に出すだけ。
   `--folder-start` は誤検出を膨らませるので理由があるときだけ）
 - **4 つの枠に分けて出す**: 影響する外部リソース / 影響を受ける入口 / 定義上の関連（Terraform の
-  `references`。変更で値は動かない）/ 同じ API の定義・同じコードを使う別エンドポイント。
+  `references`。値そのものは変わるとは限らないが、定義を書き換えたら効く範囲）/
+  同じ API の定義・同じコードを使う別エンドポイント。
+  **どの行も必ずどれか 1 つの枠にしか入らない**（`summary.rows` と各枠の合計が一致する）。
+  段数は定義の縁（`references`）だけ数え、動きの縁を越えたら数え直す
   起点がエンドポイントのときは、起点を定義する `resource` / `rest_api` / `integration` を
   「影響を受ける外部リソース」に数えない
 - **Terraform の縁は向きに意味がない**ので無方向で閉じる（`--wiring-hops` 既定 3 段）。ただし
   `triggers` / `invokes` / `handler` は動きとして伝わるので本命、`references` だけ定義上に回す。
-  `data` ソースは几乎所有りを参照するので既定では閉じない（`--include-data`）
+  `data` ソースはほとんどを参照するので既定では閉じない（`--include-data`）
 - `--expect` に期待する着地一覧（`{"expect": [...], "direction": "out"}`）を渡すと再現率・適合率を
   出して JSON に書く。**数値を記録していないと「もっともらしく間違う」レポートになる**
 - 注釈（`llm` / `human`）由来の行は「静的解析では決まらない対応付け」として件数を出す。
@@ -262,8 +265,8 @@ demo と `BindingRegression/` でも同じ入力を 2 回走らせて、`rejecte
 ```sh
 node $SKILL/scripts/test-query.mjs           # fixtures/query/graph.json を使う（.NET 不要、17 項目）
 node $SKILL/scripts/test-merge.mjs           # Lambda handler の解決規則（.NET 必要、12 項目）
-node $SKILL/scripts/test-terraform.mjs       # API Gateway のパス組み立て（10 項目、.NET 不要）
-node $SKILL/scripts/test-report.mjs          # 差分 → 影響範囲レポート（21 項目、.NET 必要）
+node $SKILL/scripts/test-terraform.mjs       # API Gateway のパス組み立て（18 項目、.NET 不要）
+node $SKILL/scripts/test-report.mjs          # 差分 → 影響範囲レポート（33 項目、.NET 必要）
 ```
 
 `test-merge.mjs` は `fixtures/HandlerLambda/`（`AssemblyName` を置いた csproj と `main.tf`）を
@@ -274,12 +277,20 @@ node $SKILL/scripts/test-report.mjs          # 差分 → 影響範囲レポー�
 `test-report.mjs` は `fixtures/ReportImpact/`（C# と `infra/main.tf` が同じリポジトリにある形）を
 `build.mjs` まで通し、変更ファイル起点の展開、兄弟ファイルの巻き込み回避、Terraform の
 `references` を本命に混ぜないこと、`--api` の解決、`--include-data`、グラフに無い変更を起点にしないこと、
-`--changed -`、Markdown と JSON の件数の一致を照合する。
+`--changed -`、Markdown と JSON の件数の一致を照合する。加えて **どの行もどれか 1 つの枠にしか入らない**
+（欄の合計 == `summary.rows`）、根拠経路に `null` が混ざらない、IAM ロールだけを共有する別 Lambda を
+昇格させない、`project:` 起点がパスの所属で展開される、`--provenance static` が closure にも効く、
+呼びに出したエンドポイント（`invokes`）を兄弟にしない、向き（影響する先 / 受ける入口）が
+縁の矢印と食い違わない、を確かめる。
 
 `test-terraform.mjs` は `fixtures/TerraformApi/`（C# を置かない Terraform だけの fixture）に
 `scan-terraform.mjs` だけを走らせ、`path_part` と `parent_id` から `/orders/{id}` の形になるか、
 method に `POST /orders` の表示名 `endpoint` が付くか、`stage_name` と v2 の `route_key` を取るか、
 **パスが決まらない method に推測で `endpoint` を張らないか**、`parent_id` が循環しても停止しないかを照合する。
+特に `parent_id = var.x` / `module.x.parent_id` / `each.value` / 補間だけ / `route_key = var.x` /
+v2 の `$default` のように**未解決の式からエンドポイントを作らない**ことを fixture で固定している
+（実在しない `POST /orders` が検索に出ると、レビューの起点として嘘になる）。「`${aws_api_gateway_rest_api.x.root_resource_id}`」のように
+**単一の参照を補間しただけ**の書き方は解決する（実プロジェクトの大半がこの形）
 
 ### ブラウザ実操作
 

@@ -56,6 +56,25 @@ const LAMBDA = 'tf:aws_lambda_function.orders_api';
 const INTEGRATION = 'tf:aws_api_gateway_integration.post_order';
 const DATA = 'tf:data.aws_caller_identity';   // data ブロックの address は `data.<name>`
 
+// ---- 注釈を足したグラフ（静的解析では決まらない対応付けがある形）----
+const outDir2 = join(dir, 'graph-ann');
+const build2 = spawnSync(process.execPath, [join(HERE, 'build.mjs'), '--root', FIX, '--out-dir', outDir2,
+  '--name', 'report-impact-ann', '--annotation', join(FIX, 'annotations.report.json')],
+  { cwd: root, encoding: 'utf8' });
+if (build2.status !== 0) { console.error((build2.stdout || '') + (build2.stderr || '')); process.exit(1); }
+const GRAPH2 = join(outDir2, 'graph.json');
+function run2(args, label) {
+  const json = join(dir, `${label}.json`);
+  const proc = spawnSync(process.execPath, [join(HERE, 'report.mjs'), '--graph', GRAPH2, ...args, '--json', json],
+    { cwd: root, encoding: 'utf8' });
+  if (proc.status !== 0) { console.error((proc.stdout || '') + (proc.stderr || '')); return null; }
+  return { result: JSON.parse(readFileSync(json, 'utf8')), stdout: proc.stdout, stderr: proc.stderr };
+}
+// すべての行がどれかの欄に入っているか（欄の合計 == 総行数）
+const bucketTotal = (r) => r.external.out.length + r.external.in.length
+  + r.entries.out.length + r.entries.in.length
+  + r.wiring.length + r.sameApi.length + r.siblingEndpoints.length;
+
 // ---- 変更ファイル起点 ----
 const a = run(['--changed', list('a.txt', ['src/OrderHandler.cs'])], 'a');
 if (!a) process.exit(1);
@@ -129,7 +148,7 @@ const declared = JSON.parse(readFileSync(GRAPH, 'utf8')).nodes
 check('変更された Terraform ファイルの宣言リソースが起点になる（親フォルダ落ちしない）',
   T.summary.fallbacks === 0 && T.starts.filter((x) => x.id.startsWith('tf:')).length === declared,
   `tf 起点 ${T.starts.filter((x) => x.id.startsWith('tf:')).length} / 宣言 ${declared} / fallbacks ${T.summary.fallbacks}`);
-check('data ソースは既定では着地にしない（几乎所有りを参照してノイズになる）',
+check('data ソースは既定では着地にしない（ほとんどを参照してノイズになる）',
   !ids(T.wiring).includes(DATA) && !ids(T.external.in).includes(DATA) && !ids(T.external.out).includes(DATA),
   JSON.stringify(ids(T.wiring)));
 const tdi = run(['--changed', list('tf.txt', ['infra/main.tf']), '--include-data'], 'tfdata');
@@ -170,6 +189,65 @@ check('Markdown に「同じコードを使う別エンドポイント」の別�
     const t = readFileSync(f, 'utf8');
     return t.includes('同じコードを使う別エンドポイント') && t.includes('起点と同じ API を定義するノード');
   })());
+
+// ---- 第 16 ラウンドのレビューで出た 6 件を固定する ----
+const b2 = run2(['--api', 'POST /orders'], 'b2');
+const TABLE = 'ext:rds-table/orders.public.orders';
+check('エンドポイント起点でも handler の先（注釈のテーブル）まで出る',
+  !!b2 && ids(b2.result.external.out).includes(TABLE),
+  b2 ? JSON.stringify(ids(b2.result.external.out)) : '実行失敗');
+check('呼びに出したエンドポイント（`invokes`）は兄弟でなく影響する先',
+  !!b2 && ids(b2.result.external.out).includes('tf:aws_api_gateway_method.get_users')
+  && !ids(b2.result.siblingEndpoints).includes('tf:aws_api_gateway_method.get_users'),
+  b2 ? JSON.stringify({ ext: ids(b2.result.external.out), sib: ids(b2.result.siblingEndpoints) }) : '実行失敗');
+check('API 起点では Lambda は「影響する先」、Lambda 起点では integration は「影響を受ける入口」',
+  ids(B.external.out).includes(LAMBDA) && !ids(B.external.in).includes(LAMBDA),
+  JSON.stringify({ out: ids(B.external.out), inn: ids(B.external.in) }));
+check('どの行も必ずどれかの欄に入る（欄の合計 == 総行数）',
+  !!b2 && bucketTotal(b2.result) === b2.result.summary.rows
+  && bucketTotal(a.result) === a.result.summary.rows,
+  b2 ? `${bucketTotal(b2.result)} / ${b2.result.summary.rows}` : '実行失敗');
+check('根拠の経路に `null` が混ざらない（起点まで辿れる）',
+  !!b2 && [...b2.result.external.out, ...b2.result.external.in, ...b2.result.wiring]
+    .every((r) => r.path.length > 0 && !r.path.includes(null) && r.path[0] !== null),
+  b2 ? JSON.stringify((b2.result.external.out[0] || {}).path) : '実行失敗');
+// 注釈の無いグラフで見る（注釈を足すと `GET /users` は「呼びに出した先」側に回る）
+check('同じ Lambda を使う**別 API** のエンドポイントが既定の段数で兄弟に出る',
+  B.siblingEndpoints.some((r) => r.endpoint === 'GET /users'),
+  JSON.stringify(B.siblingEndpoints.map((r) => r.endpoint)));
+check('別 API の rest_api / resource / deployment を「起点と同じ API」に混ぜない',
+  !ids(B.sameApi).some((id) => /admin/.test(id))
+  && ids(B.wiring).includes('tf:aws_api_gateway_rest_api.admin_api'),
+  JSON.stringify({ sameApi: ids(B.sameApi), wiring: ids(B.wiring) }));
+const lam = run2(['--from', LAMBDA], 'lam');
+check('IAM ロールだけを共有する別 Lambda を本命に昇格させない（昇格の循環）',
+  !!lam && !ids(lam.result.external.out).includes('tf:aws_lambda_function.notify')
+  && !ids(lam.result.external.in).includes('tf:aws_lambda_function.notify'),
+  lam ? JSON.stringify({ out: ids(lam.result.external.out), in: ids(lam.result.external.in) }) : '実行失敗');
+const proj = run2(['--from', 'project:ReportImpact.csproj'], 'proj');
+check('`project:` 起点が階層ではなくパスの所属でコードへ展開される',
+  !!proj && proj.result.summary.expandedStarts > 1,
+  proj ? `展開後 ${proj.result.summary.expandedStarts} 件` : '実行失敗');
+const fold = run2(['--from', 'folder:src'], 'fold');
+check('フォルダ起点でも Terraform のリソースが起点になり、着地も出る',
+  !!fold && fold.result.summary.expandedStarts > 1
+  && (fold.result.summary.primaryIn + fold.result.summary.primaryOut
+    + fold.result.summary.entryIn + fold.result.summary.entryOut) > 0,
+  fold ? JSON.stringify(fold.result.summary) : '実行失敗');
+const prov = run2(['--api', 'POST /orders', '--provenance', 'static'], 'prov');
+check('`--provenance static` は Terraform の定義単位を結ぶ段階も守る',
+  !!prov && prov.result.summary.primaryIn === 0 && prov.result.summary.primaryOut === 0
+  && prov.result.summary.wiring === 0,
+  prov ? JSON.stringify(prov.result.summary) : '実行失敗');
+// `folder:.` を起点にすると判定を全ノードに適用してしまい、着地が 0 件になった
+const rootFold = run2(['--from', 'folder:.'], 'rootfold');
+check('`folder:.` 起点でも着地が全部消えない（判定対象はファイルとプロジェクトだけ）',
+  !!rootFold && rootFold.result.summary.expandedStarts > 1
+  && (rootFold.result.summary.primaryIn + rootFold.result.summary.primaryOut
+    + rootFold.result.summary.entryIn + rootFold.result.summary.entryOut
+    + rootFold.result.summary.wiring) >= 0
+  && rootFold.result.summary.starts > 0,
+  rootFold ? JSON.stringify(rootFold.result.summary) : '実行失敗');
 
 rmSync(dir, { recursive: true, force: true });
 console.log(`\n${pass}/${pass + failures.length} 件成功`);

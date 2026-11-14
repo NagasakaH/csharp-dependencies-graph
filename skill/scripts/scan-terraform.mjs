@@ -159,6 +159,23 @@ function refAddress(value, type) {
   const m = new RegExp(`\\b(?:resource\\.)?${type}\\.([a-zA-Z0-9_-]+)\\b`).exec(String(value));
   return m ? `${type}.${m[1]}` : null;
 }
+// `parent_id` が REST API の直下（`root_resource_id`）を指していることの判定。
+// これを「参照先が resource でなかったから直下」と誤読すると、`var.parent_id` でも
+// ルート直下としてパスを張ってしまう（実測で `POST /orders` が勝手に生まれた）
+const ROOT_RESOURCE = /\baws_api_gateway_rest_api\.[a-zA-Z0-9_.-]+\.root_resource_id\b/;
+// `path_part` / `route_key` が**確定した値**かどうかの判定。`attributes()` は引用符を落として
+// 持つので、構文の形で判断する。補間・スコープ参照・関数呼び出しは未解決として扱う
+function unresolvedExpression(value) {
+  const v = String(value === undefined || value === null ? '' : value);
+  if (!v) return true;
+  if (/\$\{|["'`]/.test(v)) return true;                      // 補間や引用の残骸
+  if (/\(/.test(v)) return true;                                // 関数呼び出し
+  if (/^\s*[-+*/]/.test(v)) return true;                        // 演算で組み立てている
+  const head = /^([A-Za-z_][A-Za-z0-9_]*)\./.exec(v.trim());
+  if (head && ['var', 'local', 'each', 'module', 'data', 'count', 'terraform'].includes(head[1])) return true;
+  if (/^\$/.test(v.trim()) && v.trim() !== '$default') return true;   // `$default` 以外の `$` は未確定
+  return false;
+}
 const byAddress = new Map(nodes.filter((n) => n.metadata && n.metadata.terraformAddress)
   .map((n) => [n.metadata.terraformAddress, n]));
 const pathCache = new Map();
@@ -168,12 +185,19 @@ function gatewayResourcePath(address, guard = new Set()) {
   guard.add(address);
   const meta = byAddress.get(address)?.metadata;
   const part = meta && meta.path_part ? String(meta.path_part) : null;
-  if (!part) return null;
-  const parentAddress = refAddress(meta.parent_id, 'aws_api_gateway_resource');
+  // 未解決の式（`each.value` など）からパスを作らない。`/${part}` になると
+  // 「そのパスが実在する」という表示になってしまう
+  if (!part || unresolvedExpression(part)) return null;
   let path = `/${part}`;
-  if (parentAddress) {
+  if (ROOT_RESOURCE.test(String(meta.parent_id || ''))) {
+    // REST API の直下
+  } else {
+    const parentAddress = refAddress(meta.parent_id, 'aws_api_gateway_resource');
+    // 親が解決できない（`var.parent_id` など）なら、パスは決まらない。直下扱いにしない
+    if (!parentAddress) return null;
     const up = gatewayResourcePath(parentAddress, guard);
-    if (up) path = `${up}${path}`;
+    if (!up) return null;
+    path = `${up}${path}`;
   }
   pathCache.set(address, path);
   return path;
@@ -192,12 +216,17 @@ for (const node of nodes) {
     }
   } else if (meta.resourceType === 'aws_apigatewayv2_route') {
     // HTTP API の `route_key` は `POST /orders/{id}` の形でメソッドとパスを両方含む
-    const parts = String(meta.route_key || '').trim().split(/\s+/).filter(Boolean);
-    if (parts.length) {
+    const rawKey = String(meta.route_key || '').trim();
+    // `route_key = var.route_key` のような未解決の式から endpoint を張らない
+    if (rawKey && !unresolvedExpression(rawKey)) {
+      const parts = rawKey.split(/\s+/).filter(Boolean);
       const verb = parts.length > 1 ? parts[0].toUpperCase() : '*';
       const raw = parts.length > 1 ? parts[1] : parts[0];
       meta.apiPath = raw.startsWith('/') ? raw : `/${raw}`;
       meta.endpoint = `${verb} ${meta.apiPath}`;
+      // `$default` は HTTP API の catch-all の**リテラル**なので残す。ただし実在パスではないことを
+      // ノード側に明示する（起点として引けるが、パス実体だと誤読させない）
+      if (meta.apiPath === '/$default') meta.defaultRoute = true;
     }
   }
 }
