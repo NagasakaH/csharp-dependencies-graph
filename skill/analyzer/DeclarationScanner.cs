@@ -58,10 +58,25 @@ public static class DeclarationScanner
             else
             {
                 var ns = usingDirective.Name?.ToString() ?? "";
-                if (ns.Length > 0 && !result.Usings.Contains(ns)) result.Usings.Add(ns);
+                if (ns.Length == 0) continue;
+                if (!result.Usings.Contains(ns)) result.Usings.Add(ns);
+                // `global using X;` は宣言したファイルだけでなくプロジェクト全体に見える
+                if (usingDirective.GlobalKeyword.IsKind(SyntaxKind.GlobalKeyword)
+                    && !result.GlobalUsings.Contains(ns))
+                {
+                    result.GlobalUsings.Add(ns);
+                }
             }
         }
     }
+
+    /// <summary>宣言中の型パラメータの数。デリゲートにも適用する。</summary>
+    static int ArityOf(MemberDeclarationSyntax decl) => decl switch
+    {
+        TypeDeclarationSyntax t => t.TypeParameterList?.Parameters.Count ?? 0,
+        DelegateDeclarationSyntax d => d.TypeParameterList?.Parameters.Count ?? 0,
+        _ => 0,
+    };
 
     public static void Dispatch(MemberDeclarationSyntax member, string ns, FileResult file)
     {
@@ -135,6 +150,7 @@ public static class DeclarationScanner
             Kind = KindOf(decl),
             Line = decl.GetLocation().GetLineSpan().StartLinePosition.Line + 1,
             IsGeneric = (decl as TypeDeclarationSyntax)?.TypeParameterList?.Parameters.Count > 0,
+            Arity = ArityOf(decl),
             DeclarationCount = 1,
         };
         var modifiers = decl switch

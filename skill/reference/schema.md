@@ -17,7 +17,7 @@
     { "producer": "csharp-analyzer", "fragment": "graph.csharp.json", "role": "fragment", "nodes": 40795, "edges": 51051 },
     { "producer": "annotation", "fragment": "annotations.orders-api.json", "role": "annotation", "nodes": 1, "edges": 8, "metadata": 3 }
   ],
-  "stats": { "nodes": 51166, "edges": 52221, "orphans": 0, "warnings": 97, "folders": 2826, "files": 7207, "projects": 336, "solutions": 2, "signalFiles": 898, "csharpFiles": 6754, "csharpParseFailures": 0, "csharpTypes": 8223, "csharpMembers": 32572, "csharpEdges": 51051, "csharpUnresolvedCalls": 96772, "csharpEdge_calls": 14128, "directory-scannerNodes": 10371, "csharp-analyzerNodes": 40795 },
+  "stats": { "nodes": 51179, "edges": 53362, "orphans": 0, "warnings": 97, "folders": 2826, "files": 7207, "projects": 336, "solutions": 2, "signalFiles": 898, "csharpFiles": 6754, "csharpParseFailures": 0, "csharpTypes": 8223, "csharpMembers": 32572, "csharpEdges": 51051, "csharpUnresolvedCalls": 96772, "csharpEdge_calls": 14128, "directory-scannerNodes": 10371, "csharp-analyzerNodes": 40795 },
   "nodes": [ /* Node */ ],
   "edges": [ /* Edge  */ ]
 }
@@ -39,10 +39,14 @@
 
 - `folder` — `rollup: { types, members, files, projects, resources, folders }`（配下の再帰集計。merge が計算）
 - `project` — `targetFramework` `rootNamespace` `assemblyName` `packageReferences[]` `signals[]`
-- `file` — `language` `signals[]`（AWS / DB のヒント）
+- `file` — `language` `signals[]`（AWS / DB のヒント） `rejectedTypes[]`
+  （候補は見つかったが張れなかった型名。型引数の数が合わない／`using` も `global using` も無く
+  到達不能。13 件目以降は `rejectedTypeKinds` に種類数。）注釈で正しい候補を張すための入力になる
 - `type` — `csKind`(`class`/`struct`/`interface`/`enum`/`record`/`delegate`) `namespace` `line` `file` `modifiers[]` `baseTypes[]` `memberCount` `static` `abstract` `generic` `alsoDeclaredIn[]`（partial の他ファイル）
 - `member` — `memberKind`(`method`/`property`/`constructor`/`field`/`event`/`enum-member`) `signature` `line` `visibility` `returns` `static` `async` `overloads`（2 以上のときの件数のみ） `otherSignatures[]`（オーバーロードの残りのシグネチャ） `unresolvedCalls[]` `unresolvedTotal`
-- `resource` — `resourceType`(`aws_lambda_function` など) `category`(`lambda`/`stepfunctions`/`apigateway`/`dynamodb`/`rds`/`s3`/`sqs`/`sns`/`secretsmanager`/`iam`/`custom`) `terraformAddress` `file` `filename` `provider` `managedBy` `referencedOnly`、リソース種別固有の値（`function_name` `handler` `runtime` `memory_size` `uri` `http_method` `rest_api_id` …）
+- `resource` — `resourceType`(`aws_lambda_function` など) `category`(`lambda`/`stepfunctions`/`apigateway`/`dynamodb`/`rds`/`s3`/`sqs`/`sns`/`secretsmanager`/`iam`/`custom`) `terraformAddress` `file` `filename` `provider` `managedBy` `referencedOnly`、リソース種別固有の値（`function_name` `handler` `runtime` `memory_size` `uri` `http_method` `rest_api_id` …）。
+  HCL の文字列リテラルから取った値は outer の引用符を除いて保存する（`handler` をそのまま
+  検索や `member:` との照合に使えるようにするため）
 
 メソッドの `name` は `ExecuteAsync`、`signature` は `public Task<...> ExecuteAsync(CancellationToken)`。
 オーバーロードは同じ ID に集約し、件数を `overloads`、2 件目以降のシグネチャを `otherSignatures[]` に入れる。
@@ -71,8 +75,9 @@
 | `calls` `creates` `accesses` `references` `inherits` `implements` `attribute` | cgd | C# 構文から決まる依存。`provenance` は `static` |
 | `invokes` `triggers` `references` | scan-terraform | `.tf` 内の参照。`invokes` は Step Functions→Lambda、`triggers` は API Gateway→Lambda |
 | `deploys` `exposes` `exposed-by` `reads` `writes` `annotates` | annotation | csproj / メンバ と外部リソースの対応付け。普通 `provenance: llm` |
+| `handler` | merge | Terraform の `handler = "Assembly::NS.Type::Method"` を C# の `member:` に解決した縁。`provenance: terraform`。解決できない handler は張らず merge の警告に出す（注釈で埋める） |
 
-`provenance` は `static`（静的解析）/ `terraform`（HCL）/ `llm`（注釈）/ `human`（人がビューアで追記）。
+`provenance` は `static`（静的解析）/ `terraform`（HCL と Terraform 由来の解決）/ `llm`（注釈）/ `human`（人がビューアで追記）。
 ビューアの上部チップは `kind` と `provenance` の両方で絞り込める。
 
 ## ID 規則（生成側の契約）

@@ -7,11 +7,54 @@ public sealed class TypeIndex
     public readonly Dictionary<string, TypeSymbol> ByQualified = new(StringComparer.Ordinal);
     public readonly Dictionary<string, List<TypeSymbol>> BySimple = new(StringComparer.Ordinal);
     public int MergedPartials;
+    /// <summary>`global using` した名前空間を、宣言したディレクトリの子孫から見える形にしたもの。</summary>
+    readonly Dictionary<string, List<string>> _globalUsings = new(StringComparer.Ordinal);
+
+    /// <summary>候補があったのにエッジを張らなかった理由。</summary>
+    public enum RejectReason { None, ArityMismatch, Unreachable }
+
+    /// <summary>直近の Resolve が候補を断った理由。呼び出し側が未解決ログへ残すために読む。</summary>
+    public RejectReason LastReject;
 
     public TypeIndex(int maxAmbiguous = 2) => _maxAmbiguous = Math.Max(1, maxAmbiguous);
 
+    /// <summary>ファイルから見える `using` の集合。`global using` は親ディレクトリ由来でも見える。</summary>
+    IEnumerable<string> VisibleUsings(FileResult? file)
+    {
+        if (file is null) yield break;
+        foreach (var u in file.Usings) yield return u;
+        if (_globalUsings.Count == 0) yield break;
+        var dir = DirOf(file.RelPath);
+        while (true)
+        {
+            if (_globalUsings.TryGetValue(dir, out var list))
+            {
+                foreach (var u in list) yield return u;
+            }
+            if (dir.Length == 0) yield break;
+            var cut = dir.LastIndexOf('/');
+            dir = cut < 0 ? "" : dir[..cut];
+        }
+    }
+
+    static string DirOf(string relPath)
+    {
+        var cut = relPath.LastIndexOf('/');
+        return cut < 0 ? "" : relPath[..cut];
+    }
+
     public void Ingest(FileResult file)
     {
+        foreach (var globalUsing in file.GlobalUsings)
+        {
+            var dir = DirOf(file.RelPath);
+            if (!_globalUsings.TryGetValue(dir, out var list))
+            {
+                list = new List<string>(4);
+                _globalUsings[dir] = list;
+            }
+            if (!list.Contains(globalUsing)) list.Add(globalUsing);
+        }
         foreach (var type in file.Types)
         {
             type.DeclaringFile = file;
@@ -43,9 +86,53 @@ public sealed class TypeIndex
 
     static readonly TypeSymbol[] EmptyTypes = Array.Empty<TypeSymbol>();
 
+    /// <summary>候補の名前空間が使用側から届いているかの変換（点けられないなら 0）。</summary>
+    int ScoreReach(TypeSymbol candidate, string ns, FileResult? file)
+    {
+        if (candidate.Namespace.Length == 0) return 0;
+        var score = 0;
+        if (string.Equals(candidate.Namespace, ns, StringComparison.Ordinal)) score += 6;
+        else if (ns.StartsWith(candidate.Namespace + ".", StringComparison.Ordinal)) score += 3;
+        if (file is not null)
+        {
+            var exact = false;
+            var ancestor = false;
+            foreach (var usingNs in VisibleUsings(file))
+            {
+                if (!exact && string.Equals(usingNs, candidate.Namespace, StringComparison.Ordinal)) exact = true;
+                if (!ancestor && candidate.Namespace.StartsWith(usingNs + ".", StringComparison.Ordinal)) ancestor = true;
+            }
+            if (exact) score += 5;
+            else if (ancestor) score += 1;
+        }
+        return score;
+    }
+
+    /// <summary>使用側に書かれた型引数の数。閉じないなど判定不能なら 0（ゲート不发動）。</summary>
+    static int UsageArity(string raw)
+    {
+        var lt = raw.IndexOf('<');
+        if (lt <= 0) return 0;
+        var depth = 0;
+        var commas = 0;
+        for (var i = lt; i < raw.Length; i++)
+        {
+            var c = raw[i];
+            if (c == '<') depth++;
+            else if (c == '>')
+            {
+                depth--;
+                if (depth == 0) return commas + 1;
+            }
+            else if (c == ',' && depth == 1) commas++;
+        }
+        return 0;
+    }
+
     /// <summary>宣言中に現れた型名テキストを、インデックス中の型に解決する。</summary>
     public IReadOnlyList<TypeSymbol> Resolve(string raw, string ns, FileResult? file)
     {
+        LastReject = RejectReason.None;
         var name = TypeText.Normalize(raw);
         if (name.Length == 0 || name[0] == '<') return EmptyTypes;
 
@@ -69,7 +156,7 @@ public sealed class TypeIndex
 
         if (file is not null)
         {
-            foreach (var usingNs in file.Usings)
+            foreach (var usingNs in VisibleUsings(file))
             {
                 if (ByQualified.TryGetValue(usingNs + "." + name, out var byUsing)) return new[] { byUsing };
                 if (name.Contains('.') && ByQualified.TryGetValue(usingNs + "." + name.Replace('.', '/'), out var byUsingNested))
@@ -97,36 +184,43 @@ public sealed class TypeIndex
             }
         }
 
-        if (BySimple.TryGetValue(name, out var candidates))
+        if (BySimple.TryGetValue(name, out var bySimple))
         {
-            if (candidates.Count == 1) return new[] { candidates[0] };
+            // ゲート 1: 使用側が型引数を書いているなら、宣言側の型パラメータ数が合わ候補は張らない
+            //   （`Dictionary<string, object>` を Blazor の非ジェネリック `Dictionary` に化かさない）
+            var usageArity = UsageArity(raw);
+            var candidates = bySimple;
+            if (usageArity > 0)
+            {
+                var typed = new List<TypeSymbol>(bySimple.Count);
+                foreach (var candidate in bySimple)
+                {
+                    if (candidate.Arity == usageArity) typed.Add(candidate);
+                }
+                if (typed.Count == 0)
+                {
+                    LastReject = RejectReason.ArityMismatch;
+                    return EmptyTypes;
+                }
+                candidates = typed;
+            }
 
             var scored = new List<(int Score, TypeSymbol Type)>(candidates.Count);
             foreach (var candidate in candidates)
             {
-                var score = 0;
-                if (candidate.Namespace.Length > 0)
-                {
-                    if (string.Equals(candidate.Namespace, ns, StringComparison.Ordinal)) score += 6;
-                    else if (ns.StartsWith(candidate.Namespace + ".", StringComparison.Ordinal)) score += 3;
-                }
-                if (file is not null)
-                {
-                    foreach (var usingNs in file.Usings)
-                    {
-                        if (string.Equals(usingNs, candidate.Namespace, StringComparison.Ordinal)) { score += 5; break; }
-                    }
-                    foreach (var usingNs in file.Usings)
-                    {
-                        if (candidate.Namespace.StartsWith(usingNs + ".", StringComparison.Ordinal)) { score += 1; break; }
-                    }
-                }
+                var score = ScoreReach(candidate, ns, file);
                 scored.Add((score, candidate));
             }
 
             scored.Sort((a, b) => b.Score.CompareTo(a.Score));
+            // ゲート 2: 候補が 1 件でも、名前空間・内側・`using`（global 含む）のいずれでも
+            //   届かないなら張らない。BCL 型は索引に無いので「解 1 件」は到達性の証拠にならない。
+            if (scored[0].Score == 0)
+            {
+                LastReject = RejectReason.Unreachable;
+                return EmptyTypes;                              // 届かない／判別できない曖昧さは張らない
+            }
             if (scored.Count == 1 || scored[0].Score > scored[1].Score) return new[] { scored[0].Type };
-            if (scored[0].Score == 0) return EmptyTypes;         // 判別できない曖昧さは張らない
 
             var top = scored[0].Score;
             var picked = new List<TypeSymbol>();

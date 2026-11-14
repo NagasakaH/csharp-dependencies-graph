@@ -92,6 +92,8 @@ public static class Program
         fragment.Stats["csharpMembers"] = memberCount;
         fragment.Stats["csharpEdges"] = scanner.Edges.Count;
         fragment.Stats["csharpUnresolvedCalls"] = scanner.UnresolvedCount;
+        fragment.Stats["csharpRejectedTypeFiles"] = results.Count(r => r.RejectedTypes.Count > 0);
+        fragment.Stats["csharpRejectedTypes"] = results.Sum(r => r.RejectedTypes.Count);
         foreach (var kv in byKind) fragment.Stats["csharpEdge_" + kv.Key] = kv.Value;
 
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outPath))!);
@@ -108,6 +110,23 @@ public static class Program
     {
         foreach (var file in results)
         {
+            // 候補はあったのに張らなかったバインドは、.cs ノードに残して注釈の入口にする
+            if (file.RejectedTypes.Count > 0)
+            {
+                var names = file.RejectedTypes.Keys.ToList();
+                names.Sort(StringComparer.Ordinal);
+                var meta = new Dictionary<string, object> { ["rejectedTypes"] = names.Take(12).ToList() };
+                if (names.Count > 12) meta["rejectedTypeKinds"] = names.Count;
+                fragment.Nodes.Add(new GraphNode
+                {
+                    Id = NodeId.File(file.RelPath),
+                    Kind = "file",
+                    Name = Path.GetFileName(file.RelPath),
+                    Path = file.RelPath,
+                    Metadata = meta,
+                });
+            }
+
             foreach (var type in file.Types)
             {
                 if (!index.ByQualified.TryGetValue(type.Qualified, out var canonical) || !ReferenceEquals(canonical, type))

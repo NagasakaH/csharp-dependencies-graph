@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <NoWarn>CS0169;CS0414;IDE0060</NoWarn>
+  </PropertyGroup>
+
+  <!-- MSBuild がビルド時に生成する implicit global using。cgd は obj/ を読まないので
+       この可視性はアナライザから見えない。到達性ゲートの検査に使う。 -->
+  <ItemGroup>
+    <Using Include="Fixtures.TypeResolution.Far" />
+  </ItemGroup>
+
+</Project>

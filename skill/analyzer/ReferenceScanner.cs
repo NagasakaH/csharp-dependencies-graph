@@ -87,6 +87,7 @@ public sealed class ReferenceScanner
                 if (candidates.Count == 0)
                 {
                     NoteUnresolvedType(file, raw);
+                    NoteRejectedType(file, raw);
                     continue;
                 }
                 foreach (var candidate in candidates)
@@ -215,6 +216,7 @@ public sealed class ReferenceScanner
         if (candidates.Count == 0)
         {
             NoteUnresolvedType(file, TypeText.Normalize(typeRaw));
+            NoteRejectedType(file, typeRaw);
             Unresolved(symbol, file, raw);
             return;
         }
@@ -236,6 +238,7 @@ public sealed class ReferenceScanner
         if (candidates.Count == 0)
         {
             NoteUnresolvedType(file, TypeText.Normalize(creation.Type.ToString()));
+            NoteRejectedType(file, creation.Type.ToString());
             return;
         }
         foreach (var candidate in candidates)
@@ -300,6 +303,7 @@ public sealed class ReferenceScanner
         if (candidates.Count == 0)
         {
             NoteUnresolvedType(file, TypeText.Normalize(raw));
+            NoteRejectedType(file, raw);
             return;
         }
         foreach (var candidate in candidates)
@@ -958,6 +962,16 @@ public sealed class ReferenceScanner
         }
         if (symbol.Unresolved.Count >= _opt.MaxUnresolvedPerMember) return;
         if (!symbol.Unresolved.Contains(raw)) symbol.Unresolved.Add(raw);
+    }
+
+    /// <summary>候補があったのに張らなかったバインドを、後で注釈を付けられるようファイル単位で残す。</summary>
+    void NoteRejectedType(FileResult file, string raw)
+    {
+        if (_index.LastReject == TypeIndex.RejectReason.None) return;
+        var name = TypeText.Normalize(raw);
+        if (name.Length == 0) return;
+        file.RejectedTypes.TryGetValue(name, out var count);
+        file.RejectedTypes[name] = count + 1;
     }
 
     void NoteUnresolvedType(FileResult file, string raw)

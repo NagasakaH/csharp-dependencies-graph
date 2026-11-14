@@ -207,6 +207,34 @@ check('タプル foreach の var ループ変数はループ後に見えない',
 check('リストパターンの末尾 designation をフィールドに化かさない',
   !sHas('accesses', 'ListRest.Rest', 'Gadget.Length'), sScopeEdges('ListRest.Rest'));
 
+// ---- TypeResolution フィクスチャ: 型名の誤バインド（同名 BCL / 到達性 / global using）----
+const t = analyze('TypeResolution');
+const tEdges = t.edges.filter((e) => e.kind !== 'contains');
+const tHas = (kind, from, to) => tEdges.some((e) => e.kind === kind && e.source === `member:${from}` && e.target === `type:${to}`);
+const tTo = (to) => tEdges.filter((e) => e.target === `type:${to}`);
+const uiDict = 'Fixtures.TypeResolution.Ui.Dictionary';
+const sharedBox = 'Fixtures.TypeResolution.Shared.Box';
+const farLease = 'Fixtures.TypeResolution.Far.Lease';
+
+// 型引数の数が違う候補は張らない（`Dictionary<string, int>` を非ジェネリックの同名クラスに化かさない）
+check('型引数の数が合わないと同名クラスに結ばない', tTo(uiDict).filter((e) => e.source.includes('.Core.')).length === 0,
+  JSON.stringify(tTo(uiDict).map((e) => `${e.kind}:${e.source}`)));
+check('BCL 側の Dictionary 利用は拒否として .cs ノードに残す',
+  (t.nodes.find((n) => n.id === 'file:Core.cs' || (n.path || '') === 'Core.cs')?.metadata?.rejectedTypes || []).includes('Dictionary'),
+  JSON.stringify(t.nodes.filter((n) => n.metadata?.rejectedTypes).map((n) => [n.id, n.metadata.rejectedTypes])));
+
+// 到達性のゲート: 候補が 1 件でも、名前空間がどこからも見えないなら張らない
+check('using も global using も無い同名候補は張らない', tTo(farLease).length === 0,
+  JSON.stringify(tTo(farLease).map((e) => `${e.kind}:${e.source}`)));
+
+// 対照: 届いているケースは必ず結ぶ（ゲートの過剰適用にしない）
+check('using で届き型引数の数が合えば結ぶ', tHas('creates', 'Fixtures.TypeResolution.Explicit.BoxUser.Make', sharedBox)
+  || tHas('references', 'Fixtures.TypeResolution.Explicit.BoxUser.Make', sharedBox));
+check('global using だけで届いている型も結ぶ', tHas('creates', 'Fixtures.TypeResolution.Core.GlobalBoxUser.Make', sharedBox)
+  || tHas('references', 'Fixtures.TypeResolution.Core.GlobalBoxUser.Make', sharedBox));
+check('同じ名前空間の非ジェネリック型は従来どおり結ぶ', tHas('creates', 'Fixtures.TypeResolution.Ui.PanelHost.Make', 'Fixtures.TypeResolution.Ui.Panel')
+  || tHas('references', 'Fixtures.TypeResolution.Ui.PanelHost.Make', 'Fixtures.TypeResolution.Ui.Panel'));
+
 rmSync(dir, { recursive: true, force: true });
 console.log(`\n${pass}/${pass + failures.length} 件成功`);
 if (failures.length) { console.log('失敗: ' + failures.join(' / ')); process.exit(1); }

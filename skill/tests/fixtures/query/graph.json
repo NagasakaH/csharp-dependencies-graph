@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "producer": "test-fixture",
+  "generatedAt": "2026-01-01T00:00:00+09:00",
+  "root": "query",
+  "nodes": [
+    { "id": "folder:.", "kind": "folder", "name": ".", "parent": null },
+    { "id": "folder:src", "kind": "folder", "name": "src", "parent": "folder:." },
+    { "id": "project:src/Pay.csproj", "kind": "project", "name": "Pay.csproj", "parent": "folder:src", "path": "src/Pay.csproj" },
+    { "id": "file:src/Pay.cs", "kind": "file", "name": "Pay.cs", "parent": "project:src/Pay.csproj", "path": "src/Pay.cs" },
+    { "id": "type:Pay.Handler", "kind": "type", "name": "Handler", "parent": "file:src/Pay.cs", "path": "src/Pay.cs" },
+    { "id": "member:Pay.Handler.Charge", "kind": "member", "name": "Charge", "parent": "type:Pay.Handler", "path": "src/Pay.cs" },
+    { "id": "member:Pay.Handler.ReadRow", "kind": "member", "name": "ReadRow", "parent": "type:Pay.Handler", "path": "src/Pay.cs" },
+    { "id": "type:Pay.Retry", "kind": "type", "name": "Retry", "parent": "file:src/Pay.cs", "path": "src/Pay.cs" },
+    { "id": "member:Pay.Retry.Charge", "kind": "member", "name": "Charge", "parent": "type:Pay.Retry", "path": "src/Pay.cs" },
+    { "id": "tf:aws_lambda_function.pay", "kind": "resource", "name": "pay", "parent": "folder:.", "metadata": { "resourceType": "aws_lambda_function", "handler": "Pay.Handler::Charge" } },
+    { "id": "tf:aws_dynamodb_table.ledger", "kind": "resource", "name": "ledger", "parent": "folder:.", "metadata": { "resourceType": "aws_dynamodb_table" } },
+    { "id": "ext:rds-table/db.public.payments", "kind": "resource", "name": "payments", "parent": "folder:.", "metadata": { "resourceType": "rds-table" } },
+    { "id": "ext:rds-column/db.public.payments.amount", "kind": "resource", "name": "amount", "parent": "ext:rds-table/db.public.payments", "metadata": { "resourceType": "rds-column" } }
+  ],
+  "edges": [
+    { "id": "handler:tf:aws_lambda_function.pay->member:Pay.Handler.Charge", "source": "tf:aws_lambda_function.pay", "target": "member:Pay.Handler.Charge", "kind": "handler", "provenance": "terraform", "detail": "handler = Pay.Handler::Charge" },
+    { "id": "calls:member:Pay.Handler.Charge->member:Pay.Handler.ReadRow", "source": "member:Pay.Handler.Charge", "target": "member:Pay.Handler.ReadRow", "kind": "calls", "provenance": "static", "detail": "ReadRow()" },
+    { "id": "writes:member:Pay.Handler.ReadRow->ext:rds-table/db.public.payments", "source": "member:Pay.Handler.ReadRow", "target": "ext:rds-table/db.public.payments", "kind": "writes", "provenance": "llm", "detail": "upsert の対象テーブル" },
+    { "id": "references:ext:rds-column/db.public.payments.amount->member:Pay.Handler.ReadRow", "source": "ext:rds-column/db.public.payments.amount", "target": "member:Pay.Handler.ReadRow", "kind": "references", "provenance": "llm", "detail": "列 amount は ReadRow の戻り値" },
+    { "id": "deploys:project:src/Pay.csproj->tf:aws_lambda_function.pay", "source": "project:src/Pay.csproj", "target": "tf:aws_lambda_function.pay", "kind": "deploys", "provenance": "llm", "detail": "デプロイ単位" },
+    { "id": "calls:member:Pay.Retry.Charge->member:Pay.Handler.ReadRow", "source": "member:Pay.Retry.Charge", "target": "member:Pay.Handler.ReadRow", "kind": "calls", "provenance": "static", "detail": "ReadRow()" },
+    { "id": "references:tf:aws_lambda_function.pay->tf:aws_dynamodb_table.ledger", "source": "tf:aws_lambda_function.pay", "target": "tf:aws_dynamodb_table.ledger", "kind": "references", "provenance": "terraform", "detail": "参照" }
+  ]
+}

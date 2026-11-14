@@ -57,6 +57,7 @@ node $SKILL/scripts/build.mjs \
 | 巨大リポジトリが遅い／見たい所だけ | `--exclude obj,bin,test,docs` を足す（部分再実行より速い） |
 | 外部リソースや担当者を後から紐づける | [注釈を書く](#外部情報を後から紐づける) → `--annotation` を足して再生成 |
 | ビューア上で暫定的に紐づけた分を定着させる | 画面の「注釈 JSON」でダウンロード → リポジトリの `annotations.json` に追記 |
+| レビュー・設計で影響範囲や逆引きをする | `node $SKILL/scripts/query.mjs --graph out/graph/graph.json --from <id や名前>` → [reference/review-workflows.md](reference/review-workflows.md) |
 | 意図どおりに動くか確かめる | `node $SKILL/scripts/verify.mjs --html out/graph/graph.html --shots out/shots` |
 | ノード・エッジの型や ID が知りたい | [reference/schema.md](reference/schema.md) |
 
@@ -71,10 +72,15 @@ node $SKILL/scripts/build.mjs \
 - ノード: `folder` / `solution` / `project` / `file` / `type` / `member` / `resource`
 - エッジ: `contains`（階層）、`project-reference`（csproj 間）、`calls` `creates` `accesses`
   `references` `inherits` `implements` `attribute`（C# 内）、
-  `invokes` `triggers` `deploys` `exposes` `exposed-by` `reads` `writes` `annotates`（外部世界）
+  `invokes` `triggers` `deploys` `exposes` `exposed-by` `reads` `writes` `annotates`（外部世界）、
+  `handler`（Terraform の handler 指定 → C# のメソッド）
 - 部分クラスとオーバーロードは 1 ノードにまとめる（`metadata.overloads`、`metadata.alsoDeclaredIn`）
 - 解決できなかった呼び出し名はノードの `metadata.unresolvedCalls` に残す
   （意味は構文だけからは決められないので、ここを LLM が注釈で埋める）
+- **張れない同名候補は黙って張らず**、`.cs` ノードの `metadata.rejectedTypes` に型名として残す
+  （型引数の数が宣言と違う／`using` も `global using` も無いので到達不能）。実測 elsa-core
+  53,913 → 52,192 本（誤バインド 2,005 本を除去、うち `Dictionary` 796 本）、1,252 ファイルに
+  `rejectedTypes` が付く。ここが「注釈で正しく張るべき候補」のリストになる
 - 型の単純名が複数の名前空間にあり、宣言元の名前空間と `using` でも判別できないときは、
   得点が並んだ候補すべてにエッジを張り `detail` に `ambiguous` を残す（実測 elsa-core
   429 本＝静的エッジの 0.8%、エッジにマウスを乗せると見える）。得点 0 の曖昧さは張らない
@@ -92,6 +98,10 @@ Terraform がある場合は `resource "aws_lambda_function" "orders_api"` の�
 `tf:aws_lambda_function.orders_api` ノードを作り、`uri = aws_lambda_function.x.invoke_arn`
 のような参照から `invokes` / `triggers` / `references` を張る。HCL は brace を数える
 簡易パーサなので、モジュール展開や動的定義までは追わない（そこは注釈で埋める）。
+
+`handler = "Assembly::NS.Type::Method"` の指定は `merge.mjs` が C# のメソッドノードへ解決して
+`handler` エッジにする（`NS.Outer+Inner::Method` のネスト形式にも対応）。当たらないものは
+張らずに警告へ回すので、Lambda から実装コードへ 1 ホップで降りられる。
 
 ## 外部情報を後から紐づける
 
@@ -157,7 +167,7 @@ LLM が書くときの決まりごと（これをやらないとグラフが嘘�
 ### 静的解析の精度（ブラウザ不要）
 
 ```sh
-node $SKILL/scripts/test-analyzer.mjs        # cgd がビルド済みなら即実行（43 項目）
+node $SKILL/scripts/test-analyzer.mjs        # cgd がビルド済みなら即実行（49 項目）
 ```
 
 `skill/tests/fixtures/` の C# を `cgd` にかけて、期待するエッジと「出してはいけない
@@ -165,6 +175,15 @@ node $SKILL/scripts/test-analyzer.mjs        # cgd がビルド済みなら即�
 ローカル変数・型を省略したラムダ引数・ローカル関数・兄弟ブロックの同名 var といった
 「名前が型メンバを隠す」構文と、`var` / `foreach` の型推論（別メソッド由来の値、`new`、
 `await` の内側、遅延推論したローカルを経由したコレクション）の回帰。
+`fixtures/TypeResolution/` では型解決側の回帰を見る（型引数の数が合わない同名クラスに張らない、
+`using` も `global using` も無い同名候補に張らない、逆に `using` / `global using` / 同一名前空間で
+届くものは張る、拒否した型名が `.cs` ノードに残る）。
+
+### 照会（逆引き・影響範囲）のテスト
+
+```sh
+node $SKILL/scripts/test-query.mjs           # fixtures/query/graph.json を使う（.NET 不要、12 項目）
+```
 
 ### ブラウザ実操作
 
@@ -172,9 +191,9 @@ node $SKILL/scripts/test-analyzer.mjs        # cgd がビルド済みなら即�
 node $SKILL/scripts/verify.mjs --html out/graph/graph.html --shots out/shots
 ```
 
-ヘッドレス Chromium で実際にクリックし、24 項目を確かめる。検査対象は `graph.json`
+ヘッドレス Chromium で実際にクリックし、25 項目を確かめる。検査対象は `graph.json`
 から自動選択するので、どのプロジェクトにもそのまま効く（Terraform ノードが無い場合は
-該当チェックを省略して 22 項目）。主な確認項目:
+該当チェックを省略して 23 項目）。主な確認項目:
 
 - ルート 1 段だけの初期表示／クリックしたフォルダだけの子展開
 - `.cs` クリック → 型 → メンバ（メソッド）の段階展開、ロールアップ値

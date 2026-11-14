@@ -102,6 +102,29 @@ for (const path of opts.fragments) {
   Object.assign(stats, fragment.stats || {});
 }
 
+// ---- Lambda の handler 指定を C# の実装メソッドへ結ぶ（逆引きがコードまで届くようにする）
+// AWS の .NET handler は `Assembly::NS.Type::Method` / `NS.Type::Method` / `NS.Outer+Inner::Method` の形。
+// 実在する member ノードに当たったときだけ張り、外れたらは警告に出す（推測で張らない）。
+let handlerEdges = 0;
+for (const node of [...nodes.values()]) {
+  const raw = typeof node.metadata?.handler === 'string' ? node.metadata.handler.trim() : '';
+  const handler = raw.replace(/^["']|["']$/g, '');
+  if (!handler.includes('::')) continue;
+  const parts = handler.split('::').map((p) => p.trim()).filter(Boolean);
+  const method = parts.pop();
+  const rawType = parts.pop();
+  if (!method || !rawType) continue;
+  const qualified = rawType.replace(/\+/g, '/');
+  const memberId = `member:${qualified}.${method}`;
+  if (!nodes.has(memberId)) {
+    warnings.push(`handler の解決失敗: ${node.id} → ${handler}（このリポジトリに対応するメソッドが見つからないため注釈で紐づけてください）`);
+    continue;
+  }
+  mergeEdge({ source: node.id, target: memberId, kind: 'handler', provenance: 'terraform', detail: `handler = ${handler}` });
+  handlerEdges++;
+}
+stats.handlerEdges = handlerEdges;
+
 // ---- アノテーション（LLM や人が後から追記した外部情報）
 function resolveSelector(selector) {
   if (selector.id) return nodes.get(selector.id);

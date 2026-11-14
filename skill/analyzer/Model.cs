@@ -4,10 +4,14 @@ public sealed class FileResult
 {
     public string RelPath = "";
     public List<string> Usings = new();
+    /// <summary>`global using X;` で宣言された名前空間（同じプロジェクト配下の全ファイルに見える）。</summary>
+    public List<string> GlobalUsings = new();
     public Dictionary<string, string> Aliases = new();
     public List<TypeSymbol> Types = new();
     public List<MemberSymbol> Members = new();
     public Dictionary<string, int> UnresolvedTypes = new(StringComparer.Ordinal);
+    /// <summary>候補は見つかったが到達性や型引数の数が合わず張らなかった型名（注釈の候補として残す）。</summary>
+    public Dictionary<string, int> RejectedTypes = new(StringComparer.Ordinal);
     public bool ParseFailed;
 }
 
@@ -23,6 +27,8 @@ public sealed class TypeSymbol
     public bool IsAbstract;
     public bool IsSealed;
     public bool IsGeneric;
+    /// <summary>宣言中の型パラメータの数（`Dictionary<TKey, TValue>` なら 2）。使用側の型引数の数と突き合わせて誤バインドを止める。</summary>
+    public int Arity;
     public int DeclarationCount;
     public List<string> BaseRaw = new();
     public List<string> Modifiers = new();

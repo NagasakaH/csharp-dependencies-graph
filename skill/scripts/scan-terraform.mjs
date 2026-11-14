@@ -69,7 +69,12 @@ function attributes(body) {
     if (depth > 1) continue;
     const m = line.match(/^([a-z_][\w-]*)\s*=\s*(.+?)(?:\s*#.*)?$/);
     if (!m) continue;
-    const key = m[1], value = m[2].trim().replace(/,$/, '');
+    const key = m[1];
+    let value = m[2].trim().replace(/,$/, '');
+    // HCL の文字列リテラルは引用符ごと取れる。表示と照合のしやすさからouterの引用符を落とす
+    if (value.length > 1 && ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'")))) {
+      value = value.slice(1, -1);
+    }
     if (attrs[key] === undefined) attrs[key] = value.length > 200 ? value.slice(0, 197) + '…' : value;
   }
   return attrs;
