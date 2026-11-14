@@ -62,7 +62,11 @@ function parseBlocks(text) {
 // 区別できない（実測で `path_part = "local.segment"` の endpoint が消え、
 // `path_part = aws_ssm_parameter.p.value` が通った）
 // `api_id`（HTTP API の所属）と `target`（route の委譲先）も「決まらないときに残す」対象
-const RAW_KEYS = ['path_part', 'parent_id', 'resource_id', 'http_method', 'route_key', 'api_id', 'target'];
+// `rest_api_id` も raw で持つ（v1 REST API の `method` ↔ `integration` 対応は
+// `rest_api_id` / `resource_id` / `http_method` の 3 点セットで決める。`attributes()` の
+// 表示用値だと `var.x` と単一参照を区別できず、決まらない値から縁を張ってしまう）
+const RAW_KEYS = ['path_part', 'parent_id', 'resource_id', 'rest_api_id', 'http_method',
+  'route_key', 'api_id', 'target'];
 function rawAttributes(body) {
   const raws = {};
   for (const raw of body.split('\n')) {
@@ -419,6 +423,56 @@ for (const [node, t] of routeTarget) {
     count: 1,
   });
 }
+// ---- v1 REST API の `method` → `integration` を動きの縁として張る ----
+// `aws_api_gateway_integration` は `rest_api_id` / `resource_id` / `http_method` の 3 点セットで
+// method を指す（API Gateway ではこの 3 つが integration の所在そのもの）。3 つとも**値が
+// 決まって**いて、同じファイルに同じ 3 点セットの `aws_api_gateway_method` が **1 件だけ**ある
+// ときだけ `invokes`（method が integration に委ねる）を張る。0 件でも 2 件以上でも張らない。
+// 「同じ resource の下に method が 1 件しかない」での橋渡しはしない（第 29 ラウンドの裁定:
+// 候補が 1 件なのは対応が確定した証拠にならない。兄弟 method が 1 本増えただけで結果が変わる）。
+// HTTP API（v2）の `target` と同じ縁に揃えるので、v1 でも v2 でも `--api` 起点の連鎖が
+// `integration → triggers → Lambda → handler → C#` まで届く。逆に 3 点セットが無い（たとえば
+// `http_method` を書かない）integration は定義上の関連のままで、レポート側が
+// 「対応未確定」として出す
+const methodTriple = (raws, file) => {
+  const api = refOf(valueForm(raws.rest_api_id), 'aws_api_gateway_rest_api', ['id']);
+  const res = refOf(valueForm(raws.resource_id), 'aws_api_gateway_resource', ['id']);
+  const verb = literalText(valueForm(raws.http_method));
+  if (!api || !res || !verb) return null;
+  const up = verb.toUpperCase();
+  if (up === '*' || !HTTP_VERB.test(up)) return null;
+  // 参照先の resource / rest API が同じファイルに 1 件とれないものは「決まっている」と数えない
+  const declared = (type, name) => (byAddress.get(`${type}.${name}`) || [])
+    .filter((n) => n.metadata.file === file && n.metadata.referencedOnly !== true);
+  if (declared('aws_api_gateway_rest_api', api.name).length !== 1) return null;
+  if (declared('aws_api_gateway_resource', res.name).length !== 1) return null;
+  return `${api.name}\u0000${res.name}\u0000${up}`;
+};
+const v1Methods = new Map();     // 3 点セット -> method ノード（同じ値の method が複数なら縁を張らない）
+for (const node of nodes) {
+  const meta = node.metadata;
+  if (!meta || meta.resourceType !== 'aws_api_gateway_method' || meta.referencedOnly === true) continue;
+  const key = methodTriple(rawValues.get(node.id) || {}, meta.file);
+  if (!key) continue;
+  const list = v1Methods.get(key);
+  if (list) list.push(node); else v1Methods.set(key, [node]);
+}
+for (const node of nodes) {
+  const meta = node.metadata;
+  if (!meta || meta.resourceType !== 'aws_api_gateway_integration' || meta.referencedOnly === true) continue;
+  const key = methodTriple(rawValues.get(node.id) || {}, meta.file);
+  if (!key) continue;
+  const list = v1Methods.get(key) || [];
+  if (list.length !== 1) continue;      // 宣言が重複している（= どれが実装か決まらない）ので張らない
+  const method = list[0];
+  edges.push({
+    id: `invokes:${method.id}->${node.id}`, source: method.id, target: node.id, kind: 'invokes',
+    provenance: 'terraform',
+    detail: '`aws_api_gateway_integration` の `rest_api_id` / `resource_id` / `http_method` が指す method',
+    count: 1,
+  });
+}
+
 // 参照先が無かったことはここでのみ分かる（上の未解決チェックより後でしか決まらない）
 for (const node of missingRouteTarget) {
   if (!node.metadata) continue;

@@ -33,6 +33,17 @@
       }
     },
     {
+      "id": "tf:aws_api_gateway_method.m2",
+      "kind": "resource",
+      "name": "m2",
+      "metadata": {
+        "resourceType": "aws_api_gateway_method",
+        "category": "apigateway",
+        "rest_api_id": "aws_api_gateway_rest_api.g",
+        "endpoint": "POST /m2"
+      }
+    },
+    {
       "id": "tf:aws_api_gateway_integration.r2",
       "kind": "resource",
       "name": "r2",
@@ -85,6 +96,27 @@
       "kind": "references",
       "source": "tf:aws_api_gateway_integration.r2",
       "target": "tf:aws_lambda_function.r1",
+      "provenance": "terraform"
+    },
+    {
+      "id": "inv2",
+      "kind": "invokes",
+      "source": "member:Start.Handle",
+      "target": "tf:aws_api_gateway_method.m2",
+      "provenance": "human"
+    },
+    {
+      "id": "ref2m",
+      "kind": "references",
+      "source": "tf:aws_api_gateway_integration.r2",
+      "target": "tf:aws_api_gateway_method.m2",
+      "provenance": "terraform"
+    },
+    {
+      "id": "inv3",
+      "kind": "invokes",
+      "source": "tf:aws_api_gateway_method.m2",
+      "target": "tf:aws_api_gateway_integration.r2",
       "provenance": "terraform"
     },
     {

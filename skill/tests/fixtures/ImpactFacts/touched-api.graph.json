@@ -15,6 +15,7 @@
     { "id": "e1", "kind": "invokes", "source": "member:A", "target": "tf:aws_api_gateway_method.b", "provenance": "human" },
     { "id": "e2", "kind": "references", "source": "tf:aws_api_gateway_method.b", "target": "tf:aws_api_gateway_resource.b", "provenance": "terraform" },
     { "id": "e3", "kind": "references", "source": "tf:aws_api_gateway_integration.b", "target": "tf:aws_api_gateway_resource.b", "provenance": "terraform" },
+    { "id": "e3b", "kind": "invokes", "source": "tf:aws_api_gateway_method.b", "target": "tf:aws_api_gateway_integration.b", "provenance": "terraform", "detail": "`aws_api_gateway_integration` の `rest_api_id` / `resource_id` / `http_method` が指す method" },
     { "id": "e4", "kind": "triggers", "source": "tf:aws_api_gateway_integration.b", "target": "tf:aws_lambda_function.b", "provenance": "terraform" },
     { "id": "e5", "kind": "handler", "source": "tf:aws_lambda_function.b", "target": "member:B.Handle", "provenance": "terraform" },
     { "id": "e6", "kind": "writes", "source": "member:B.Handle", "target": "ext:rds-table/orders", "provenance": "human" }

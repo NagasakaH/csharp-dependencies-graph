@@ -197,5 +197,60 @@ rmSync(dir, { recursive: true, force: true });
     JSON.stringify([fwd, rev]));
 }
 
+// ---- v1 の method と integration を `http_method` の三つ組で結ぶ ----
+// レポートは「この統合がどの method の実装か」を入力から確認できないと本命に昇格しない
+// （第 29 ラウンドの裁定）。v1 の Terraform には `rest_api_id` / `resource_id` / `http_method`
+// が揃うので、そこから 1 件に決まるときだけ動きの縁を張る
+{
+  const api = 'resource "aws_api_gateway_rest_api" "a" {\n  name = "a"\n}\n';
+  const res = 'resource "aws_api_gateway_resource" "r" {\n  rest_api_id = aws_api_gateway_rest_api.a.id\n'
+    + '  parent_id   = aws_api_gateway_rest_api.a.root_resource_id\n  path_part   = "orders"\n}\n';
+  const method = (verb, name = 'm') => `resource "aws_api_gateway_method" "${name}" {\n`
+    + '  rest_api_id = aws_api_gateway_rest_api.a.id\n  resource_id = aws_api_gateway_resource.r.id\n'
+    + `  http_method = "${verb}"\n}\n`;
+  const integ = (attrs) => 'resource "aws_api_gateway_integration" "i" {\n'
+    + '  rest_api_id = aws_api_gateway_rest_api.a.id\n'
+    + '  resource_id = aws_api_gateway_resource.r.id\n' + attrs
+    + '  type = "AWS_PROXY"\n}\n';
+  const scanV1 = (tag, blocks) => {
+    const d = join(dir, `triple-${tag}`);
+    mkdirSync(d, { recursive: true });
+    writeFileSync(join(d, 'api.tf'), blocks.join('\n'), 'utf8');
+    const o = join(dir, `triple-${tag}.json`);
+    const pr = spawnSync(process.execPath, [join(HERE, 'scan-terraform.mjs'), '--root', d, '--out', o],
+      { cwd: root, encoding: 'utf8', timeout: 60_000 });
+    if (pr.status !== 0) { console.error((pr.stdout || '') + (pr.stderr || '')); process.exit(1); }
+    const gg = JSON.parse(readFileSync(o, 'utf8'));
+    return {
+      invokes: gg.edges.filter((e) => e.kind === 'invokes').map((e) => `${e.source}->${e.target}`).sort(),
+      detail: gg.edges.filter((e) => e.kind === 'invokes').map((e) => !!e.detail),
+      unresolved: gg.nodes.filter((n) => (n.metadata || {}).unresolved)
+        .map((n) => `${n.id}:${n.metadata.unresolved.join('/')}`).sort(),
+    };
+  };
+  const ok = scanV1('ok', [api, res, method('POST'),
+    integ('  http_method = "POST"\n')]);
+  check('三点セット（`rest_api_id` / `resource_id` / `http_method`）が揃った integration に method からの `invokes` を張る',
+    ok.invokes.length === 1 && ok.invokes[0] === 'tf:aws_api_gateway_method.m->tf:aws_api_gateway_integration.i'
+    && ok.detail.every((x) => x === true) && ok.unresolved.length === 0,
+    JSON.stringify(ok));
+  const noVerb = scanV1('noverb', [api, res, method('POST'), integ('')]);
+  check('`http_method` を書かない integration には推測で縁を張らない',
+    noVerb.invokes.length === 0, JSON.stringify(noVerb));
+  const dup = scanV1('dup', [api, res, method('POST', 'm'), method('POST', 'm2'),
+    integ('  http_method = "POST"\n')]);
+  check('三点セットが重複して決まる（method が 2 件）ときは縁を張らない',
+    dup.invokes.length === 0, JSON.stringify(dup));
+  const anyVerb = scanV1('any', [api, res, method('POST'), integ('  http_method = "*"\n')]);
+  check('`http_method = "*"`（ANY）は method を特定できないので縁を張らない',
+    anyVerb.invokes.length === 0, JSON.stringify(anyVerb));
+  const varRef = scanV1('varref', [api, res, method('POST'),
+    integ('  http_method = "POST"\n').replace('rest_api_id = aws_api_gateway_rest_api.a.id', 'rest_api_id = var.api_id')]);
+  check('`rest_api_id = var.x` は決まらないので縁を張らず、`metadata.unresolved` に残す',
+    varRef.invokes.length === 0 && varRef.unresolved.some((x) => x.includes('aws_api_gateway_integration.i')
+      && x.includes('rest_api_id')),
+    JSON.stringify(varRef));
+}
+
 console.log(`\n${pass}/${pass + failures.length} 件成功`);
 if (failures.length) { console.log('失敗: ' + failures.join(' / ')); process.exit(1); }

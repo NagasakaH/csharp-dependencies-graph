@@ -25,6 +25,7 @@ resource "aws_api_gateway_method" "get_order" {
 resource "aws_api_gateway_integration" "post_order" {
   rest_api_id = aws_api_gateway_rest_api.orders_api.id
   resource_id = aws_api_gateway_resource.orders.id
+  http_method = "POST"
   uri         = aws_lambda_function.orders_api.invoke_arn
 }
 
@@ -81,6 +82,7 @@ resource "aws_api_gateway_method" "get_users" {
 resource "aws_api_gateway_integration" "get_users" {
   rest_api_id = aws_api_gateway_rest_api.admin_api.id
   resource_id = aws_api_gateway_resource.admin_users.id
+  http_method = "GET"
   uri         = aws_lambda_function.orders_api.invoke_arn
 }
 

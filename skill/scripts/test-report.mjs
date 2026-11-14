@@ -74,10 +74,12 @@ function run2(args, label) {
 const FACTS = join(HERE, '..', 'tests', 'fixtures', 'ImpactFacts');
 function runOn(graphFile, args, label) {
   const json = join(dir, `${label}.json`);
+  const mdFile = join(dir, `${label}.md`);
   const proc = spawnSync(process.execPath, [join(HERE, 'report.mjs'), '--graph', join(FACTS, graphFile),
-    ...args, '--json', json, '--md', join(dir, `${label}.md`)], { cwd: root, encoding: 'utf8' });
+    ...args, '--json', json, '--md', mdFile], { cwd: root, encoding: 'utf8' });
   if (proc.status !== 0) { console.error((proc.stdout || '') + (proc.stderr || '')); return null; }
-  return { result: JSON.parse(readFileSync(json, 'utf8')), stdout: proc.stdout, stderr: proc.stderr };
+  return { result: JSON.parse(readFileSync(json, 'utf8')), stdout: proc.stdout, stderr: proc.stderr,
+    md: readFileSync(mdFile, 'utf8') };
 }
 
 // すべての行がどれかの欄に入っているか（欄の合計 == 総行数）
@@ -275,10 +277,12 @@ function runSyn(name, graph, args, label) {
   const file = join(dir, `${name}.graph.json`);
   writeFileSync(file, JSON.stringify(graph));
   const json = join(dir, `${label}.json`);
-  const proc = spawnSync(process.execPath, [join(HERE, 'report.mjs'), '--graph', file, ...args, '--json', json],
-    { cwd: root, encoding: 'utf8' });
+  const mdFile = join(dir, `${label}.md`);
+  const proc = spawnSync(process.execPath, [join(HERE, 'report.mjs'), '--graph', file, ...args,
+    '--json', json, '--md', mdFile], { cwd: root, encoding: 'utf8' });
   if (proc.status !== 0) { console.error((proc.stdout || '') + (proc.stderr || '')); return null; }
-  return { result: JSON.parse(readFileSync(json, 'utf8')), stdout: proc.stdout };
+  return { result: JSON.parse(readFileSync(json, 'utf8')), stdout: proc.stdout,
+    stderr: proc.stderr, md: readFileSync(mdFile, 'utf8') };
 }
 const synNode = (id, kind, metadata) => ({ id, kind, name: id.split(':').pop(), ...(metadata ? { metadata } : {}) });
 const synEdge = (kind, source, target, provenance = 'terraform') => ({
@@ -319,10 +323,18 @@ check('共有 IAM ロールから先の別 Lambda・handler・その書くテー
 
 // 反例 2: 呼び出した API の先まで往復して届く。A のコードが API B を `invokes` で呼ぶなら、
 // B の Lambda → handler → その handler が書くテーブルまで影響範囲
+// method には `endpoint` を立てる。第 29 ラウンドの裁定で「同じ API の定義を辿っただけ」の
+// 昇格をやめたので、実装へ入る一歩は `integration → references → method` の
+// **method を特定できる直接参照**（または注釈）で表す。この fixture の形は
+// `http_method` を宣言した v1 の Terraform そのもの
+const nestedMeta = {
+  'tf:method.a': { resourceType: 'aws_api_gateway_method', category: 'apigateway', endpoint: 'POST /a' },
+  'tf:method.b': { resourceType: 'aws_api_gateway_method', category: 'apigateway', endpoint: 'POST /b' },
+};
 const nested = {
   nodes: ['tf:method.a', 'tf:integration.a', 'tf:lambda.a', 'member:Handler.A', 'tf:method.b',
     'tf:integration.b', 'tf:lambda.b', 'member:Handler.B', 'tf:table.b']
-    .map((id) => synNode(id, id.startsWith('member:') ? 'member' : 'resource')),
+    .map((id) => synNode(id, id.startsWith('member:') ? 'member' : 'resource', nestedMeta[id])),
   edges: [
     synEdge('references', 'tf:integration.a', 'tf:method.a'),
     synEdge('triggers', 'tf:integration.a', 'tf:lambda.a'),
@@ -375,10 +387,12 @@ check('`--hops 2` の呼び出し連鎖は 2 段まで（3 段目は出ない）
 
 // 反例 5: 起点がエンドポイントのとき、実装側は矢印の向きとかかわらず 影響する先。
 // `Step Functions → invokes → Lambda` は矢印が手前を向くので、これを「影響を受ける入口」にしない
-const epMeta = (t, cat, api) => ({ resourceType: t, category: cat, rest_api_id: api });
+const epMeta = (t, cat, api, endpoint) => ({ resourceType: t, category: cat, rest_api_id: api,
+  ...(endpoint ? { endpoint } : {}) });
 const flip = {
   nodes: [
-    synNode('tf:aws_api_gateway_method.post_x', 'resource', epMeta('aws_api_gateway_method', 'api-gateway', 'tf:aws_api_gateway_rest_api.g')),
+    synNode('tf:aws_api_gateway_method.post_x', 'resource',
+      epMeta('aws_api_gateway_method', 'api-gateway', 'tf:aws_api_gateway_rest_api.g', 'POST /x')),
     synNode('tf:aws_api_gateway_integration.post_x', 'resource', epMeta('aws_api_gateway_integration', 'api-gateway', 'tf:aws_api_gateway_rest_api.g')),
     synNode('tf:aws_lambda_function.x', 'resource', epMeta('aws_lambda_function', 'lambda', null)),
     synNode('tf:aws_sfn_state_machine.p', 'resource', epMeta('aws_sfn_state_machine', 'step-functions', null)),
@@ -386,6 +400,8 @@ const flip = {
   ],
   edges: [
     synEdge('references', 'tf:aws_api_gateway_integration.post_x', 'tf:aws_api_gateway_method.post_x'),
+    // `http_method` を宣言した method は自分の API の実装へ入る一歩を持つ（スキャナーの v1 形）
+    synEdge('invokes', 'tf:aws_api_gateway_method.post_x', 'tf:aws_api_gateway_integration.post_x'),
     synEdge('triggers', 'tf:aws_api_gateway_integration.post_x', 'tf:aws_lambda_function.x'),
     synEdge('handler', 'tf:aws_lambda_function.x', 'member:X.Handle'),
     // handler が Step Functions を**呼びに出す**（実装の下流）
@@ -535,28 +551,66 @@ check('--limit で一覧が切れてもカウンタの不変条件は保たれ�
   const all = r ? allOf(r.result) : [];
   const byId = new Map(all.map((x) => [x.id, x]));
   check('呼び出した API の実装側（Lambda・テーブル・コード）は 定義上の関連 に落ちない',
-    !!r && r.result.summary.primaryOut === 3 && r.result.summary.entryOut === 2
+    !!r && r.result.summary.primaryOut === 4 && r.result.summary.entryOut === 2
     && (byId.get('tf:aws_lambda_function.b') || {}).tier === 'primary'
     && (byId.get('ext:rds-table/orders') || {}).tier === 'primary',
     r ? JSON.stringify([r.result.summary.primaryOut, r.result.summary.entryOut,
       [...byId].map(([k, v]) => [k.replace('tf:aws_', ''), v.tier])]) : '実行失敗');
+  // 同じグラフから `method → invokes → integration`（`http_method` から決まる対応縁）だけを
+  // 抜いた形。第 29 ラウンドの裁定で「同じ API の定義を辿っただけ」では本命にしないので、
+  // 実装側は **定義上の関連 に残ったまま見える**（消えるのではない）
+  const rn = runOn('touched-api-nocorr.graph.json', ['--from', 'tf:aws_lambda_function.a'], 'group-nocorr');
+  const allN = rn ? allOf(rn.result) : [];
+  const byIdN = new Map(allN.map((x) => [x.id, x]));
+  const lamB = byIdN.get('tf:aws_lambda_function.b');
+  check('method を特定できる直接参照も注釈もない integration の先は 定義上の関連（ただし一覧には出す）',
+    !!rn && !!lamB && lamB.tier === 'wiring'
+    && (byIdN.get('tf:aws_api_gateway_integration.b') || {}).tier === 'wiring'
+    && rn.result.summary.primaryOut === 1 && rn.result.summary.entryOut === 1,
+    rn ? JSON.stringify([rn.result.summary.primaryOut, rn.result.summary.entryOut,
+      lamB ? lamB.tier : '出ていない']) : '実行失敗');
   for (const [name, file] of [['定義を辿る縁だけの API グループ', 'group-cache.graph.json'],
     ['コードの種が無いラウンドでもグループ追加で定義を拡げる', 'group-late.graph.json']]) {
     const rr = runOn(file, ['--from', 'tf:aws_lambda_function.s'], `group-${file}`);
     const same = rr ? allOf(rr.result).find((x) => x.id === 'tf:aws_lambda_function.b') : null;
-    check(`${name}: 同じ API を起動する Lambda は本命で 影響する先`,
-      !!same && same.tier === 'primary' && same.direction === 'out',
+    check(`${name}: method を特定できない Lambda は 定義上の関連 に留める（裁定: 案 2）`,
+      !!same && same.tier === 'wiring' && same.direction === 'out',
       same ? JSON.stringify([same.tier, same.direction, same.evidence.kind]) : (rr ? '出ていない' : '実行失敗'));
   }
+  // 同じ形で `http_method` から決まる対応縁（`method → invokes → integration`）を足すと本命になる。
+  // 負例が「情報が足りないから出ない」のではなく「対応が確定していないから本命にしない」ことの対
+  const corrNodes = [
+    synNode('tf:aws_lambda_function.s', 'resource', { resourceType: 'aws_lambda_function' }),
+    synNode('tf:aws_api_gateway_method.b', 'resource',
+      { resourceType: 'aws_api_gateway_method', category: 'apigateway', rest_api_id: 'aws_api_gateway_rest_api.b.id', endpoint: 'POST /b' }),
+    synNode('tf:aws_api_gateway_integration.b', 'resource',
+      { resourceType: 'aws_api_gateway_integration', category: 'apigateway', rest_api_id: 'aws_api_gateway_rest_api.b.id' }),
+    synNode('tf:aws_lambda_function.b', 'resource', { resourceType: 'aws_lambda_function' }),
+  ];
+  const corrEdges = [
+    synEdge('invokes', 'tf:aws_lambda_function.s', 'tf:aws_api_gateway_method.b'),
+    synEdge('invokes', 'tf:aws_api_gateway_method.b', 'tf:aws_api_gateway_integration.b'),
+    synEdge('triggers', 'tf:aws_api_gateway_integration.b', 'tf:aws_lambda_function.b'),
+  ];
+  const rc = runSyn('group-corr', { nodes: corrNodes, edges: corrEdges },
+    ['--from', 'tf:aws_lambda_function.s'], 'group-corr');
+  const sameC = rc ? allOf(rc.result).find((x) => x.id === 'tf:aws_lambda_function.b') : null;
+  check('method を特定できる対応縁（`http_method` の三つ組）があれば同じ API の Lambda は本命で 影響する先',
+    !!sameC && sameC.tier === 'primary' && sameC.direction === 'out',
+    sameC ? JSON.stringify([sameC.tier, sameC.direction, sameC.evidence.kind]) : (rc ? '出ていない' : '実行失敗'));
 }
 
 // (6) 予算（`--wiring-hops`）は `(elig, down)` の資格ごとに数える
 {
   const r = runOn('budget-min.graph.json', ['--from', 's', '--wiring-hops', '1'], 'budget-min');
-  const ids = r ? r.result.wiring.map((x) => x.id) : [];
+  const minRows = r ? [...r.result.external.in, ...r.result.external.out, ...r.result.wiring] : [];
+  const at = (id) => minRows.find((x) => x.id === id);
+  // `a → invokes → z` が動きの縁なので `z` で予算が戻り、`--wiring-hops 1` でも `t` まで届く
+  // （`z` / `a` は動きの縁の両端なので本命、`t` は定義の縁なので 定義上の関連 のまま）
   check('定義上の関連でも予算の届け直しで先まで出る（`t` が脱落しない）',
-    !!r && r.result.summary.wiring === 3 && ids.includes('t'),
-    r ? JSON.stringify([r.result.summary.wiring, ids]) : '実行失敗');
+    !!r && r.result.summary.rows === 3 && !!at('t') && at('t').tier === 'wiring'
+    && (at('z') || {}).tier === 'primary',
+    r ? JSON.stringify([r.result.summary.rows, minRows.map((x) => [x.id, x.tier])]) : '実行失敗');
 
   const a = runOn('budget-normal.graph.json', ['--from', 's'], 'budget-normal');
   const b = runOn('budget-reversed.graph.json', ['--from', 's'], 'budget-reversed');
@@ -569,17 +623,86 @@ check('--limit で一覧が切れてもカウンタの不変条件は保たれ�
   const c = runOn('budget-through-invokes.graph.json', ['--from', 'tf:aws_api_gateway_method.m1'], 'budget-invokes');
   const lam2 = c ? [...c.result.external.out, ...c.result.external.in, ...c.result.wiring]
     .find((x) => x.id === 'tf:aws_lambda_function.lam2') : null;
-  check('動きの縁で予算が戻った経路の先（`lam2`）がどこにも出ないことがない',
-    !!lam2 && lam2.tier === 'primary' && lam2.direction === 'out',
+  // `int2` は `deployment.x` を書いただけ（method を特定できる参照も注釈もない）なので、その先の
+  // `lam2` は第 29 ラウンドの裁定で 定義上の関連。ただし**欄から消えない**ことは固定する
+  check('method を特定できない定義参照の先（`lam2`）は 定義上の関連 に出す（消えない）',
+    !!lam2 && lam2.tier === 'wiring' && lam2.direction === 'out',
     lam2 ? JSON.stringify([lam2.tier, lam2.direction]) : (c ? '出ていない' : '実行失敗'));
 
+  // 動きの縁で予算が戻ることは別の形で固定する。`--wiring-hops 1` だと定義の縁は 1 歩まで。
+  // `l0 → a → b` は 2 歩なので切れるが、`handler` → `invokes` で `b` に動きとして届く経路が
+  // あるので、そこから先の `c → triggers → l1` は予算の届け直しで本命まで出る
+  const resetNodes = [
+    synNode('tf:aws_lambda_function.l0', 'resource', { resourceType: 'aws_lambda_function', category: 'lambda' }),
+    synNode('tf:aws_iam_role.a', 'resource', { resourceType: 'aws_iam_role', category: 'iam' }),
+    synNode('tf:aws_dynamodb_table.b', 'resource', { resourceType: 'aws_dynamodb_table', category: 'storage' }),
+    synNode('tf:aws_sqs_queue.c', 'resource', { resourceType: 'aws_sqs_queue', category: 'sqs' }),
+    synNode('tf:aws_lambda_function.l1', 'resource', { resourceType: 'aws_lambda_function', category: 'lambda' }),
+    synNode('member:L0.Handle', 'member'),
+  ];
+  const resetEdges = [
+    synEdge('references', 'tf:aws_lambda_function.l0', 'tf:aws_iam_role.a'),
+    synEdge('references', 'tf:aws_iam_role.a', 'tf:aws_dynamodb_table.b'),
+    synEdge('handler', 'tf:aws_lambda_function.l0', 'member:L0.Handle'),
+    synEdge('invokes', 'member:L0.Handle', 'tf:aws_dynamodb_table.b', 'human'),
+    synEdge('references', 'tf:aws_dynamodb_table.b', 'tf:aws_sqs_queue.c'),
+    synEdge('triggers', 'tf:aws_sqs_queue.c', 'tf:aws_lambda_function.l1'),
+  ];
+  const cr = runSyn('budget-reset', { nodes: resetNodes, edges: resetEdges },
+    ['--from', 'tf:aws_lambda_function.l0', '--wiring-hops', '1'], 'budget-reset');
+  const l1 = cr ? [...cr.result.external.out, ...cr.result.external.in, ...cr.result.wiring]
+    .find((x) => x.id === 'tf:aws_lambda_function.l1') : null;
+  check('動きの縁で予算が戻った経路の先は 定義上の関連 のままでも先まで出る',
+    !!l1 && l1.tier === 'primary' && l1.direction === 'out',
+    l1 ? JSON.stringify([l1.tier, l1.direction, l1.hops]) : (cr ? '出ていない' : '実行失敗'));
+
   const d = runOn('six-groups.graph.json', ['--from', 's', '--hops', '32'], 'six-groups');
+  // 6 組のどれにも method を特定できる縁が無い形なので、起点から動きとして届いた 1 件以外は
+  // 全部 定義上の関連。収束を打ち切らずに 24 行すべてを出し尽くしていることを見る
   check('API の連鎖が 6 組あってもラウンド上限で黙って切らない（未収束なら旗を出す）',
-    !!d && d.result.summary.primaryOut === 12 && d.result.summary.primaryIn === 6
-    && d.result.summary.wiring === 6 && d.result.summary.unresolved === false,
+    !!d && d.result.summary.rows === 24 && d.result.summary.primaryOut === 1
+    && d.result.summary.primaryIn === 0 && d.result.summary.wiring === 23
+    && d.result.summary.unresolved === false,
     d ? JSON.stringify([d.result.summary.primaryOut, d.result.summary.primaryIn,
       d.result.summary.wiring, d.result.summary.rounds, d.result.summary.maxRounds,
       d.result.summary.unresolved]) : '実行失敗');
+
+  // 同じ 6 組の連鎖で、各段に `http_method` から決まる対応縁を足した形。段を 6 つ越えても
+  // ラウンド上限に当たらず（`unresolved` を立てず）に各段の実装まで本命へ届く
+  const six = () => {
+    const nodes = [synNode('tf:aws_lambda_function.s', 'resource', { resourceType: 'aws_lambda_function' })];
+    const edges = [];
+    for (let i = 1; i <= 6; i++) {
+      const g = `tf:aws_api_gateway_rest_api.g${i}`;
+      const m = `tf:aws_api_gateway_method.m${i}`;
+      const int = `tf:aws_api_gateway_integration.i${i}`;
+      const lam = `tf:aws_lambda_function.l${i}`;
+      nodes.push(synNode(m, 'resource', { resourceType: 'aws_api_gateway_method', category: 'apigateway',
+        rest_api_id: `${g}.id`, endpoint: `POST /${i}` }));
+      nodes.push(synNode(g, 'resource', { resourceType: 'aws_api_gateway_rest_api', category: 'apigateway' }));
+      nodes.push(synNode(int, 'resource', { resourceType: 'aws_api_gateway_integration', category: 'apigateway',
+        rest_api_id: `${g}.id` }));
+      nodes.push(synNode(lam, 'resource', { resourceType: 'aws_lambda_function' }));
+      edges.push(synEdge('references', m, g));
+      edges.push(synEdge('references', int, g));
+      edges.push(synEdge('invokes', m, int));
+      edges.push(synEdge('triggers', int, lam));
+      edges.push(synEdge('invokes', i === 1 ? 'tf:aws_lambda_function.s' : `tf:aws_lambda_function.l${i - 1}`, m));
+    }
+    return { nodes, edges };
+  };
+  const six1 = runSyn('six-corr', six(), ['--from', 'tf:aws_lambda_function.s', '--hops', '32'], 'six-corr');
+  const sixBack = runSyn('six-corr-rev', (({ nodes, edges }) =>
+    ({ nodes: [...nodes].reverse(), edges: [...edges].reverse() }))(six()),
+  ['--from', 'tf:aws_lambda_function.s', '--hops', '32'], 'six-corr-rev');
+  const sixLams = (r) => (r ? allRows(r.result) : []).filter((x) => x.id.startsWith('tf:aws_lambda_function.l'))
+    .map((x) => `${x.id}:${x.tier}:${x.direction}`).sort();
+  check('対応縁のある API の連鎖は 6 組あっても各段の実装まで本命で、縁の並び順を変えても同じ',
+    !!six1 && six1.result.summary.unresolved === false
+    && sixLams(six1).length === 6 && sixLams(six1).every((x) => x.endsWith(':primary:out'))
+    && JSON.stringify(sixLams(six1)) === JSON.stringify(sixLams(sixBack)),
+    six1 ? JSON.stringify([sixLams(six1), sixLams(sixBack), six1.result.summary.rounds,
+      six1.result.summary.maxRounds, six1.result.summary.unresolved]) : '実行失敗');
 }
 
 // (7) 第 23 ラウンドの反例: 受け事実の `down` 継承とラウンドの打ち切れ
@@ -615,6 +738,121 @@ check('--limit で一覧が切れてもカウンタの不変条件は保たれ�
   check('比較不能な資格を 1 つの予算に合併しない（`(elig, budget)` の届け直しで先が出る）',
     !!lam2 && lam2.tier === 'primary' && lam2.direction === 'out',
     lam2 ? JSON.stringify([lam2.tier, lam2.direction]) : (e ? '出ていない' : '実行失敗'));
+}
+
+// (8) 第 29 ラウンドの裁定の表示側: 本命にしない代償を黙らせない
+{
+  const WARN = '対応未確定の関連があります。メソッドと統合の対応を入力から確認できないため、'
+    + '候補を「定義上の関連」に表示しています。';
+  const REASON = '対応未確定：HTTP動詞・メソッドへの直接参照なし';
+  const g = runOn('group-cache.graph.json', ['--from', 'tf:aws_lambda_function.s'], 'disp-warn');
+  const countOf = (text, needle) => text.split(needle).length - 1;
+  const intRow = g ? allRows(g.result).find((x) => x.id === 'tf:aws_api_gateway_integration.b') : null;
+  check('method との対応が入力から決まらない統合には 対応未確定 の理由を立て、サマリに警告を 1 行出す',
+    !!g && !!intRow && intRow.unresolvedCorr === true && intRow.tier === 'wiring'
+    && g.result.summary.unresolvedCorr === 1
+    && countOf(g.stdout, WARN) === 1 && countOf(g.md, WARN) === 1
+    && g.md.includes(REASON)
+    && !allRows(g.result).some((x) => x.id !== 'tf:aws_api_gateway_integration.b' && x.unresolvedCorr),
+    g ? JSON.stringify([g.result.summary.unresolvedCorr, intRow && intRow.unresolvedCorr,
+      countOf(g.stdout, WARN), countOf(g.md, WARN)]) : '実行失敗');
+
+  // 兄弟ルートを足しても起点の実行経路は変わらない → 本命は変わらない（不変条件）
+  const apiShape = (apis, routes, reversed) => {
+    const nodes = [];
+    const edges = [];
+    const push = (x) => nodes.push(x);
+    const link = (...x) => edges.push(...x);
+    for (let a = 0; a < apis; a++) {
+      const api = `tf:aws_api_gateway_rest_api.a${a}`;
+      push(synNode(api, 'resource', { resourceType: 'aws_api_gateway_rest_api', category: 'apigateway' }));
+      const res = `tf:aws_api_gateway_resource.r${a}`;
+      push(synNode(res, 'resource', { resourceType: 'aws_api_gateway_resource', category: 'apigateway',
+        rest_api_id: `${api}.id` }));
+      for (let k = 0; k < routes; k++) {
+        const m = `tf:aws_api_gateway_method.m${a}_${k}`;
+        const int = `tf:aws_api_gateway_integration.i${a}_${k}`;
+        const lam = `tf:aws_lambda_function.f${a}_${k}`;
+        push(synNode(m, 'resource', { resourceType: 'aws_api_gateway_method', category: 'apigateway',
+          rest_api_id: `${api}.id`, endpoint: `POST /a${a}/r${k}` }));
+        push(synNode(int, 'resource', { resourceType: 'aws_api_gateway_integration', category: 'apigateway',
+          rest_api_id: `${api}.id` }));
+        push(synNode(lam, 'resource', { resourceType: 'aws_lambda_function' }));
+        const es = [synEdge('references', m, res), synEdge('references', int, res),
+          synEdge('triggers', int, lam)];
+        // 起点にする route（`a=0, k=0`）だけ `http_method` を宣言した形 = 実装へ入る一歩を持つ
+        if (a === 0 && k === 0) es.unshift(synEdge('invokes', m, int));
+        link(...es);
+      }
+    }
+    return reversed ? { nodes: [...nodes].reverse(), edges: [...edges].reverse() } : { nodes, edges };
+  };
+  const land = (r) => (r ? allRows(r.result) : []).filter((x) => x.tier === 'primary')
+    .map((x) => `${x.id}:${x.direction}`).sort();
+  const start = ['--api', 'POST /a0/r0'];
+  const few = runSyn('sib-few', apiShape(3, 2, false), start, 'sib-few');
+  const many = runSyn('sib-many', apiShape(3, 12, false), start, 'sib-many');
+  const lots = runSyn('sib-lots', apiShape(3, 30, true), start, 'sib-lots');
+  const want = ['tf:aws_api_gateway_integration.i0_0:out', 'tf:aws_lambda_function.f0_0:out'];
+  check('兄弟ルートの本数を変えても（縁の並び順を逆にしても）本命は変わらない',
+    !!few && !!many && !!lots
+    && JSON.stringify(land(few)) === JSON.stringify(want)
+    && JSON.stringify(land(many)) === JSON.stringify(want)
+    && JSON.stringify(land(lots)) === JSON.stringify(want),
+    [few, many, lots].map((x) => JSON.stringify(land(x))).join(' / '));
+  check('兄弟ルートは件数で要約し、一覧は先頭だけ出して残りは件数で示す',
+    !!lots && lots.result.summary.siblingEndpointsOnly === 29
+    && lots.md.includes('他のルート 17 件') && lots.stdout.includes('他のルート 18 件')
+    && ((lots.md.split('### 同じコードを使う別の API')[1] || '').split('\n### ')[0]
+      .split('\n').filter((x) => x.startsWith('- `')).length) === 12,
+    lots ? JSON.stringify([lots.result.summary.siblingEndpointsOnly,
+      lots.md.includes('他のルート 17 件'), lots.stdout.includes('他のルート 18 件')]) : '実行失敗');
+
+  // 実データでよくある形: integration の `resource_id` が **method を直接参照**している
+  // （`http_method` の三つ組が要らない）。この対応縁は入力をそのまま読めるので昇格してよい
+  const directNodes = [
+    synNode('tf:aws_api_gateway_rest_api.a', 'resource', { resourceType: 'aws_api_gateway_rest_api', category: 'apigateway' }),
+    synNode('tf:aws_api_gateway_method.m', 'resource', { resourceType: 'aws_api_gateway_method', category: 'apigateway',
+      rest_api_id: 'aws_api_gateway_rest_api.a.id', endpoint: 'POST /orders' }),
+    synNode('tf:aws_api_gateway_integration.i', 'resource', { resourceType: 'aws_api_gateway_integration', category: 'apigateway',
+      rest_api_id: 'aws_api_gateway_rest_api.a.id' }),
+    synNode('tf:aws_lambda_function.f', 'resource', { resourceType: 'aws_lambda_function' }),
+  ];
+  const directEdges = [
+    synEdge('references', 'tf:aws_api_gateway_method.m', 'tf:aws_api_gateway_rest_api.a'),
+    synEdge('references', 'tf:aws_api_gateway_integration.i', 'tf:aws_api_gateway_rest_api.a'),
+    synEdge('references', 'tf:aws_api_gateway_integration.i', 'tf:aws_api_gateway_method.m'),
+    synEdge('triggers', 'tf:aws_api_gateway_integration.i', 'tf:aws_lambda_function.f'),
+  ];
+  const dr = runSyn('direct-method-ref', { nodes: directNodes, edges: directEdges },
+    ['--api', 'POST /orders'], 'direct-method-ref');
+  const dRows = dr ? allRows(dr.result) : [];
+  const dAt = (id) => dRows.find((x) => x.id === id);
+  check('integration が method を直接参照している形（三つ組が無くても）はその実装を本命にする',
+    !!dr && (dAt('tf:aws_lambda_function.f') || {}).tier === 'primary'
+    && (dAt('tf:aws_lambda_function.f') || {}).direction === 'out'
+    && dAt('tf:aws_api_gateway_integration.i').unresolvedCorr === false,
+    dr ? JSON.stringify(dRows.map((x) => [x.id.replace('tf:aws_', ''), x.tier, x.unresolvedCorr])) : '実行失敗');
+
+  // 本命 0 件を「影響がない」と読ませない
+  const zeroNodes = [
+    synNode('tf:aws_lambda_function.s', 'resource', { resourceType: 'aws_lambda_function' }),
+    synNode('tf:aws_iam_role.r', 'resource', { resourceType: 'aws_iam_role' }),
+    synNode('tf:aws_lambda_function.t', 'resource', { resourceType: 'aws_lambda_function' }),
+  ];
+  const zeroEdges = [
+    synEdge('references', 'tf:aws_lambda_function.s', 'tf:aws_iam_role.r'),
+    synEdge('references', 'tf:aws_lambda_function.t', 'tf:aws_iam_role.r'),
+  ];
+  const z = runSyn('primary-zero', { nodes: zeroNodes, edges: zeroEdges },
+    ['--from', 'tf:aws_lambda_function.s'], 'primary-zero');
+  const ZERO_MSG = '本命 0 件は、影響がないことを意味しません。対応未確定の候補を確認してください。';
+  check('本命 0 件のときは「影響がない意味ではない」という注意を 1 行出す（本命があるとき是不出）',
+    !!z && z.result.summary.primaryOut === 0 && z.result.summary.rows > 0
+    && countOf(z.stdout, ZERO_MSG) === 1 && countOf(z.md, ZERO_MSG) === 1
+    && !g.stdout.includes(ZERO_MSG) && !g.md.includes(ZERO_MSG),
+    z ? JSON.stringify([z.result.summary.primaryOut, countOf(z.stdout, ZERO_MSG),
+      countOf(z.md, ZERO_MSG)]) : '実行失敗');
 }
 
 rmSync(dir, { recursive: true, force: true });
