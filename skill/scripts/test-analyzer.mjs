@@ -267,6 +267,24 @@ check('戻り値がインターフェースのメソッド呼び出し（IModule
   bHas('calls', 'member:Fix.Regress.Handlers.Worker.Configure', moduleConfigure),
   JSON.stringify(bEdges.filter((e) => e.source.includes('Configure')).map((e) => `${e.kind}:${e.target}`)));
 
+// 戻り値型を `var` で一度受けても、宣言元の文脈を保つ（レビューで出た過剰除去）
+for (const who of ['VarFromCall', 'VarFromProperty', 'VarInForEach', 'VarFromIndexer']) {
+  check(`var で受けた戻り値の先（${who}）も宣言元で解決`,
+    bHas('accesses', `member:Fix.Regress.Handlers.Worker.${who}`, itemId),
+    JSON.stringify(bEdges.filter((e) => e.source.endsWith(who)).map((e) => `${e.kind}:${e.target}`)));
+}
+
+// 型引数の数が違う候補は飛ばして、届く候補まで探索を続ける（C# の探索順に合わせる）
+check('型引数付きの利用が同名非ジェネリックで止まらず、using 先のジェネリックへ進む',
+  bHas('references', 'member:Fix.Regress.Handlers.Worker.ArityFromParam', 'type:Fix.Regress.Boxes.Box')
+  && bHas('calls', 'member:Fix.Regress.Handlers.Worker.ArityFromParam', 'member:Fix.Regress.Boxes.Box.Go')
+  && bHas('accesses', 'member:Fix.Regress.Handlers.Worker.ArityFromParam', 'member:Fix.Regress.Boxes.Box.Value')
+  && !bHas('references', 'member:Fix.Regress.Handlers.Worker.ArityFromParam', 'type:Fix.Regress.Handlers.Box'),
+  JSON.stringify(bEdges.filter((e) => e.source.endsWith('ArityFromParam')).map((e) => `${e.kind}:${e.target}`)));
+check('型引数を書かない利用は同じ名前空間の非ジェネリックに決まる',
+  bHas('calls', 'member:Fix.Regress.Handlers.Worker.Go', 'member:Fix.Regress.Handlers.Box.Identity'),
+  JSON.stringify(bEdges.filter((e) => e.source.endsWith('Worker.Go')).map((e) => `${e.kind}:${e.target}`)));
+
 // グローバル名前空間の型とそのネスト型は、同じファイルから見える
 check('グローバル名前空間のネスト型を到達不能にしない',
   bHas('creates', 'member:Entry.Run', 'type:Entry/Inner')
@@ -282,16 +300,14 @@ check('名前空間直下の型が単純名で決まったときは張り分け�
   JSON.stringify(bEdges.filter((e) => e.source.includes('ProbeUser')).map((e) => `${e.kind}:${e.target}`)));
 
 // ---- 決定性: 同じ入力を 2 回走らせてもノード・エッジ・後付け候補が揺れない ----
+// 生成日時だけをのぞいた**バイト列そのもの**を比べる。並列走りの結果を後から並べ替えると
+// 集合は同じでも出力順が揺れるので、「ソートしてから比較」では見逃してしまう
 function runTwice(root) {
   const outs = [1, 2].map((i) => {
     const out = join(dir, `twice-${i}.json`);
     const proc = spawnSync(cgd, ['--root', root, '--out', out, '--quiet'], { encoding: 'utf8' });
     if (proc.status !== 0) { console.error(proc.stdout + proc.stderr); process.exit(1); }
-    const graph = JSON.parse(readFileSync(out, 'utf8'));
-    return JSON.stringify({
-      nodes: [...graph.nodes].sort((a, x) => a.id.localeCompare(x.id)),
-      edges: [...graph.edges].sort((a, x) => `${a.kind}${a.source}${a.target}`.localeCompare(`${x.kind}${x.source}${x.target}`)),
-    });
+    return readFileSync(out, 'utf8').replace(/"generatedAt":\s*"[^"]*"/g, '"generatedAt":""');
   });
   return outs[0] === outs[1];
 }

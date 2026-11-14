@@ -102,8 +102,10 @@ node skill/scripts/query.mjs --graph out/graph/graph.json --from tf:aws_lambda_f
 | `Elsa.Workflows.IActivity` | 125 | 16 |
 | `Elsa.Abstractions.ElsaEndpoint` | 119 | 17 |
 
-`FeatureBase` と `IModule` はファイル数より別 csproj 数が桁で大きい（100 / 99）。この 2 つは「少し触れば
-100 プロジェクトに響く」という意味で、ファイル数の上位（`ActivityExecutionContext`）とは効き方が違う。
+読み方は本数ではなく**別 csproj 数の割合**で決める。`FeatureBase`（参照元 138 ファイル / 別 csproj 100）と
+`IModule`（197 / 99）は参照元の大半が別プロジェクトにあり、少し触れば 100 プロジェクトに響く。
+一方いちばんファイル数の多い `ActivityExecutionContext`（320 / 42）は同じ 320 本でも別プロジェクトに
+散っているのは 42 で、同一 csproj 内に濃く張っている。ファイル数の上位だけをみると、この違いが消える。
 
 集計はグラフ JSON に対して次の 1 行でできる（`contains` / `project-reference` は階層なので数えない。
 `attribute` は属性としての実参照なので入れている）。
@@ -125,7 +127,7 @@ const o=owner(p),home=owner(t.path||"");if(o&&o!==home)cross.set(t.id,(cross.get
 
 ## 7. 設計レビュー: 呼び出しの集中（blast radius）
 
-`calls` の受信数上位（elsa-core 実測、`calls` エッジ 14,589 本 / 呼び出し先 6,204 個）:
+`calls` の受信数上位（elsa-core 実測、`calls` エッジ 14,607 本 / 呼び出し先 6,207 個）:
 `IModule.Configure` 128、`ActivityExecutionContext.GetRequiredService` 109、
 `ElsaEndpoint.RequirePermission` 108、`ActivityExecutionContext.Get` 102、
 `ActivityExecutionContext.Set` 89。**シグネチャを変えると何箇所に響くか**が即座に分かる。
@@ -149,12 +151,14 @@ node skill/scripts/query.mjs --graph out/demo/graph.json --from tf:aws_dynamodb_
 ## 9. 誤読しないための前提
 
 - **構文解析のみ**（`SemanticModel` を使わない）。型が決まらない呼び出し名は張らずに未決着として数える
-  （elsa-core で 96,592 件）。`var x = Foo();` の返し値や `out var`、タプル、`is var` の型は推定しない。
+  （elsa-core で 96,644 件）。`var x = Foo()` の返し値は推定する（宣言元の `using` も引き継ぐ）が、
+  `out var`、タプル分割、`is var` / `case var`、LINQ の `join` の範囲変数、`dynamic` は型を決めない。
 - **同名型のうち「届かない」と判断したものは張らない**。判断は (1) 使われた型引数の数が宣言のいずれかと
-  合うか、(2) `using`・名前空間・同一ファイルから到達できそうか。ゲートは型引数を書いた側だけに効く
-  一方向で、型引数を書かない非ジェネリック利用は従来どおり結ぶ。
+  合うか、(2) `using`・名前空間・同一ファイルから到達できそうか。型引数の数が違う候補では張らず、
+  C# とおなじように**次の候補へ探索を続ける**（別名前空間に型引数の合う同名型があればそこへ張る）。
+  ゲートは型引数を書いた側だけに効く一方向で、型引数を書かない非ジェネリック利用は従来どおり結ぶ。
 - **断ったバインドは `.cs` ノードに `rejectedTypes` として残る**。ここに同名の型がリポジトリ内に
-  存在するということなので、注釈で正しく張る候補リストになる（elsa-core で 1,018 ファイル / 1,268 名）。
+  存在するということなので、注釈で正しく張る候補リストになる（elsa-core で 1,010 ファイル / 1,260 名）。
   MSBuild が `obj/` に生成する implicit global using はアナライザから見えないので、ここで拒否に見える。
 - 同名候補が同じ強さで並んだ場所では `ambiguous` を `detail` に持つ縁を最大 2 本張る。同一ファイルや
   名前空間直下の型という手掛かりで単独決定できることが多く、elsa-core の残りは **2 本**

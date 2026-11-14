@@ -76,7 +76,9 @@ public static class Program
             Producer = "csharp-analyzer",
         };
         AddNodes(fragment, index, results);
-        foreach (var edge in scanner.Edges.Values) fragment.Edges.Add(edge);
+        // 2 周目は Parallel.For なので辞書の挿入順（＝列挙順）はスレッド順序に左右される。
+        // 同じ入力なら同じバイト列が出るよう、エッジは ID の順序で書き出す
+        foreach (var edge in scanner.Edges.Values.OrderBy(e => e.Id, StringComparer.Ordinal)) fragment.Edges.Add(edge);
 
         var byKind = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var edge in scanner.Edges.Values)
@@ -94,7 +96,7 @@ public static class Program
         fragment.Stats["csharpUnresolvedCalls"] = scanner.UnresolvedCount;
         fragment.Stats["csharpRejectedTypeFiles"] = results.Count(r => r.RejectedTypes.Count > 0);
         fragment.Stats["csharpRejectedTypes"] = results.Sum(r => r.RejectedTypes.Count);
-        foreach (var kv in byKind) fragment.Stats["csharpEdge_" + kv.Key] = kv.Value;
+        foreach (var kv in byKind.OrderBy(k => k.Key, StringComparer.Ordinal)) fragment.Stats["csharpEdge_" + kv.Key] = kv.Value;
 
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outPath))!);
         File.WriteAllText(Path.GetFullPath(outPath), fragment.ToJson());

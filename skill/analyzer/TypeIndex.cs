@@ -169,14 +169,18 @@ public sealed class TypeIndex
         // ゲート 1: 使用側が型引数を書いているなら、宣言の型パラメータ数が違う候補には張らない
         //   （`Dictionary<string, object>` を Blazor の非ジェネリック `Dictionary` に化かさない）。
         //   名前解決の形を絞らず、確定解決の経路でも必ず通す。
-        TypeSymbol[] Accept(TypeSymbol candidate)
+        //   ただし C# は不一致の候補を**飛ばして次を探索する**ので、ここで引き返さない。
+        var sawArityMismatch = false;
+        TypeSymbol? hit = null;
+        bool Take(TypeSymbol candidate)
         {
             if (usageArity > 0 && !candidate.MatchesArity(usageArity))
             {
-                box.Reason = RejectReason.ArityMismatch;
-                return EmptyTypes;
+                sawArityMismatch = true;
+                return false;
             }
-            return new[] { candidate };
+            hit = candidate;
+            return true;
         }
 
         var name = TypeText.Normalize(raw);
@@ -188,26 +192,34 @@ public sealed class TypeIndex
             if (name.Length == 0) return EmptyTypes;
         }
 
-        if (ByQualified.TryGetValue(name, out var exact)) return Accept(exact);
-        if (name.Contains('.') && ByQualified.TryGetValue(name.Replace('.', '/'), out var flatNested))
+        if (ByQualified.TryGetValue(name, out var exact) && Take(exact)) return new[] { hit! };
+        if (name.Contains('.') && ByQualified.TryGetValue(name.Replace('.', '/'), out var flatNested) &&
+            Take(flatNested))
         {
-            return Accept(flatNested);
+            return new[] { hit! };
         }
-        if (ns.Length > 0 && ByQualified.TryGetValue(ns + "." + name, out var inNamespace)) return Accept(inNamespace);
-        if (ns.Length > 0 && name.Contains('.') &&
-            ByQualified.TryGetValue(ns + "." + name.Replace('.', '/'), out var nestedInNamespace))
+        if (ns.Length > 0 && ByQualified.TryGetValue(ns + "." + name, out var inNamespace) && Take(inNamespace))
         {
-            return Accept(nestedInNamespace);
+            return new[] { hit! };
+        }
+        if (ns.Length > 0 && name.Contains('.') &&
+            ByQualified.TryGetValue(ns + "." + name.Replace('.', '/'), out var nestedInNamespace) &&
+            Take(nestedInNamespace))
+        {
+            return new[] { hit! };
         }
 
         if (file is not null)
         {
             foreach (var usingNs in VisibleUsings(file))
             {
-                if (ByQualified.TryGetValue(usingNs + "." + name, out var byUsing)) return Accept(byUsing);
-                if (name.Contains('.') && ByQualified.TryGetValue(usingNs + "." + name.Replace('.', '/'), out var byUsingNested))
+                if (ByQualified.TryGetValue(usingNs + "." + name, out var byUsing) && Take(byUsing))
+                    return new[] { hit! };
+                if (name.Contains('.') &&
+                    ByQualified.TryGetValue(usingNs + "." + name.Replace('.', '/'), out var byUsingNested) &&
+                    Take(byUsingNested))
                 {
-                    return Accept(byUsingNested);
+                    return new[] { hit! };
                 }
             }
 
@@ -221,9 +233,9 @@ public sealed class TypeIndex
                 {
                     foreach (var candidate in outers)
                     {
-                        if (ByQualified.TryGetValue(candidate.Qualified + "/" + rest, out var inner))
+                        if (ByQualified.TryGetValue(candidate.Qualified + "/" + rest, out var inner) && Take(inner))
                         {
-                            return Accept(inner);
+                            return new[] { hit! };
                         }
                     }
                 }
@@ -263,7 +275,7 @@ public sealed class TypeIndex
                 box.Reason = RejectReason.Unreachable;
                 return EmptyTypes;                              // 届かない／判別できない曖昧さは張らない
             }
-            if (scored.Count == 1 || scored[0].Score > scored[1].Score) return Accept(scored[0].Type);
+            if (scored.Count == 1 || scored[0].Score > scored[1].Score) return new[] { scored[0].Type };
 
             var top = scored[0].Score;
             var picked = new List<TypeSymbol>();
@@ -276,6 +288,8 @@ public sealed class TypeIndex
             return picked;
         }
 
+        // 型引数の数で弾いただけで何も決まらなかった、という理由を残す
+        if (sawArityMismatch) box.Reason = RejectReason.ArityMismatch;
         return EmptyTypes;
     }
 

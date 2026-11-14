@@ -54,7 +54,11 @@ check('ネスト型（`Outer+Inner`）は `Outer/Inner` の member に解決す�
 check('同じメソッド名でも別の型ならその型へ結ぶ',
   linked.has('tf:aws_lambda_function.other_type->member:HandlerNs.B.Handle'));
 
-// 張ってはいけない 3 とお
+check('2 段以上のネスト型（`Outer+Middle+Inner`）も解決する',
+  linked.has('tf:aws_lambda_function.nested3->member:HandlerNs.Outer/Middle/Inner.Handle'),
+  JSON.stringify([...linked]));
+
+// 張ってはいけない 5 とお
 check('アセンブリ名が違う指定は張らずに警告',
   ![...linked].some((k) => k.startsWith('tf:aws_lambda_function.wrong_assembly->'))
   && warnings.includes('アセンブリ名'),
@@ -63,6 +67,14 @@ check('4 要素以上の handler は形が不正として張らない',
   ![...linked].some((k) => k.startsWith('tf:aws_lambda_function.four_parts->'))
   && warnings.includes('要素数 4'),
   warnings.split('\n').filter((l) => l.includes('four_parts')).join(' / '));
+check('アセンブリ名を宣言している csproj でファイル名を受理しない（別アセンブリへの handler を張らない）',
+  ![...linked].some((k) => k.startsWith('tf:aws_lambda_function.csproj_name->'))
+  && warnings.includes('csproj_name') && warnings.includes('RealAssembly'),
+  JSON.stringify([...linked]));
+check('空要素を含む handler は要素数検査をすり抜けない',
+  ![...linked].some((k) => k.startsWith('tf:aws_lambda_function.empty_parts->'))
+  && warnings.includes('空要素'),
+  JSON.stringify([...linked]));
 check('存在しない型は張らずに注釈を促す警告',
   ![...linked].some((k) => k.startsWith('tf:aws_lambda_function.unknown_type->'))
   && warnings.includes('handler の解決失敗'),

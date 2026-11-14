@@ -13,15 +13,20 @@
   "generatedAt": "2026-11-14T03:40:00+09:00",
   "rootPath": "/abs/path/to/repo",
   "producers": [                      // どの断片がこのグラフを作ったかの監査情報
-    { "producer": "directory-scanner", "fragment": "graph.scan.json", "role": "fragment", "nodes": 10371, "edges": 1344 },
-    { "producer": "csharp-analyzer", "fragment": "graph.csharp.json", "role": "fragment", "nodes": 41813, "edges": 52174 },
+    { "producer": "directory-scanner", "fragment": "graph.scan.json", "role": "fragment", "nodes": 10384, "edges": 1344 },
+    { "producer": "csharp-analyzer", "fragment": "graph.csharp.json", "role": "fragment", "nodes": 41805, "edges": 52351 },
     { "producer": "annotation", "fragment": "annotations.orders-api.json", "role": "annotation", "nodes": 1, "edges": 8, "metadata": 3 }
   ],
-  "stats": { "nodes": 51179, "edges": 53344, "orphans": 0, "warnings": 97, "folders": 2839, "files": 7207, "projects": 336, "solutions": 2, "signalFiles": 898, "csharpFiles": 6754, "csharpParseFailures": 0, "csharpTypes": 8223, "csharpMembers": 32572, "csharpEdges": 52174, "csharpUnresolvedCalls": 96592, "csharpRejectedTypeFiles": 1018, "csharpRejectedTypes": 1268, "csharpEdge_calls": 14589, "handlerEdges": 0, "directory-scannerNodes": 10384, "csharp-analyzerNodes": 41813 },
+  "stats": { "directory-scannerNodes": 10384, "csharp-analyzerNodes": 41805, "folders": 2839, "files": 7207, "projects": 336, "solutions": 2, "signalFiles": 898, "csharpFiles": 6754, "csharpParseFailures": 0, "csharpTypes": 8223, "csharpMembers": 32572, "csharpEdges": 52351, "csharpUnresolvedCalls": 96644, "csharpRejectedTypeFiles": 1010, "csharpRejectedTypes": 1260, "csharpEdge_accesses": 13788, "csharpEdge_attribute": 1004, "csharpEdge_calls": 14607, "csharpEdge_creates": 4303, "csharpEdge_implements": 1700, "csharpEdge_inherits": 1316, "csharpEdge_references": 15633, "handlerEdges": 0, "nodes": 51179, "edges": 53521, "orphans": 0, "warnings": 97 },
   "nodes": [ /* Node */ ],
   "edges": [ /* Edge  */ ]
 }
 ```
+
+`producers[].nodes` は断片ごとの生成数で、マージ後のノード数とは一致しない（同じ ID は 1 つに畳まれる）。
+csharp-analyzer の断片は「型 8,223 + メンバ 32,572 + `rejectedTypes` を持つ .cs ファイル 1,010 = 41,805」。
+`.cs` の file ノードは階層側（directory-scanner）が全ファイル分を作るので、アナライザ側は
+`rejectedTypes` を乗せるファイルだけ、明示的に file ノードを出す。
 
 ### Node
 

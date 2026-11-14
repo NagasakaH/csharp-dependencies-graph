@@ -21,15 +21,15 @@ open out/graph/graph.html
 
 | 対象 | ノード / エッジ | 内容 |
 | --- | --- | --- |
-| [elsa-core](https://github.com/elsa-workflows/elsa-core) | 51,179 / 53,344（C# 解析 3 秒、HTML 20MB） | 336 csproj、6,754 個の `.cs`（ファイル計 7,207）、8,223 型、32,572 メンバ、calls 14,589 / accesses 13,550 / references 15,712、898 ファイルが AWS/DB シグナル、1,018 ファイル（1,268 名）が「張れなかった同名候補」の記録あり |
+| [elsa-core](https://github.com/elsa-workflows/elsa-core) | 51,179 / 53,521（C# 解析 3 秒、HTML 20MB） | 336 csproj、6,754 個の `.cs`（ファイル計 7,207）、8,223 型、32,572 メンバ、calls 14,607 / accesses 13,788 / references 15,633、898 ファイルが AWS/DB シグナル、1,010 ファイル（1,260 名）が「張れなかった同名候補」の記録あり |
 | `demo/orders-api-lambda` | 74 / 66（静的 27 / Terraform 27 / 注釈 12） | C# Lambda 3 csproj + Terraform 15 リソース + Terraform の handler 解決 2 + 注釈 12 エッジ（RDS をテーブル → カラムまで `parent` で入れ子にした例を含む） |
 
 検証は 2 系統あり、どちらも対象プロジェクト非依存で動く。
 
 ```sh
-node skill/scripts/test-analyzer.mjs                          # 静的解析の精度（58 項目、ブラウザ不要）
+node skill/scripts/test-analyzer.mjs                          # 静的解析の精度（64 項目、ブラウザ不要）
 node skill/scripts/test-query.mjs                             # 逆引き・影響範囲の照会（17 項目、.NET 不要）
-node skill/scripts/test-merge.mjs                             # Lambda handler の解決規則（9 項目、.NET 必要）
+node skill/scripts/test-merge.mjs                             # Lambda handler の解決規則（12 項目、.NET 必要）
 node skill/scripts/verify.mjs --html out/graph/graph.html --shots out/shots   # ブラウザ実操作（25 項目）
 ```
 

@@ -106,13 +106,14 @@ for (const path of opts.fragments) {
 // AWS の .NET handler は `Assembly::NS.Type::Method` / `NS.Type::Method` / `NS.Outer+Inner::Method` の形。
 // 実在する member ノードに当たったときだけ張り、外れたらは警告に出す（推測で張らない）。
 let handlerEdges = 0;
-// プロジェクトのアセンブリ名。csproj に AssemblyName が無ければファイル名がそのままアセンブリ名になる
+// プロジェクトのアセンブリ名。csproj に `<AssemblyName>` があれば**それだけ**を使う
+//   （アセンブリ名を変えたプロジェクトで、古い csproj 名のままの handler を通さないため）。
+//   未宣言のときだけ MSBuild の既定どおりファイル名がアセンブリ名になる
 function assemblyNamesOf(project) {
-  const names = [];
-  if (project.metadata?.assemblyName) names.push(String(project.metadata.assemblyName));
+  const declared = project.metadata?.assemblyName ? String(project.metadata.assemblyName) : '';
+  if (declared) return [declared];
   const file = String(project.name || '').replace(/\.csproj$/i, '');
-  if (file) names.push(file);
-  return names;
+  return file ? [file] : [];
 }
 // ノードの所属プロジェクトをパスの最長一致で求める（csproj と同じディレクトリ配下がそのプロジェクトのファイル）。
 // ファイルノードはフォルダの下にぶら下がり、プロジェクトノードは兄弟なので parent 辿りでは決まらない
@@ -141,10 +142,15 @@ for (const node of [...nodes.values()]) {
   if (!handler.includes('::')) continue;
   // data ソースは実行体ではないので結ばない（`data.aws_lambda_function` 等に handler が現れることがある）
   if (node.metadata?.dataSource === true) continue;
-  const parts = handler.split('::').map((p) => p.trim()).filter(Boolean);
-  // AWS の .NET handler は `Assembly::NS.Type::Method`（または Assembly を省く）。4 要素以上は指定ミス
-  if (parts.length < 2 || parts.length > 3) {
-    warnings.push(`handler の形が不正（要素数 ${parts.length}）: ${node.id} → ${handler}`);
+  // AWS の .NET handler は `Assembly::NS.Type::Method`（または Assembly を省く）。
+  // 空要素を消してから数えると `Assembly::::A+B+C::Handle` のような指定ミスが 3 要素に化けるので、
+  // 空要素を保ったまま要素数を検査する
+  const parts = handler.split('::').map((p) => p.trim());
+  const empty = parts.some((p) => p.length === 0);
+  if (empty || parts.length < 2 || parts.length > 3) {
+    warnings.push(
+      `handler の形が不正（要素数 ${parts.length}${empty ? '、空要素を含む' : ''}）: ${node.id} → ${handler}`,
+    );
     continue;
   }
   const method = parts.pop();
@@ -164,7 +170,12 @@ for (const node of [...nodes.values()]) {
     const project = ownerProject(member);
     const names = project ? assemblyNamesOf(project) : [];
     if (!names.includes(assembly)) {
-      warnings.push(`handler のアセンブリ名が実装プロジェクトと一致しない: ${node.id} → ${handler}（${project ? project.id : '所属プロジェクト不明'}）`);
+      warnings.push(
+        `handler のアセンブリ名が実装プロジェクトと一致しない: ${node.id} → ${handler}` +
+          `（実装プロジェクト ${project ? project.id : '不明'} のアセンブリ名は ` +
+          `${names.length ? names.join(' / ') : '不明'}。` +
+          `意図的に別アセンブリを指しているなら注釈で紐づけてください）`,
+      );
       continue;
     }
   }

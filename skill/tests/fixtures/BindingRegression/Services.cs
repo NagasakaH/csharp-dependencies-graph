@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Fix.Regress.Core;
 using Fix.Regress.Models;
 
@@ -10,6 +11,8 @@ public class Runner
     public Item Current { get; } = new Item();
 
     public Item Make() => new Item();
+
+    public List<Item> All() => new List<Item>();
 }
 
 public class Feature

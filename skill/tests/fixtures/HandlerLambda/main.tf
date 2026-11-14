@@ -29,3 +29,15 @@ resource "aws_lambda_function" "unknown_type" {
 data "aws_lambda_function" "existing" {
   handler = "RealAssembly::HandlerNs.A::Handle"
 }
+
+resource "aws_lambda_function" "csproj_name" {
+  handler = "HandlerLambda::HandlerNs.A::Handle"
+}
+
+resource "aws_lambda_function" "empty_parts" {
+  handler = "RealAssembly::::HandlerNs.A+Inner::Handle"
+}
+
+resource "aws_lambda_function" "nested3" {
+  handler = "RealAssembly::HandlerNs.Outer+Middle+Inner::Handle"
+}

@@ -205,7 +205,9 @@ public sealed class ReferenceScanner
         }
 
         var exprType = ResolveExpr(receiver, ts, ns, file, scope, 0);
-        var typeRaw = exprType.TypeRaw ?? exprType.StaticTypeName;
+        // 型引数を畳んだ表記で解決すると、`List<Entry>` が別物の `List` に化ける（型引数の数が
+        // ゲートで見えないため）。畳む前の表記を優先して渡す
+        var typeRaw = exprType.RawType ?? exprType.TypeRaw ?? exprType.StaticTypeName;
         if (typeRaw is null)
         {
             Unresolved(symbol, file, raw);
@@ -257,7 +259,7 @@ public sealed class ReferenceScanner
         if (string.IsNullOrEmpty(name)) return;
 
         var exprType = ResolveExpr(access.Expression, ts, ns, file, scope, 0);
-        var typeRaw = exprType.TypeRaw ?? exprType.StaticTypeName;
+        var typeRaw = exprType.RawType ?? exprType.TypeRaw ?? exprType.StaticTypeName;
         if (typeRaw is null) return;
 
         var candidates = _index.Resolve(typeRaw, exprType.OwnerNs ?? ns, exprType.OwnerFile ?? file);
@@ -405,10 +407,11 @@ public sealed class ReferenceScanner
             case ElementAccessExpressionSyntax element:
             {
                 var inner = ResolveExpr(element.Expression, ts, ns, file, scope, depth + 1);
-                var raw = inner.TypeRaw ?? inner.StaticTypeName;
+                // `List<Worker>` から要素型を取り出すときは畳む前の表記を使う（型引数が引数ゲートに必要）
+                var raw = inner.RawType ?? inner.TypeRaw ?? inner.StaticTypeName;
                 if (raw is null) return ExprType.Unknown;
                 var args = TypeText.GenericArgs(raw);
-                return args.Count > 0 ? FromType(args[^1]) : ExprType.Unknown;
+                return args.Count > 0 ? FromType(args[^1], inner) : ExprType.Unknown;
             }
             case ConditionalAccessExpressionSyntax conditionalAccess:
                 return ResolveExpr(conditionalAccess.WhenNotNull, ts, ns, file, scope, depth + 1);
@@ -431,8 +434,8 @@ public sealed class ReferenceScanner
     {
         if (id == "this") return FromType(ts.Qualified);
         if (id == "base") return FromType(ClassBaseOf(ts));
-        var scopeType = scope.TypeOf(id, node);
-        if (scopeType is not null) return FromType(scopeType);
+        var (scopeType, scopeOwnerNs, scopeOwnerFile) = scope.Lookup(id, node);
+        if (scopeType is not null) return FromType(scopeType, scopeOwnerNs, scopeOwnerFile);
         // 型は決まらないが名前はローカル（var x = 何か / 型を省略したラムダ引数など）。
         // ここで this.X に落とすと誤った static エッジになるので未解決で止める。
         if (scope.IsShadowed(id, node)) return ExprType.Unknown;
@@ -562,10 +565,14 @@ public sealed class ReferenceScanner
 
     /// <summary>内側の式から文脈だけを継ぐ（`await x.Make()` など）。</summary>
     static ExprType FromType(string? raw, ExprType inherit)
+        => FromType(raw, inherit.OwnerNs, inherit.OwnerFile);
+
+    /// <summary>型表記を、それが書かれていた名前空間とファイルそっくりのまま保持する（`var` 推論など）。</summary>
+    static ExprType FromType(string? raw, string? ownerNs, FileResult? ownerFile)
     {
         var result = FromType(raw);
-        if (result.TypeRaw is null || inherit.OwnerFile is null) return result;
-        return new ExprType(result.TypeRaw, result.StaticTypeName, result.RawType, inherit.OwnerNs, inherit.OwnerFile);
+        if (result.TypeRaw is null || ownerFile is null) return result;
+        return new ExprType(result.TypeRaw, result.StaticTypeName, result.RawType, ownerNs, ownerFile);
     }
 
     static string LiteralType(LiteralExpressionSyntax literal) => literal.Kind() switch
@@ -711,7 +718,9 @@ public sealed class ReferenceScanner
                     if (IsVar(forEach.Type))
                     {
                         var element = ElementOf(forEach.Expression, ts, ns, file, scope);
-                        if (element is not null) scope.Declare(forEach.Identifier.Text, element, forEach.Identifier.SpanStart, forEach);
+                        if (element.TypeRaw is not null)
+                            scope.Declare(forEach.Identifier.Text, element.TypeRaw, forEach.Identifier.SpanStart,
+                                forEach, element.OwnerNs, element.OwnerFile);
                         else
                         {
                             // コレクション側が `var items = Build()` の遅延推論待ちのことがある。
@@ -764,14 +773,19 @@ public sealed class ReferenceScanner
         {
             var resolved = ResolveExpr(value, ts, ns, file, scope, 0);
             var raw = resolved.RawType ?? resolved.TypeRaw ?? resolved.StaticTypeName;
-            if (raw is not null) scope.Declare(name, raw, pos, DeclarationSpace(value, member));
+            if (raw is null) continue;
+            // 推論した型表記が書かれていた場所もいっしょに覚える。`var w = p.Make()` の `Worker` は
+            // Provider 側のファイルに書かれていて、呼び出し元にその `using` が無いことがある
+            scope.Declare(name, raw, pos, DeclarationSpace(value, member),
+                resolved.OwnerNs ?? ns, resolved.OwnerFile ?? file);
         }
 
         // 3 ラウンド目: 2 ラウンド目で型が決まったコレクションの foreach 要素型
         foreach (var (name, expr, pos) in deferredElements)
         {
             var element = ElementOf(expr, ts, ns, file, scope);
-            if (element is not null) scope.Declare(name, element, pos, null);
+            if (element.TypeRaw is not null)
+                scope.Declare(name, element.TypeRaw, pos, null, element.OwnerNs, element.OwnerFile);
         }
 
         return scope;
@@ -797,13 +811,14 @@ public sealed class ReferenceScanner
         }
     }
 
-    /// <summary>`foreach (var x in expr)` の要素型。ジェネリック引数を畳む前の表記から取る。</summary>
-    string? ElementOf(ExpressionSyntax expr, TypeSymbol ts, string ns, FileResult file, Scope scope)
+    /// <summary>`foreach (var x in expr)` の要素型。ジェネリック引数を畳む前の表記から取る。
+    /// 要素型もコレクションの型表記が書かれていた場所を継ぐ（宣言元以外に using が無いことがある）。</summary>
+    ExprType ElementOf(ExpressionSyntax expr, TypeSymbol ts, string ns, FileResult file, Scope scope)
     {
         var collection = ResolveExpr(expr, ts, ns, file, scope, 0);
         var raw = collection.RawType ?? collection.TypeRaw ?? collection.StaticTypeName;
         var args = raw is null ? new List<string>() : TypeText.GenericArgs(raw);
-        return args.Count > 0 ? args[0] : null;
+        return args.Count > 0 ? FromType(args[0], collection) : ExprType.Unknown;
     }
 
     /// <summary>
@@ -816,14 +831,37 @@ public sealed class ReferenceScanner
         /// <summary>メンバ内のどこからでも見える宣言を示す、先頭の位置。</summary>
         public const int Anywhere = -1;
 
-        readonly Dictionary<string, List<(int Pos, string Type, SyntaxNode? Space)>> _map = new(StringComparer.Ordinal);
+        /// <summary>
+        /// 宣言した位置 / 型表記 / 有効領域 / その型表記が書かれていた名前空間とファイル。
+        /// `var x = provider.Make()` のように推論した型は、呼び出し元ではなく**戻り値を宣言した側**の
+        /// `using` でしか解決できない。だから推論結果はこの座標といっしょに覚える。
+        /// </summary>
+        readonly Dictionary<string, List<Entry>> _map = new(StringComparer.Ordinal);
+
+        readonly struct Entry
+        {
+            public readonly int Pos;
+            public readonly string Type;
+            public readonly SyntaxNode? Space;
+            public readonly string? OwnerNs;
+            public readonly FileResult? OwnerFile;
+            public Entry(int pos, string type, SyntaxNode? space, string? ownerNs, FileResult? ownerFile)
+            {
+                Pos = pos;
+                Type = type;
+                Space = space;
+                OwnerNs = ownerNs;
+                OwnerFile = ownerFile;
+            }
+        }
 
         /// <summary>メンバ全体で有効な宣言。C# のローカル関数は宣言より前でも呼べる。</summary>
         public void DeclareAnywhere(string name, string type) => Declare(name, type, Anywhere, null);
 
-        public void Declare(string name, string type, int pos, SyntaxNode? space)
+        public void Declare(string name, string type, int pos, SyntaxNode? space,
+                            string? ownerNs = null, FileResult? ownerFile = null)
         {
-            if (!_map.TryGetValue(name, out var entries)) _map[name] = entries = new List<(int, string, SyntaxNode?)>();
+            if (!_map.TryGetValue(name, out var entries)) _map[name] = entries = new List<Entry>();
 
             // 列は必ず Pos の昇順に保つ。順が崩れると「識別子の直前に見えた宣言」を間違える
             var at = entries.Count;
@@ -838,12 +876,13 @@ public sealed class ReferenceScanner
                 if (entries[i].Pos == pos)
                 {
                     // 同じ宣言位置の書き換え（型決めラウンド）。型なし → 具体的な型へだけ更新
-                    if (entries[i].Type.Length == 0 && type.Length > 0) entries[i] = (pos, type, entries[i].Space);
+                    if (entries[i].Type.Length == 0 && type.Length > 0)
+                        entries[i] = new Entry(pos, type, entries[i].Space, ownerNs, ownerFile);
                     return;
                 }
             }
 
-            entries.Insert(at, (pos, type, space));
+            entries.Insert(at, new Entry(pos, type, space, ownerNs, ownerFile));
         }
 
         /// <summary>node の位置で name がローカル名として見えているか（型が不明でも塞ぐ）。</summary>
@@ -855,19 +894,23 @@ public sealed class ReferenceScanner
         }
 
         /// <summary>node の位置で見える型。型が決まらないローカルなら null を返す。</summary>
-        public string? TypeOf(string name, SyntaxNode node)
+        public string? TypeOf(string name, SyntaxNode node) => Lookup(name, node).Type;
+
+        /// <summary>node の位置で見える型と、その型表記が書かれていた場所（宣言元の `using` を辿るため）。</summary>
+        public (string? Type, string? OwnerNs, FileResult? OwnerFile) Lookup(string name, SyntaxNode node)
         {
-            if (!_map.TryGetValue(name, out var entries)) return null;
+            if (!_map.TryGetValue(name, out var entries)) return (null, null, null);
             for (var i = entries.Count - 1; i >= 0; i--)
             {
                 if (!Visible(entries[i], node)) continue;
-                return entries[i].Type.Length == 0 ? null : entries[i].Type;
+                if (entries[i].Type.Length == 0) return (null, null, null);
+                return (entries[i].Type, entries[i].OwnerNs, entries[i].OwnerFile);
             }
 
-            return null;
+            return (null, null, null);
         }
 
-        static bool Visible((int Pos, string Type, SyntaxNode? Space) entry, SyntaxNode node)
+        static bool Visible(Entry entry, SyntaxNode node)
             => entry.Pos <= node.SpanStart && (entry.Space is null || entry.Space.Contains(node));
     }
 

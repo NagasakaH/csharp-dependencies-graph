@@ -48,7 +48,11 @@ for (let i = 0; i < args.length; i++) {
   - --via-parent は --kind / --drop-kind / --provenance で絞った後のエッジに階層の疑似縁を
     足す。--dir both と併用すると祖先へ登ってから兄弟配下へ広がるので到達が膨らむ。
   - --changed でグラフに無いファイルは最も近い親フォルダを起点にする（警告を stderr へ出し、
-    JSON の fallbacks に元パスを残す）。階層で届いただけなので依存エッジの証拠ではない。`);
+    JSON の fallbacks に元パスを残す）。階層で届いただけなので依存エッジの証拠ではない。
+  - JSON の reached は到達した全ノード、matched はそのうち --target-kind に合ったもの。
+    summary.reached は起点を引いた到達数、summary.byNodeKind は起点も含めた到達集合の内訳
+    （2 つの数字がずれていて当然）。
+  - --limit は標準出力の表示件数だけ絞る。--json は絞られないので、機械が読むなら --json。`);
       process.exit(0);
     default:
       console.error(`[query] 知らない引数: ${a}（--help を見てください）`);
