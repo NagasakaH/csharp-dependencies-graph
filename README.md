@@ -28,10 +28,10 @@ open out/graph/graph.html
 
 ```sh
 node skill/scripts/test-analyzer.mjs                          # 静的解析の精度（96 項目、ブラウザ不要）
-node skill/scripts/test-report.mjs                            # 影響範囲レポート（33 項目）
+node skill/scripts/test-report.mjs                            # 影響範囲レポート（51 項目）
 node skill/scripts/test-query.mjs                             # 逆引き・影響範囲の照会（17 項目、.NET 不要）
 node skill/scripts/test-merge.mjs                             # Lambda handler の解決規則（12 項目、.NET 必要）
-node skill/scripts/test-terraform.mjs                         # API Gateway のパス組み立て（18 項目、.NET 不要）
+node skill/scripts/test-terraform.mjs                         # API Gateway のパス組み立て（28 項目、.NET 不要）
 node skill/scripts/verify.mjs --html out/graph/graph.html --shots out/shots   # ブラウザ実操作（25 項目）
 ```
 
@@ -77,7 +77,7 @@ node skill/scripts/report.mjs --graph out/demo/graph.json --api "POST /orders"
 - リポジトリ内の成果物 — 経路上にあった `.csproj`・`.cs`・フォルダ・solution。触る可能性のある**ビルド単位**
   を示すだけで、動きが伝わっている意味ではない（ここを「定義上の関連」に混ぜると「触っていない設定」と
   読めてしまう）
-- 同じ API を定義するノード / 同じコードを使う別エンドポイント — 定義上で繋がっているだけ。兄弟として
+- 同じ API を定義するノード / 同じコードを使う別の API — 定義上で繋がっているだけ。兄弟として
   見つかったエンドポイントについては、**その API を定義している resource や rest_api もまとめて兄弟欄に
   出す**（`影響を受ける入口` に並べると「別 API から自分の API へ流入している」と誤読できる）
 - 定義上の関連 — Terraform の `references`（ブロックを文中に書いただけ）
@@ -91,7 +91,7 @@ node skill/scripts/report.mjs --graph out/demo/graph.json --api "POST /orders"
 影響を受ける入口に出る（`exposed-by` の矢印はコード側を向く）。
 
 ただし `handler` / `exposed-by` は**実装の対応**を示す縁で、呼び出し元を示さない。起点が API
-エンドポイントのときは、その対応縁で繋がる側（実装を載せた Lambda など）も 影響する先 のまです。
+エンドポイントのときは、その対応縁で繋がる側（実装を載せた Lambda など）も 影響する先 のままです。
 ここを矢印だけで判断すると、起点のエンドポイント自身の実装 Lambda が「呼びにくる側」に並んだ（実測: demo の `--api "POST /orders"`）。
 
 各行は根拠経路 `path` と、その経路がどこから始まっているかの `pathRoot` を持つ。`start` は起点まで
@@ -139,7 +139,7 @@ demo の 1 件の「もれ」は届いていないのではなく**枠の分け�
 `--provenance` は Terraform の定義単位を結ぶ段階にも効くので、`static` だけなら API 起点でも着地 0 件になる。
 
 変更ファイルがグラフに無いときの `--folder-start` は、同じデモで **起点 1 件 → 49 件**に膨らんで
-外部着地 0 件・コードの入口 6 件だけ出た（`README.md` を変えたケースの実測）。雑に広げるより
+外部着地 0 件・コード 出口 6 件だけ出た（`README.md` を変えたケースの実測）。雑に広げるより
 「そのファイルはグラフに無い」と出したほうがマシなので、既定はオフのままにしている。
 
 レシピ集（結合ハブの棚卸し、呼び出し集中の blast radius、注釈だけの依存のレビュー、

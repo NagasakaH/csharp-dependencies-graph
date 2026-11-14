@@ -385,7 +385,7 @@ function walkWithSwitch(seedIds, first) {
           // 起点がエンドポイントのとき、実装側へ入った境目で向きを反転させる（上の説明どおり）。
           // 反転は**その後の経路に引き継ぐ**（実装の中の呼び出し元も、そのエンドポイントの実行の一部）
           const movement = MOVEMENT.has(e.kind);
-          // 「実装側」の旗は動きの縁を渡るALLY引き継がない。矢印の先が次のノードでなければ
+          // 「実装側」の旗は動きの縁を渡っても引き継がない。矢印の先が次のノードでなければ
           // （= そこがこの経路を**呼び出している側**なら）別のもので、実装の一部ではない
           // （実測バグ: `Step Functions → invokes → この Lambda` が 影響する先 に反転した）
           const down = ((cur.down && !(movement && !arrowAt(e, to)))
@@ -494,7 +494,7 @@ for (const e of graph.edges) {
 //  - 起点の method → integration → (`triggers`) → Lambda: integration は method の定義の一部なので伝播する
 //  - 起点の Lambda → (`references`) → IAM ロール → (`references`) → 別 Lambda: ロールは
 //    Lambda が**使っている**ものなので伝播しない。ロールだけを共有する別 Lambda の
-//    integration / handler / その先にあるテーブルまで本命になることはかない（双人レビュー P1）
+//    integration / handler / その先にあるテーブルまで本命になることはない（双人レビュー P1）
 const refersInto = (edge, fromId, toId) => edge.target === fromId && edge.source === toId;
 // API Gateway の定義は**同じ API に属する限り**連鎖で伝播してよい（method → resource →
 // integration → Lambda のように定義が 3 つ連なるのが普通なので、1 歩限定では届かない）。
@@ -564,7 +564,7 @@ function runClosure(seedIds) {
     bestState.set(state.id, { ...bestState.get(state.id), budget: state.budget });
     if (state.rec) {
       const old = wiringMap.get(state.id);
-      // 記録の置き換えをやせるのは 2 つの場合。
+      // 記録の置き換えをやめるのは 2 つの場合。
       // (1) 根が確定している経路を、循環境避で切った経路に置き換えるとき（`path[0]` が起点でなくなる）
       // (2) 本命として受理済みの行を、定義上の関連の縁で塗り替えようとするとき（根拠が弱い方に変わる）
       const demote = !!old && bestState.get(state.id).primary && state.rec.wiring === true;
@@ -608,7 +608,7 @@ function runClosure(seedIds) {
       if (budget > opts.wiringHops) continue;
       // **伝播の資格**: 動きの縁を辿っても、辿ってきたノードが「起点 / 本命として届いたノード /
       // 起点と同じ API を定義しているノード」でなければ、その先は定義上の関連のままにする。
-      // これを忘れると、IAM ロールだけを共有する別 Lambda 経由で its 専用の integration や
+      // これを忘れると、IAM ロールだけを共有する別 Lambda 専用の integration や
       // その handler まで本命に伝播した（双人レビュー P1。`references` をまたいだ伝播資格を
       // 縁の種類だけ見ていたのが原因）
       const primary = movement && cur.elig;
@@ -890,6 +890,11 @@ const summary = {
   entryIn: entryRows(inRows).length, entryOut: entryRows(outRows).length,
   artifactsIn: artifactRows(inRows).length, artifactsOut: artifactRows(outRows).length,
   wiring: wiringRows().length, sameApi: sameApiRows().length, siblings: siblingRows().length,
+  // 兄弟欄は「同じコードを使う別のエンドポイント」と、それを定義しているノード
+  // （method / resource / rest_api など）を混ぜて数える。内訳を出さないと見出しと件数の
+  // 対応が読めなかった（レビュー指摘）
+  siblingEndpointsOnly: siblingRows().filter((r) => !!r.endpoint).length,
+  siblingDefs: siblingRows().filter((r) => !r.endpoint).length,
   secondOrder: rows.filter((r) => r.switches === 1).length,
   // 総行数。各欄（外部 / 入口 / 成果物 / 定義上 / 同じ API / 兄弟）の合計と必ず同じになる。
   // 過去に「primary かつ sameApi の行がどの欄にも入らず消える」不具合があったので、
@@ -950,7 +955,7 @@ function mdSection(title, rs, limit) {
   return head + body + '\n' + more + '\n\n';
 }
 const epLine = (e) => `- \`${e.name}\`（\`${e.id}\`）`;
-let md = `# 影響範囲レポート\n\n- グラフ: \`${summary.graph}\`\n- 起点 ${summary.starts} 件（展開後 ${summary.expandedStarts} 件、グラフに無く起点にしなかった変更 ${summary.fallbacks} 件）\n- 探索 ${summary.hops} ホップ（方向の切り替え 1 回まで許可、二段到達 ${summary.secondOrder} 件）/ Terraform の定義単位は ${summary.wiringHops} 段まで無方向で閉じる / 階層（parent・contains）は起点の展開にのみ使用\n- 本命: 影響する先 ${summary.primaryOut} / 影響を受ける入口 ${summary.primaryIn} / コードの入口 先 ${summary.entryOut}・受 ${summary.entryIn} / 成果物 ${summary.artifactsOut}・受 ${summary.artifactsIn} / 定義上の関連 ${summary.wiring} / 同じ API の定義 ${summary.sameApi} / 同じコードを使う別エンドポイント ${summary.siblings}\n- 根拠の由来: ${Object.entries(summary.byProvenance).map(([k, v]) => `${provLabel(k)} ${v}`).join(' / ') || 'なし'}（**注釈由来 ${summary.annotationRows} 件**は静的解析では決まらない対応付け）\n\n`;
+let md = `# 影響範囲レポート\n\n- グラフ: \`${summary.graph}\`\n- 起点 ${summary.starts} 件（展開後 ${summary.expandedStarts} 件、グラフに無く起点にしなかった変更 ${summary.fallbacks} 件）\n- 探索 ${summary.hops} ホップ（方向の切り替え 1 回まで許可、二段到達 ${summary.secondOrder} 件）/ Terraform の定義単位は ${summary.wiringHops} 段まで無方向で閉じる / 階層（parent・contains）は起点の展開にのみ使用\n- 本命: 影響する先 ${summary.primaryOut} / 影響を受ける入口 ${summary.primaryIn} / コード 出口 ${summary.entryOut}・入口 ${summary.entryIn} / 成果物 先 ${summary.artifactsOut}・受 ${summary.artifactsIn} / 定義上の関連 ${summary.wiring} / 同じ API の定義 ${summary.sameApi} / 同じコードを使う別の API ${summary.siblings}（エンドポイント ${summary.siblingEndpointsOnly}・定義ノード ${summary.siblingDefs}）\n- 根拠の由来: ${Object.entries(summary.byProvenance).map(([k, v]) => `${provLabel(k)} ${v}`).join(' / ') || 'なし'}（**注釈由来 ${summary.annotationRows} 件**は静的解析では決まらない対応付け）\n\n`;
 if (result.score) {
   const s = result.score;
   md += `## 精度（期待一覧との突き合わせ）\n\n- ケース: ${s.case}（方向 ${s.direction}）\n- 期待 ${s.expected} 件 / 外部リソースへの着地 ${s.landedExternal} 件 / 的中 ${s.hitExternal} 件\n- **再現率 ${s.recall} / 適合率 ${s.precision}**\n- 取りこぼし: ${s.missed.map((x) => `\`${x}\``).join(', ') || 'なし'}\n- 余分な着地: ${s.extraExternal.map((x) => `\`${label(x)}\``).join(', ') || 'なし'}\n- 取りこぼしのうち到達はしていた（定義上の関連に回ったもの）: ${s.wiringOnly} 件\n${s.note ? `\n> ${s.note}\n` : ''}\n`;
@@ -971,19 +976,23 @@ md += mdSection('影響を受ける入口（変更を使う呼び出し元・リ
 md += mdSection('影響を受けるコード側の入口（メソッド・型）', entryRows(inRows).slice(0, opts.limit), opts.limit);
 // JSON には `entries.out` が入るのに Markdown に出ていなかった（実測 11 件が画面から見えない）。
 // エンドポイント起点のとき「Lambda が実際に実行するコード」がこれなので、欄を分けて出す
-md += mdSection('影響を受けるコード側の出口（起点から届くメソッド・型）', entryRows(outRows).slice(0, opts.limit), opts.limit);
+md += mdSection('影響するコード側の出口（起点から届くメソッド・型）', entryRows(outRows).slice(0, opts.limit), opts.limit);
 if (startIsEndpoint) md += mdSection('起点と同じ API を定義するノード（変更で値は動かないので見直しの候補）', sameApiRows(), opts.limit);
 if (startIsEndpoint && siblingRows().length) {
-  md += `## 同じコードを使う別エンドポイント（起点の定義ではない。共有しているコードを変えたときに一緒に見る）\n\n`
+  md += `## 同じコードを使う別の API（エンドポイント ${summary.siblingEndpointsOnly} 件と、それを定義するノード ${summary.siblingDefs} 件。起点の定義ではなく、共有しているコードを変えたときに一緒に見る）\n\n`
     + siblingRows().map((r) => `- \`${r.name}\`（\`${r.id}\`、距離 ${r.hops}、根拠 \`${r.evidence.kind}\`）`).join('\n') + '\n\n';
 }
-md += mdSection('影響を受けるリポジトリ内の成果物（プロジェクト・ファイル。ビルドし直しが必要な範囲）',
-  [...artifactRows(outRows), ...artifactRows(inRows)], opts.limit);
+// 先（影響する側）と受（影響を受ける側）を 1 表に混ぜると、集計行の
+// 「成果物 先 X・受 Y」と対応が読めなかった（レビュー指摘）。分けて出す
+md += mdSection('影響するリポジトリ内の成果物（プロジェクト・ファイル。ビルドし直しが必要な範囲）',
+  artifactRows(outRows), opts.limit);
+md += mdSection('影響を受けるリポジトリ内の成果物（この変更を参照している側）',
+  artifactRows(inRows), opts.limit);
 md += mdSection('定義上の関連（Terraform の定義を辿っただけ。動きが伝わるとは限らない）', wiringRows(), opts.limit);
 if (opts.md) writeFileSync(resolve(opts.md), md);
 
 console.log(`API エンドポイント: ${[...startEndpoints, ...reachedEndpoints].map((e) => e.name).join(', ') || '該当なし'}`);
-console.log(`起点 ${summary.starts} 件（展開後 ${summary.expandedStarts}）/ 影響する先 ${summary.primaryOut} / 影響を受ける入口 ${summary.primaryIn} / コードの入口 先 ${summary.entryOut}・受 ${summary.entryIn} / 成果物 ${summary.artifactsOut + summary.artifactsIn} / 定義上 ${summary.wiring} / 同じ API の定義 ${summary.sameApi} / 兄弟エンドポイント ${summary.siblings} / 注釈由来 ${summary.annotationRows}`);
+console.log(`起点 ${summary.starts} 件（展開後 ${summary.expandedStarts}）/ 影響する先 ${summary.primaryOut} / 影響を受ける入口 ${summary.primaryIn} / コード 出口 ${summary.entryOut}・入口 ${summary.entryIn} / 成果物 先 ${summary.artifactsOut}・受 ${summary.artifactsIn} / 定義上 ${summary.wiring} / 同じ API の定義 ${summary.sameApi} / 別の API ${summary.siblings}（エンドポイント ${summary.siblingEndpointsOnly}・定義 ${summary.siblingDefs}） / 注釈由来 ${summary.annotationRows}`);
 if (result.score) console.log(`精度: 再現率 ${result.score.recall} / 適合率 ${result.score.precision}（期待 ${result.score.expected} / 外部着地 ${result.score.landedExternal} / 的中 ${result.score.hitExternal} / 余分 ${result.score.extraExternal.length}）`);
 for (const r of externalRows(outRows).slice(0, 12)) console.log(`  [out ${r.hops}] ${r.name}  <- ${r.evidence.kind} (${provLabel(r.evidence.provenance)})`);
 for (const r of externalRows(inRows).slice(0, 12)) console.log(`  [in  ${r.hops}] ${r.name}  <- ${r.evidence.kind} (${provLabel(r.evidence.provenance)})`);

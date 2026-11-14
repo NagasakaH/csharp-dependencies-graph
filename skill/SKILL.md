@@ -212,7 +212,7 @@ node $SKILL/scripts/report.mjs --graph out/graph/graph.json --api "POST /orders"
   `--folder-start` は誤検出を膨らませるので理由があるときだけ）
 - **4 つの枠に分けて出す**: 影響する外部リソース / 影響を受ける入口 / 定義上の関連（Terraform の
   `references`。値そのものは変わるとは限らないが、定義を書き換えたら効く範囲）/
-  同じ API の定義・同じコードを使う別エンドポイント。
+  同じ API の定義・同じコードを使う別の API（エンドポイントと定義ノードの内訳を出す）。
   **どの行も必ずどれか 1 つの枠にしか入らない**（`summary.rows` と各枠の合計が一致する）。
   段数は定義の縁（`references`）だけ数え、動きの縁を越えたら数え直す
   起点がエンドポイントのときは、起点を定義する `resource` / `rest_api` / `integration` を
