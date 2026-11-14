@@ -131,6 +131,40 @@ r = run('--help');
 check('help に到達木の読み方とフォールバックの注意を書く',
   r.stdout.includes('最初に到達した 1 経路') && r.stdout.includes('依存エッジの証拠ではない'), r.stdout.slice(-400));
 
+// 17) --group-by file: 実縁で届いたノードをファイル単位に巻き上げる
+r = json('--from', LAMBDA, '--dir', 'out', '--hops', '2', '--group-by', 'file');
+const g17 = r.data?.groups || [];
+check('--group-by file が接続ファイルと参照件数・縁の内訳・最短段数を出す',
+  g17.length === 1 && g17[0].id === 'file:src/Pay.cs' && g17[0].nodes >= 1
+  && Object.keys(g17[0].kinds).includes('handler') && g17[0].minHop === 1,
+  JSON.stringify({ groups: g17, summary: r.data?.summary }));
+
+// 18) 階層（contains）で届いただけのノードは集計に数えない
+r = json('--from', 'file:src/Pay.cs', '--dir', 'out', '--via-parent', '--hops', '3', '--group-by', 'file');
+check('階層で届いただけのグループは集計から外し、その件数を合計に含めない',
+  (r.data?.groups || []).length === 0 && (r.data?.summary?.groupsSkippedHierarchy || 0) >= 1,
+  JSON.stringify({ groups: r.data?.groups, skipped: r.data?.summary?.groupsSkippedHierarchy }));
+
+// 19) 縁の列挙順が変わっても集計の並び順と件数は変わらない
+const runOn = (graph, ...argv) => {
+  const proc = spawnSync('node', [QUERY, '--graph', graph, ...argv], { encoding: 'utf8' });
+  try { return JSON.parse(proc.stdout); } catch { return { error: proc.stderr }; }
+};
+const reversed = JSON.parse(readFileSync(GRAPH, 'utf8'));
+reversed.edges = [...reversed.edges].reverse();
+const REV = join(tmp, 'reversed.json');
+writeFileSync(REV, JSON.stringify(reversed));
+const a19 = runOn(GRAPH, '--json', '--from', LAMBDA, '--dir', 'out', '--hops', '2', '--group-by', 'file');
+const b19 = runOn(REV, '--json', '--from', LAMBDA, '--dir', 'out', '--hops', '2', '--group-by', 'file');
+check('縁の列挙順を入れ替えても --group-by の並びと件数は同じ',
+  JSON.stringify(a19.groups) === JSON.stringify(b19.groups) && (a19.groups || []).length > 0,
+  JSON.stringify({ a: a19.groups, b: b19.groups }));
+
+// 20) 不正な --group-by は終了コード 2 で拒否する
+const bad = spawnSync('node', [QUERY, '--graph', GRAPH, '--from', LAMBDA, '--group-by', 'member'], { encoding: 'utf8' });
+check('--group-by は file / project / folder / type 以外なら終了コード 2',
+  bad.status === 2 && bad.stderr.includes('--group-by'), `${bad.status} / ${bad.stderr.trim()}`);
+
 rmSync(tmp, { recursive: true, force: true });
 console.log(`\n${pass}/${pass + failures.length} 件成功`);
 if (failures.length) { console.log('失敗: ' + failures.join(' / ')); process.exit(1); }

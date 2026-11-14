@@ -58,6 +58,7 @@ node $SKILL/scripts/build.mjs \
 | 外部リソースや担当者を後から紐づける | [注釈を書く](#外部情報を後から紐づける) → `--annotation` を足して再生成 |
 | ビューア上で暫定的に紐づけた分を定着させる | 画面の「注釈 JSON」でダウンロード → リポジトリの `annotations.json` に追記 |
 | レビュー・設計で影響範囲や逆引きをする | `node $SKILL/scripts/query.mjs --graph out/graph/graph.json --from <id や名前>` → [reference/review-workflows.md](reference/review-workflows.md) |
+| この cs ファイルが実縁で繋がっているファイルは何本か | `query.mjs --from file:<パス> --dir both --via-parent --hops 3 --group-by file` |
 | 意図どおりに動くか確かめる | `node $SKILL/scripts/verify.mjs --html out/graph/graph.html --shots out/shots` |
 | ノード・エッジの型や ID が知りたい | [reference/schema.md](reference/schema.md) |
 
@@ -336,10 +337,10 @@ demo と `BindingRegression/` でも同じ入力を 2 回走らせて、`rejecte
 ### 照会（逆引き・影響範囲）のテスト
 
 ```sh
-node $SKILL/scripts/test-query.mjs           # fixtures/query/graph.json を使う（.NET 不要、17 項目）
+node $SKILL/scripts/test-query.mjs           # fixtures/query/graph.json を使う（.NET 不要、21 項目）
 node $SKILL/scripts/test-merge.mjs           # Lambda handler の解決規則（.NET 必要、12 項目）
 node $SKILL/scripts/test-terraform.mjs       # API Gateway のパス組み立てと HTTP API (v2) の `target`（46 項目、.NET 不要）
-node $SKILL/scripts/test-report.mjs          # 差分 → 影響範囲レポート（85 項目、.NET 必要）
+node $SKILL/scripts/test-report.mjs          # 差分 → 影響範囲レポート（96 項目、.NET 必要）
 ```
 
 `test-merge.mjs` は `fixtures/HandlerLambda/`（`AssemblyName` を置いた csproj と `main.tf`）を

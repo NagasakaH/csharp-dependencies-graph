@@ -130,6 +130,34 @@ node skill/scripts/query.mjs --graph out/graph/graph.json --from tf:aws_lambda_f
 - ターミナル: `--from type:NS.Type --dir in --hops 2 --target-kind member`。
 - 大規模リポジトリでは `--limit` と `--json`（CI やコメント投稿に使える）。
 
+## 5-2. ファイル単位で「繋がっているファイルは何本か」を見る
+
+縁は型・メンバー単位でしか張っていないので、ファイル同士の接続本数は `--group-by file` で
+階層を登って集計する。**階層（`contains`）で届いただけのものは「繋がっている」と数えない**。
+
+```sh
+node $SKILL/scripts/query.mjs --graph out/graph/graph.json \
+  --from file:src/Orders.Domain/Order.cs --dir both --via-parent --hops 3 --group-by file
+```
+
+```
+file 単位の集計: 4 件（実縁で届いた 14 件を階層で巻き上げ。階層で届いただけの 17 件と起点自身の階層は数えません）
+  file:IOrderRepository.cs        参照 2 件（references 2）最短 2 段
+  file:DynamoDbOrderRepository.cs 参照 2 件（references 2）最短 2 段
+  file:Functions.cs               参照 2 件（calls 2）最短 3 段
+  file:NotifyHandler.cs           参照 1 件（calls 1）最短 3 段
+```
+
+- `--dir both` にするのは、参照する側（`out`）と参照される側（`in`）を合わせて見たいから。
+  逆向きだけほしいときは `--dir in` にする（`in` だけだとファイル起点は階層にしか届かず 0 件になる）
+- `--via-parent` が無いとファイル起点は実縁に辿り着かない（階層の縁を辿らないため）
+- `--group-by project` にすると csproj 単位の接続数。ビルドし直し範囲の当たりをつけるのに使う
+- 並べ順は 参照件数の多さ → 最短段数 → ノード id。縁の列挙順を入れ替えても同じ並び
+  （`test-query.mjs` で固定）
+- elsa-core の `Elsa.Http/Activities/HttpEndpoint.cs` を同じ条件（`--hops 2`）で調べると 6 本
+  （`Trigger.cs` を `inherits`、`Activity.cs` と `Output.cs` を `attribute`、`RouteDataWorkflow.cs` と
+  `SimpleHttpApiWorkflow.cs` を `creates`、`HttpEndpointTriggerPayloadValidator.cs` を `references`）
+
 ## 6. 設計レビュー: 結合ハブの棚卸し
 
 「別 csproj から参照されている型」の多さで、境界の実質的な太さを見る。単位を間違えると判断が変わるので

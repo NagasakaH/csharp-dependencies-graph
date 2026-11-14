@@ -33,8 +33,8 @@ open out/graph/graph.html
 
 ```sh
 node skill/scripts/test-analyzer.mjs                          # 静的解析の精度（96 項目、ブラウザ不要）
-node skill/scripts/test-report.mjs                            # 影響範囲レポート（85 項目）
-node skill/scripts/test-query.mjs                             # 逆引き・影響範囲の照会（17 項目、.NET 不要）
+node skill/scripts/test-report.mjs                            # 影響範囲レポート（96 項目）
+node skill/scripts/test-query.mjs                             # 逆引き・影響範囲の照会（21 項目、.NET 不要）
 node skill/scripts/test-merge.mjs                             # Lambda handler の解決規則（12 項目、.NET 必要）
 node skill/scripts/test-terraform.mjs                         # API Gateway のパス組み立てと HTTP API (v2) の `target`（46 項目、.NET 不要）
 node skill/scripts/verify.mjs --html out/graph/graph.html --shots out/shots   # ブラウザ実操作（26 項目）
@@ -61,6 +61,10 @@ node skill/scripts/query.mjs --graph out/graph/graph.json \
 # DB のカラム → それを読むコード → 出口（API Gateway / Lambda）
 node skill/scripts/query.mjs --graph out/demo/graph.json \
   --from ext:rds-column/orders-analytics.public.order_summary.order_id --dir both --hops 3
+
+# この cs ファイルが実縁で繋がっているファイルは何本か（import / 参照 / 呼び出し単位）
+node skill/scripts/query.mjs --graph out/demo/graph.json \
+  --from file:src/Orders.Domain/Order.cs --dir both --via-parent --hops 3 --group-by file
 ```
 
 `report.mjs` は同じ照会を**差分まるごとのレポート**にする。レビューに貼れる Markdown と JSON が出る。
