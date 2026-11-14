@@ -233,12 +233,18 @@ demo と `BindingRegression/` でも同じ入力を 2 回走らせて、`rejecte
 ```sh
 node $SKILL/scripts/test-query.mjs           # fixtures/query/graph.json を使う（.NET 不要、17 項目）
 node $SKILL/scripts/test-merge.mjs           # Lambda handler の解決規則（.NET 必要、12 項目）
+node $SKILL/scripts/test-terraform.mjs       # API Gateway のパス組み立て（10 項目、.NET 不要）
 ```
 
 `test-merge.mjs` は `fixtures/HandlerLambda/`（`AssemblyName` を置いた csproj と `main.tf`）を
 `build.mjs` まで通し、張る 5 とおり（一致／アセンブリ名省略／`Outer+Inner`／`Outer+Middle+Inner`／別型）と
 張らない 5 とおり（アセンブリ名違い／アセンブリ名を宣言している csproj のファイル名／空要素を含む形／
 4 要素以上／型が実在しない）を照合する。警告文はビルド出力に出るので、テストはそちらを読む。
+
+`test-terraform.mjs` は `fixtures/TerraformApi/`（C# を置かない Terraform だけの fixture）に
+`scan-terraform.mjs` だけを走らせ、`path_part` と `parent_id` から `/orders/{id}` の形になるか、
+method に `POST /orders` の表示名 `endpoint` が付くか、`stage_name` と v2 の `route_key` を取るか、
+**パスが決まらない method に推測で `endpoint` を張らないか**、`parent_id` が循環しても停止しないかを照合する。
 
 ### ブラウザ実操作
 

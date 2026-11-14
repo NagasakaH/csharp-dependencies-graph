@@ -122,7 +122,7 @@ for (const file of tfFiles) {
     const id = `tf:${address}`;
     const attrs = attributes(block.body);
     const meta = { resourceType: block.type, terraformAddress: address, file: rel, provider: block.kind === 'resource' ? 'terraform' : block.kind };
-    for (const key of ['function_name', 'name', 'handler', 'runtime', 'memory_size', 'timeout', 'filename', 's3_key', 'role', 'state_machine_type', 'execution_role_arn', 'rest_api_id', 'resource_id', 'http_method', 'integration_uri', 'uri', 'table_name', 'bucket', 'engine', 'topic_arn', 'queue_url']) {
+    for (const key of ['function_name', 'name', 'handler', 'runtime', 'memory_size', 'timeout', 'filename', 's3_key', 'role', 'state_machine_type', 'execution_role_arn', 'rest_api_id', 'resource_id', 'http_method', 'integration_uri', 'uri', 'table_name', 'bucket', 'engine', 'topic_arn', 'queue_url', 'path_part', 'parent_id', 'stage_name', 'route_key']) {
       if (attrs[key] !== undefined) meta[key] = attrs[key];
     }
     if (block.kind === 'resource') {
@@ -144,6 +144,60 @@ for (const file of tfFiles) {
         detail: `${rel} 内の参照`, count: 1,
       });
       if (!target) edges[edges.length - 1].metadata = { unresolvedTarget: true };
+    }
+  }
+}
+
+// ---- API Gateway の HTTP パスを組み立てる ----
+// `path_part` はリソース単体の値で、実際の HTTP パスは `parent_id` を辿って作る。
+// `parent_id` が `aws_api_gateway_rest_api.<x>.root_resource_id` を指すなら直下、
+// 別の `aws_api_gateway_resource` を指すなら親のパスへ連結する。
+// レポートが「`POST /orders`」のように HTTP のメソッドとパスで起点を引くための値で、
+// 決まらないのに推測して `endpoint` を張ることはしない
+function refAddress(value, type) {
+  if (!value) return null;
+  const m = new RegExp(`\\b(?:resource\\.)?${type}\\.([a-zA-Z0-9_-]+)\\b`).exec(String(value));
+  return m ? `${type}.${m[1]}` : null;
+}
+const byAddress = new Map(nodes.filter((n) => n.metadata && n.metadata.terraformAddress)
+  .map((n) => [n.metadata.terraformAddress, n]));
+const pathCache = new Map();
+function gatewayResourcePath(address, guard = new Set()) {
+  if (pathCache.has(address)) return pathCache.get(address);
+  if (guard.has(address)) return null;      // 循環参照で無限再帰しない
+  guard.add(address);
+  const meta = byAddress.get(address)?.metadata;
+  const part = meta && meta.path_part ? String(meta.path_part) : null;
+  if (!part) return null;
+  const parentAddress = refAddress(meta.parent_id, 'aws_api_gateway_resource');
+  let path = `/${part}`;
+  if (parentAddress) {
+    const up = gatewayResourcePath(parentAddress, guard);
+    if (up) path = `${up}${path}`;
+  }
+  pathCache.set(address, path);
+  return path;
+}
+for (const node of nodes) {
+  const meta = node.metadata;
+  if (!meta) continue;
+  if (meta.resourceType === 'aws_api_gateway_resource') {
+    const path = gatewayResourcePath(meta.terraformAddress);
+    if (path) meta.apiPath = path;
+  } else if (meta.resourceType === 'aws_api_gateway_method') {
+    const path = gatewayResourcePath(refAddress(meta.resource_id, 'aws_api_gateway_resource') || '');
+    if (path) {
+      meta.apiPath = path;
+      meta.endpoint = `${String(meta.http_method || '*').toUpperCase()} ${path}`;
+    }
+  } else if (meta.resourceType === 'aws_apigatewayv2_route') {
+    // HTTP API の `route_key` は `POST /orders/{id}` の形でメソッドとパスを両方含む
+    const parts = String(meta.route_key || '').trim().split(/\s+/).filter(Boolean);
+    if (parts.length) {
+      const verb = parts.length > 1 ? parts[0].toUpperCase() : '*';
+      const raw = parts.length > 1 ? parts[1] : parts[0];
+      meta.apiPath = raw.startsWith('/') ? raw : `/${raw}`;
+      meta.endpoint = `${verb} ${meta.apiPath}`;
     }
   }
 }

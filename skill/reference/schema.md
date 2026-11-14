@@ -49,7 +49,10 @@ csharp-analyzer の断片は「型 8,223 + メンバ 32,572 + `rejectedTypes` �
   到達不能。13 件目以降は `rejectedTypeKinds` に種類数。）注釈で正しい候補を張すための入力になる
 - `type` — `csKind`(`class`/`struct`/`interface`/`enum`/`record`/`delegate`) `namespace` `line` `file` `modifiers[]` `baseTypes[]` `memberCount` `static` `abstract` `generic` `alsoDeclaredIn[]`（partial の他ファイル）
 - `member` — `memberKind`(`method`/`property`/`constructor`/`field`/`event`/`enum-member`) `signature` `line` `visibility` `returns` `static` `async` `overloads`（2 以上のときの件数のみ） `otherSignatures[]`（オーバーロードの残りのシグネチャ） `unresolvedCalls[]`（決まらなかった呼び出しの表記。並列走で順が決まらないので辞書順に並べた先頭 8 件を載せる） `unresolvedKinds`（種類数。掲載した 8 件を超えたときだけ出る） `unresolvedTotal`（出現の総数。同じ表記の重複や上限超過で、掲載した件数より総数が多いときに出る。8 種類に満たなくても重複があれば付く）
-- `resource` — `resourceType`(`aws_lambda_function` など) `category`(`lambda`/`stepfunctions`/`apigateway`/`dynamodb`/`rds`/`s3`/`sqs`/`sns`/`secretsmanager`/`iam`/`custom`) `terraformAddress` `file` `filename` `provider` `managedBy` `referencedOnly`、リソース種別固有の値（`function_name` `handler` `runtime` `memory_size` `uri` `http_method` `rest_api_id` …）。
+- `resource` — `resourceType`(`aws_lambda_function` など) `category`(`lambda`/`stepfunctions`/`apigateway`/`dynamodb`/`rds`/`s3`/`sqs`/`sns`/`secretsmanager`/`iam`/`custom`) `terraformAddress` `file` `filename` `provider` `managedBy` `referencedOnly`、リソース種別固有の値（`function_name` `handler` `runtime` `memory_size` `uri` `http_method` `rest_api_id` `path_part` `parent_id` `stage_name` `route_key` …）。
+  API Gateway は `path_part` 単体では HTTP のパスにならないため、`parent_id` を辿って組み立てた値を
+  `apiPath`、method と組んだ表示名を `endpoint`（`POST /orders`）として付ける（決まらないときは張らない）。
+  `data` ブロック由来は `provider: "data"` と `dataSource: true`
   HCL の文字列リテラルから取った値は outer の引用符を除いて保存する（`handler` をそのまま
   検索や `member:` との照合に使えるようにするため）
 

@@ -30,6 +30,7 @@ open out/graph/graph.html
 node skill/scripts/test-analyzer.mjs                          # 静的解析の精度（96 項目、ブラウザ不要）
 node skill/scripts/test-query.mjs                             # 逆引き・影響範囲の照会（17 項目、.NET 不要）
 node skill/scripts/test-merge.mjs                             # Lambda handler の解決規則（12 項目、.NET 必要）
+node skill/scripts/test-terraform.mjs                         # API Gateway のパス組み立て（10 項目、.NET 不要）
 node skill/scripts/verify.mjs --html out/graph/graph.html --shots out/shots   # ブラウザ実操作（25 項目）
 ```
 
@@ -65,7 +66,7 @@ node skill/scripts/query.mjs --graph out/demo/graph.json \
 skill/
   analyzer/            Roslyn 構文解析（net9.0, cgd）。ビルドは build.mjs がやる
   scripts/             build / scan / scan-terraform / merge / render / query / verify
-                       + test-analyzer / test-query / test-merge（回帰テスト）
+                       + test-analyzer / test-query / test-merge / test-terraform（回帰テスト）
   tests/fixtures/      静的解析と照会のテスト用データ（C# と graph.json）
   viewer/template.html 単一ファイルのビューア（データ埋め込み）
   reference/schema.md  データ契約
