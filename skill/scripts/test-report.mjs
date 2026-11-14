@@ -1724,6 +1724,76 @@ check('--limit で一覧が切れてもカウンタの不変条件は保たれ�
       ? `T=${((wRowC(out) || {}).evidence || {}).id}/h${(wRowC(out) || {}).hops}` : '実行失敗'}`).join(' | '));
 }
 
+// ---- (18) 第 43 ラウンド: 向き変え回数は親の確定済み連鎖から決まり、候補は (親, 縁) で 1 件 ----
+// 双人レビュー第 42 ラウンド裁定 2「同じ表示経路なのに `switches` だけが 0 / 1 に揺れる」。
+// `N0 ← N1 ← N6 → N2` の形（実測 out/tmp-r43/r42-calls-0.json / -1.json）で、`member:N2` の
+// 表示経路は 4 通りどの並びでも `N0 > N1 > N6 > N2` に決まるのに、`switches` は 0 と 1 が
+// 出ていた。原因は値を**到着時に凍結**していたこと（凍結値は届いたときの `cur.mdir` 基準）。
+// ここは確定の段で親の確定済み連鎖から数え直すので、縁の入れ替えに対して表全体が揺れない
+{
+  const nodes = [
+    synNode('member:N0', 'member'), synNode('member:N1', 'member'), synNode('member:N2', 'member'),
+    synNode('member:N3', 'member'), synNode('member:N6', 'member'),
+  ];
+  const edges = [
+    { id: 'e3', kind: 'calls', source: 'member:N1', target: 'member:N0', provenance: 'static' },
+    { id: 'e4', kind: 'calls', source: 'member:N6', target: 'member:N2', provenance: 'static' },
+    { id: 'e7', kind: 'calls', source: 'member:N6', target: 'member:N1', provenance: 'static' },
+    { id: 'e9', kind: 'calls', source: 'member:N3', target: 'member:N0', provenance: 'static' },
+    { id: 'e11', kind: 'calls', source: 'member:N3', target: 'member:N6', provenance: 'static' },
+  ];
+  // 縁の並びを 12 通り。実測の 2 とおり（HEAD コピーで `member:N2` が 0 と 1 に分かれた
+  // out/tmp-r43/r42-calls-0.json / -1.json の並び）を種に、隣り合う 1 組の入れ替えで広げる。
+  // 全 120 とおりの総当たりは out/tmp-r43/r43-permute.py
+  const orders = [
+    ['e7', 'e9', 'e11', 'e3', 'e4'], ['e9', 'e7', 'e11', 'e3', 'e4'],
+    ['e7', 'e11', 'e9', 'e3', 'e4'], ['e7', 'e9', 'e3', 'e11', 'e4'],
+    ['e7', 'e9', 'e11', 'e4', 'e3'], ['e9', 'e7', 'e3', 'e11', 'e4'],
+    ['e7', 'e11', 'e3', 'e9', 'e4'], ['e11', 'e7', 'e3', 'e9', 'e4'],
+    ['e7', 'e3', 'e11', 'e9', 'e4'], ['e7', 'e11', 'e9', 'e4', 'e3'],
+    ['e7', 'e11', 'e3', 'e4', 'e9'], ['e7', 'e11', 'e4', 'e3', 'e9'],
+  ].map((names) => names.map((id) => edges.find((e) => e.id === id)));
+  const shape = (r) => [['entries.in', r.entries.in], ['entries.out', r.entries.out],
+    ['external.out', r.external.out], ['external.in', r.external.in],
+    ['wiring', r.wiring], ['sameApi', r.sameApi]]
+    .flatMap(([b, rs]) => (rs || []).map((x) => `${b}|${x.id}=${x.tier}/${x.direction}`
+      + `/h${x.hops}/sw${x.switches}/e${x.evidence ? x.evidence.id : '-'}`
+      + `/via:${x.via || '-'}/path:${(x.path || []).join('>')}`))
+    .concat([`secondOrder=${r.summary.secondOrder}`]).join('\n');
+  const runs = orders.map((e, i) => runSyn(`r43sw-${i}`, { nodes, edges: e },
+    ['--from', 'member:N0', '--hops', '4'], `r43sw-${i}`));
+  const rowOf = (out, id) => (out ? allRows(out.result).find((x) => x.id === id) : null);
+  check('向き変え回数は親の確定済み連鎖から決まり、縁の 12 入れ替えで表が 1 通り（第 43 ラウンド）',
+    runs.length === 12 && runs.every((out) => !!out)
+      && new Set(runs.map((out) => shape(out.result))).size === 1
+      && runs.every((out) => {
+        const n2 = rowOf(out, 'member:N2');
+        return !!n2 && n2.switches === 1 && n2.hops === 3
+          && n2.evidence.id === 'e4' && n2.via === 'member:N6'
+          && (n2.path || []).join(' ') === 'member:N0 member:N1 member:N6 member:N2';
+      })
+      && runs.every((out) => out.result.summary.secondOrder === 1),
+    runs.map((out, i) => `並べ${i}: ${out
+      ? `N2=${(rowOf(out, 'member:N2') || {}).switches}` : '実行失敗'}`).join(' | '));
+
+  // 向き変え回数の値そのものを固定する。`N0 → N1 → N6` は同じ向き（`calls` を逆に辿る 2 歩）で、
+  // `N6 → N2` の一歩だけ向きを変えるので 1。向きを変えない連鎖（`member:N6`）は 0 のまま
+  check('同じ向きが続く連鎖は 0、向きを変えた一歩から先だけ 1（第 43 ラウンド）',
+    runs.every((out) => !!out && ['member:N1', 'member:N3', 'member:N6']
+      .every((id) => (rowOf(out, id) || {}).switches === 0)),
+    runs.map((out) => (out ? ['member:N1', 'member:N3', 'member:N6']
+      .map((id) => `${id}=${(rowOf(out, id) || {}).switches}`).join(',') : '実行失敗')).join(' | '));
+
+  // 候補集合の重複検査（`settlePool` の入口）は不健全な状態を警告にする。上の fixture は
+  // `member:N2` が walk の 1 巡目・2 巡目の両方へ同じ (親, 縁) で届く形なので、ここを
+  // 通っても警告が出ないことを見る（重複が残ったまま選び直すと、同じ一歩の別実体を
+  // 並べて並び順で決めることになる。第 42 ラウンドまで実体比較で重複排除が効いておらず、
+  // 実測 elsa-folder で選び直し対象が 3,935 ノードへ水増ししていた。数値の実測は
+  // out/tmp-r43/dedup-count.py: 候補 157,300 件 → 78,650 件、対象 3,935 → 2,393 ノード）
+  check('walk の候補集合に同じ (親, 縁) の重複が残っていたら警告する（第 43 ラウンド）',
+    runs.every((out) => !!out && !/同じ \(親, 縁\) の重複/.test(out.stderr)));
+}
+
 rmSync(dir, { recursive: true, force: true });
 console.log(`\n${pass}/${pass + failures.length} 件成功`);
 if (failures.length) { console.log('失敗: ' + failures.join(' / ')); process.exit(1); }

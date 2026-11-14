@@ -523,10 +523,28 @@ const addRepCandidate = (id, mask, budget, rec) => {
 // 閉包の候補と同じ `repCands` へは入れない — `addRepCandidate` は `wiringMap` にも書き、
 // `wiringMap` は循環判定（`recOf`）が読むので、walk の候補を混ぜると探索そのものが変わる
 const walkCands = new Map();
+// 根拠の縁の同一性は **縁 id** で見る（第 43 ラウンド指摘 1）。到着ごとに作った `edge`
+// オブジェクトの実体比較だと、同じ (親, 縁) の一歩が 1 件も突き合わず、候補がまるごと
+// 2 倍に水増しされた（実測 elsa-folder: 到着 157,300 / (via, 縁 id) の一意集合 78,650、
+// 候補 2 件以上のノード 3,935 件。検査 out/tmp-r43/dedup-count.py）
+const edgeIdOf = (e) => (e ? e.id : '');
+// walk の一歩が握る根拠の縁は 5 項目だけの**表示用コピー**。縁その物を渡すと `detail` /
+// `line` / `count` / `metadata` まで `--json` の `evidence` へ出て出力契約が変わる
+// （実測 out/tmp-r43/edge-ref-diff.txt）。縁のオブジェクトは読み取り専用で、`rec.edge` を
+// 書き換える箇所は無い（grep 済み）ので、縁ごとに 1 個作って回す（到着ごとの確保をやめる）
+const walkEdgeCopies = new Map();
+const walkEdgeOf = (e) => {
+  let hit = walkEdgeCopies.get(e);
+  if (!hit) {
+    hit = { id: e.id, kind: e.kind, provenance: e.provenance, source: e.source, target: e.target };
+    walkEdgeCopies.set(e, hit);
+  }
+  return hit;
+};
 // 保存は (親 `via`, 根拠の縁 id) ごとの 1 件だけの**並び**。同じ親・同じ縁の一歩は `via` と根拠が
-// 同一で、表示と選考が見る残りの項目（段数・昇格資格・切り旗・2 つの旗・向き変え回数）は
-// `repCmp` と `switches` で比べるので、それだけ違う到着は表示に差が出ない（同一視できる
-// 到着を数え直さないための絞り込みで、選考の基準は変えない）
+// 同一で、表示と選考が見る残りの項目（段数・昇格資格・切り旗・2 つの旗）は `repCmp` で
+// 比べるので、それだけ違う到着は表示に差が出ない（同一視できる到着を数え直さないための
+// 絞り込みで、選考の基準は変えない。向き変え回数はここで凍結せず確定の段で数え直す）
 const addWalkCandidate = (id, rec, cur) => {
   // **循環境避で切った一歩（`cut`）も、表示候補では実際の一歩として数える**。`back` は walk が
   // `found` の先着で作った連鎖を見て立つので縁の並び順で変わり、それを候補のままにすると
@@ -554,17 +572,17 @@ const addWalkCandidate = (id, rec, cur) => {
   // 到着 157,300 件のうち同じ一歩の再到着が 78,650 件。表示候補のためだけに実体を
   // 倍作って実行時間が 0.1 秒伸びた）
   for (const best of list) {
-    if (best.rec.via !== src.via || best.rec.edge !== src.edge) continue;
+    if (best.rec.via !== src.via || edgeIdOf(best.rec.edge) !== edgeIdOf(src.edge)) continue;
     // 同じ親・同じ縁の一歩なので `repCmp` の最終項目は同値。選考が見る残り（昇格資格・
-    // 切り旗・定義段数・段数・2 つの旗）も同じなら、`switches`（向き変え回数。行の並び順と
-    // 「一段 / 二段」の区別に使う）の小さい方を残すだけで同じ結果になる。親の経路が違えば
-    // 同じ縁でも回数が違うので、到着順ではなく少ない方を選ぶ。比較の材料を作るのを
-    // 省けるので到着の多いグラフ（実測 elsa-folder で 78,650 件の再到着）で効く
+    // 切り旗・定義段数・段数・2 つの旗）も同じなら、表示に出る項目も同じで 1 件で足りる
+    // （実測: elsa-folder / demo / fixture-api / real-api の同じ (親, 縁) の到着どうしで
+    // 違うのは `hops` だけで、他は `dir` / `down` / `corr` / 旗まで一致。
+    // out/tmp-r43/dbg2.mjs）。`hops` が違う対は `repCmp` の第 4 項で短い方が残り、
+    // 残った側の `switches` は比較の材料にしない（確定の段で親の確定済み連鎖から数え直す）
     const sameCore = best.rec.hops === src.hops && best.rec.cut === src.cut
       && (best.rec.wiring === true) === (src.wiring === true)
       && !!best.rec.apiTail === !!src.apiTail && !!best.rec.chain === !!src.chain;
-    const d = sameCore ? (src.switches < best.rec.switches ? -1 : 1)
-      : repCmp({ id, mask, budget: 0, rec: src }, best);
+    const d = sameCore ? 0 : repCmp({ id, mask, budget: 0, rec: src }, best);
     if (d < 0) { best.rec = { ...src }; best.mask = mask; }
     return;
   }
@@ -797,7 +815,7 @@ function walkWithSwitch(seedIds, first) {
             // **API の定義（統合・method・route）を越えて届いた**経路の旗。この旗が立った
             // コードは 2 段目の walk の種にする（指摘 C）。親が既に立てているなら引き継ぐ
             apiTail: !!cur.apiTail || crossesApiTail(cur, back),
-            edge: { id: e.id, kind: e.kind, provenance: e.provenance, source: e.source, target: e.target },
+            edge: walkEdgeOf(e),
             sibBlocked: sibHere,
             // 実装側へ**入った**一歩（`handler` / `exposed-by` を逆向きに渡った一歩）。
             // 一度入ったら、その実装の対応縁をもう一度渡る一歩は「同じコードを使う別の入口」を
@@ -1180,7 +1198,9 @@ function runClosure(seedIds) {
     const prevBudget = fresh ? Infinity : done.budgets[mask];
     const better = fresh || (state.primary && !done.primary) || state.budget < prevBudget;
     if (!better) return false;
-    const budgets = fresh ? [...NO_BUDGETS] : [...done.budgets];
+    // 予算表は納めた条目の中身を更新するだけ（到着ごとに 16 個の配列を作り直さない）。
+    // この表を取り出して他所で保持する箇所は無いので、その場で書き換えても見る人は同じ
+    const budgets = fresh ? [...NO_BUDGETS] : done.budgets;
     budgets[mask] = Math.min(prevBudget, state.budget);
     // `chain` / `elig` / `apiTail` は立つほど展開が広い旗（同じ予算なら同じ一歩を全て辿れる）。
     // だから立った資格は、その旗だけを落とした下位の資格も同じ予算で支配する。更新を忘れると
@@ -1197,14 +1217,20 @@ function runClosure(seedIds) {
     if (state.apiTail) {
       budgets[mask & ~CLOSURE_API_TAIL] = Math.min(budgets[mask & ~CLOSURE_API_TAIL], budgets[mask]);
     }
-    expandedAt.set(state.id, {
-      primary: !!state.primary || !!done?.primary,
-      gen: apiGen, budgets,
-    });
-    bestState.set(state.id, {
-      ...bestState.get(state.id),
-      budget: Math.min(bestState.get(state.id)?.budget ?? Infinity, state.budget),
-    });
+    if (fresh) {
+      expandedAt.set(state.id, { primary: !!state.primary, gen: apiGen, budgets });
+    } else {
+      done.primary = !!state.primary || !!done.primary;
+      done.gen = apiGen;
+    }
+    // `bestState` も同じ条目の `budget` を更新するだけ（毎回 `{ ...obj }` で実体を
+    // 作り直すと、到着の数だけ合流の材料が増えて合流のたびに高くなる）
+    const bs = bestState.get(state.id);
+    if (bs) {
+      if (state.budget < bs.budget) bs.budget = state.budget;
+    } else {
+      bestState.set(state.id, { budget: state.budget });
+    }
     return true;
   };
 
@@ -1524,6 +1550,9 @@ if (pending) {
   process.stderr.write(`[report] 警告: 探索が収束する前にラウンド上限 ${maxRounds} に達しました（結果は不完全です）\n`);
 }
 
+// walk の到着はここまで。根拠の縁のコピーを数えた表はこれ以降読まれないので、表だけ先に
+// 捨てる（写しそのものは到着の記録が握っているので残る。実測 elsa-folder で 5.3 万エントリ）
+walkEdgeCopies.clear();
 // ---- 表示経路を「起点まで遡れる単一の連鎖」に確定する（仕様 out/loop/r40-decision.md、
 //      walk の到着を候補へ加えた改修は out/loop/r41-decision.md）----
 // 探索の受理・循環カット・旗・`bestState` は一切変えない（第 38 ラウンド不変原則 4）。
@@ -1609,7 +1638,7 @@ const heapLt = (a, b) => {
   if (d !== 0) return d < 0;
   const ca = itemChain(a); const cb = itemChain(b);
   if (ca !== cb) return ca < cb;
-  const sa = a.c.rec.switches || 0; const sb = b.c.rec.switches || 0;
+  const sa = a.sw; const sb = b.sw;   // 向き変え回数は確定値（`settlePool` の `derive`）
   if (sa !== sb) return sa < sb;
   return a.id < b.id;
 };
@@ -1625,7 +1654,7 @@ const heapLtWalk = (a, b) => {
   if (d !== 0) return d < 0;
   const ca = itemChain(a); const cb = itemChain(b);
   if (ca !== cb) return ca < cb;
-  const sa = a.c.rec.switches || 0; const sb = b.c.rec.switches || 0;
+  const sa = a.sw; const sb = b.sw;   // 向き変え回数は確定値（`settlePool` の `derive`）
   if (sa !== sb) return sa < sb;
   return a.id < b.id;
 };
@@ -1676,10 +1705,63 @@ const hpop = () => {
   }
   return top;
 };
+// ---- 向き変え回数 `switches` は確定した連鎖から数え直す（第 43 ラウンド指摘 2）----
+// walk は到着のたびに `cur.switches`（その時点で先に着いていた経路の値）を候補へ凍結していた。
+// `found` の記録は `mergeFlags` で**向き（`mdir`）は先着のまま・回数だけ最小**へ寄せるので、
+// 実在しない経路の値（`mdir: 'out'` なのに `switches: 0`）が 2 段目の種とそこから届く候補に
+// 混ざる。それを凍結したままにすると、表示経路が同じなのに向き変え回数だけが縁の並び順で
+// 揺れた（実測 `out/tmp-r43/r42-calls-0.json` / `-1.json`: 表示経路はどちらも
+// `N0 → N1 → N6 → N2` に決まるのに `member:N2` の `switches` だけ 0 / 1 に割れる。
+// 検査 out/tmp-r43/r43-permute.py は第 42 ラウンド版で 2 通りになることを示す）
+//
+// 向き変え回数は「親の確定した連鎖から決まる値」なので、確定の段で親の確定済み連鎖から
+// 数え直す（到着時に凍結しない）。選び直しの比較（`heapLt` / `heapLtWalk`）が読むのも、
+// 表示が読むのもこの確定値で、**読む項目と順序は変えない**
+const settledSw = new Map();   // 確定済みのノード id -> 根から数えた向き変え回数
+// 1 歩が向きを変えているか。walk の展開と同じ規則で見る — 機械的な向き `mdir` が親の基準向き
+// （`mdir` が無ければ `dir`）と違い、かつ対応付け（注釈）の縁のときだけ数える。機械的な向きを
+// 持たない一歩（Terraform の定義を無方向に閉じる閉包の一歩）は向きを変えない
+const stepSwitches = (parentRec, rec) => {
+  if (!rec.mdir || rec.corr || !parentRec) return 0;
+  const base = parentRec.mdir || parentRec.dir || null;
+  return base && rec.mdir !== base ? 1 : 0;
+};
+// `id` の一歩から根へ向かって `via` を辿った連鎖の向き変え回数。機械的な向きの無い一歩
+// （閉包の一歩）で打ち切る — 閉包の一歩は向きを変えないので、そこより手前の向きも数えない
+// （第 42 ラウンドまで閉包の記録は `switches: 0` だった。表示の意味は変えない）。
+// `lookup` は経路の記録の引き方（選び直し中は `picked` を優先し、表示は `combined`）。
+// `done` は確定済みの値の表（無くても数えられるが、確定値があればそこから）
+const switchCount = (id, lookup, done) => {
+  const seen = new Set();
+  let total = 0;
+  let cur = lookup(id);
+  for (let i = 0; cur && i <= chainCap; i += 1) {
+    if (done) {
+      const hit = done.get(cur.id);
+      if (hit !== undefined) return total + hit;
+    }
+    if (!cur.mdir) break;
+    const p = cur.via ? lookup(cur.via) : null;
+    total += stepSwitches(p, cur);
+    if (!p || seen.has(cur.id)) break;        // `via` が循環している（あってはならない形）
+    seen.add(cur.id);
+    cur = p;
+  }
+  return total;
+};
+// 候補の一歩の向き変え回数。`settlePool` は親が確定した候補だけを見るので、親の確定値に
+// この一歩の向き変えを足したものが確定値になる。親が土台（選び直さないノード）のときは
+// その `combined` の連鎖を同じ規則で根まで数える
+const deriveWalkSwitches = (id, c) => {
+  const lookup = (x) => picked.get(x) || combined.get(x);
+  return switchCount(c.rec.via, lookup, settledSw) + stepSwitches(lookup(c.rec.via), c.rec);
+};
 // `items` は [ノード id, 候補の並び]。`settled` は確定済み（土台）のノードで、選び直して
 // はいけないノードは呼び出し側が `items` から除いてある。ここは確定済みの親を持つ候補
 // だけを見て、確定のたびに子を見に行く（第 40 ラウンドと同じ形）
-const settlePool = (items, settled, lt) => {
+// `derive(id, c)` はこの一歩の表示用の値（向き変え回数）を**親の確定済み連鎖から**決める関数。
+// 渡さない候補集合（閉包の一歩）は記録の値をそのまま使う
+const settlePool = (items, settled, lt, derive) => {
   heapCmp = lt;
   const byParent = new Map();
   for (const [id, list] of items) {
@@ -1698,7 +1780,9 @@ const settlePool = (items, settled, lt) => {
     // 起点へ遡れなくなる。連鎖の長さは walk が `opts.hops`、閉包が `opts.wiringHops` で
     // 打ち切るので、それより長くなることは無い（超えたら壊れている = 使わない）
     if (onPickedChain(c.rec.via, id)) return;
-    const item = { id, c };   // 連鎖の文字列は比較で必要になった時に組む（`itemChain`）
+    // 連鎖の文字列は比較で必要になった時に組む（`itemChain`）。`sw` は見込みの確定値で、
+    // 親が確定した時点で決まる（=`derive`）。決まらない候補はここに来ない
+    const item = { id, c, sw: derive ? derive(id, c) : c.rec.switches || 0 };
     const cur = tentative.get(id);
     if (!cur || lt(item, cur)) { tentative.set(id, item); hpush(item); }
   };
@@ -1712,6 +1796,7 @@ const settlePool = (items, settled, lt) => {
     tentative.delete(item.id);
     if (settled.has(item.id)) continue;
     settled.add(item.id);
+    settledSw.set(item.id, item.sw);   // 確定値（子の一歩の向き変え回数を数え出す起点）
     picks.set(item.id, item.c.rec);
     picked.set(item.id, item.c.rec);
     for (const [nid, nc] of byParent.get(item.id) || []) if (!settled.has(nid)) considerCand(nid, nc);
@@ -1731,15 +1816,26 @@ const settlePool = (items, settled, lt) => {
 // なった。検査 out/tmp-r41/pool-dump2.py）
 const repKey = (rec) => `${rec.via || ''}\u0000${rec.edge ? rec.edge.id : ''}`;
 const walkItems = [];
+let dupKeys = 0;   // 選び直し候補に見た (親, 縁 id) の重複
 for (const [id, list] of walkCands) {
   // 候補が 1 件なら選び直しても今と同じ一歩が選ばれるだけなので対象外（土台のまま）。
-  // 実測 elsa-folder で 21,455 ノード中 3,935 ノードだけが候補 2 件以上だった
+  // 実測 elsa-folder で 21,455 ノード中 2,393 ノードだけが候補 2 件以上だった
+  // （実体比較で重複排除が効いていなかった第 42 ラウンドまでは 3,935 件）
   if (list.length < 2) continue;
   const rec = combined.get(id);
   if (!rec || !rec.via || !rooted.has(id)) continue;
   // 今の表示の一歩が walk の到着に無いノード（Terraform の閉包や 2 段目の種が作った記録）は
-  // walk の候補では再現できないので土台にし、現レコードを残す
-  if (!list.some((c) => c.rec.via === rec.via && c.rec.edge === rec.edge)) continue;
+  // walk の候補では再現できないので土台にし、現レコードを残す。（縁の対応は **縁 id** で見る。
+  // 実体比較だと上の重複排除と同じで 1 件も突き合わず、選び直し対象が正しく決まらない）
+  if (!list.some((c) => c.rec.via === rec.via && edgeIdOf(c.rec.edge) === edgeIdOf(rec.edge))) continue;
+  // 候補は (親, 縁 id) で 1 件ずつのはず（上の `addWalkCandidate`）。重複が残っていると
+  // 選び直しの比較が**同じ一歩の別実体**を並べて並び順で決めることになる（第 43 ラウンド
+  // 指摘 1）。黙らずに出す（`stranded` の警告と同じ方針。実測は out/tmp-r43/dedup-count.py）
+  const seenKeys = new Set();
+  for (const c of list) {
+    const k = repKey(c.rec);
+    if (seenKeys.has(k)) dupKeys += 1; else seenKeys.add(k);
+  }
   walkItems.push([id, list]);
 }
 // 土台（選び直さないノード）は「根そのもの」と上記のノード。加えて、候補の連鎖がどの土台へも
@@ -1764,7 +1860,13 @@ for (;;) {
   for (const id of add) settledWalk.add(id);
 }
 const baseWalk = new Set(settledWalk);
-const walkPick = settlePool(walkItems, settledWalk, heapLtWalk);
+// 表示に書く一歩の連鎖を、確定の段と同じ規則で根まで数える（`deriveWalkSwitches` と同じ組み方
+// で、数え出す一歩を引数で受け取る）。`settlePool` が確定できなかった行の受け皿
+const walkChainSwitches = (r) => {
+  const lookup = (x) => picked.get(x) || combined.get(x);
+  return switchCount(r.via, lookup, settledSw) + stepSwitches(lookup(r.via), r);
+};
+const walkPick = settlePool(walkItems, settledWalk, heapLtWalk, deriveWalkSwitches);
 for (const [id, rec] of walkPick) {
   // walk の選び直した一歩（同じ親・同じ縁）が閉包の候補にもあるなら、**閉包側の記録**を
   // 表示に使う。経路は同じなのに walk 側は `dir`（表示の向き）だけ違う値を持つからで、
@@ -1781,8 +1883,21 @@ for (const [id, rec] of walkPick) {
       if (d < 0 || (d === 0 && (c.rec.dir || '') < (alt.rec.dir || ''))) alt = c;
     }
   }
-  combined.set(id, alt ? { ...alt.rec, switches: rec.switches } : { ...rec });
+  // 向き変え回数は確定の段で数え直した値（`settledSw`）を乗せる。候補が持っていた到着時点の
+  // 値（親の先着経路の値。`mergeFlags` で `mdir` と対応の取れない寄せ方をした混ざり得る）は
+  // 表示で見ない。親が確定しなかった行（候補の連鎖がどの土台にも届かなかった行）も同じ規則で
+  // 表示に書く一歩から根まで数え直す — ここを凍結値のままにすると、実測 demo-api の
+  // `tf:aws_api_gateway_rest_api.orders` のように「表示経路は向きを変えていないのに 1」と
+  // いう行が残る（検査 out/tmp-r43/flip-proof.py）
+  const sw = settledSw.has(id) ? settledSw.get(id) : walkChainSwitches(rec);
+  combined.set(id, alt ? { ...alt.rec, switches: sw } : { ...rec, switches: sw });
 }
+if (dupKeys) {
+  process.stderr.write(`[report] 警告: walk の選び直し候補に同じ (親, 縁) の重複が ${dupKeys} 件残りました\n`);
+}
+// 候補集合は選び直し対象の並びが実体を握っているので、集合そのものは用済み（実測
+// elsa-folder で候補 7.8 万件。表示の組み立てと JSON 化の前に捨てて、合流が眺める実体を減らす）
+walkCands.clear();
 const walkMiss = walkItems.filter(([id]) => !baseWalk.has(id) && !walkPick.has(id)).length;
 if (walkMiss) {
   // walk の候補に親のある一歩があり、土台でもないのに起点へ繋がらなかった行。第 40 ラウンドの
@@ -1810,6 +1925,18 @@ if (stranded.length) {
   // 出さないための警告（検査 out/tmp-r40/via-cycle.py と test-report.mjs が失敗するので隠れない）
   process.stderr.write(`[report] 警告: ${stranded.length} ノードの表示経路を起点へ繋げませんでした（打ち切りのまま残します）\n`);
 }
+
+// 表示する向き変え回数。選び直して確定した行は `settledSw` の確定値（上の `settlePool`）。
+// 選び直さない行（土台）も `combined` の**表示に決まった連鎖**から同じ規則で数え直す —
+// 記録が持つ到着時点の値は `mergeFlags` が向きを保ったまま回数だけ寄せたり、`promote` が
+// `via` を書き換えたりして、表示経路と食い違った値になり得る（第 43 ラウンド指摘 2）。
+// 機械的な向きを持たない記録（Terraform の定義を閉じた一歩）は 0 のまま — 閉包の一歩は
+// 向きを変えないので数え不出のところから打ち切る（第 42 ラウンドまでの表示の意味のまま）
+const displaySwitches = (id, info) => {
+  const hit = settledSw.get(id);
+  if (hit !== undefined) return hit;
+  return info.mdir ? switchCount(id, (x) => combined.get(x), null) : (info.switches || 0);
+};
 
 // ---- 行を組み立てる ----
 // 根拠経路を `via` を辿って組み立てる。止め所は 3 つで、どれで止まったかを行に書く：
@@ -1903,7 +2030,7 @@ for (const [id, info] of combined) {
     // 表示する段数は**経路の長さ**。探索側が持つ段数は「定義単位をまたいだ数」で、
     // 動きの縁を越えたら数え直す予算なので、そのまま出すと `path` と食い違った
     // （実測: demo の `--api` で 1 行が 8 段 / 経路 6 ノード）
-    hops: p.length - 1, switches: info.switches, correspondence: !!info.corr,
+    hops: p.length - 1, switches: displaySwitches(id, info), correspondence: !!info.corr,
     pathRoot: root, via: info.via || null,
     // 動きの縁（`triggers` / `invokes` / `handler`）が別の経路で見つかっていれば、
     // 定義を辿っただけの縁が先着していても本命にする。その縁は `movementEvidence` として
