@@ -29,14 +29,14 @@ open out/graph/graph.html
 最低 5 組、組ごとの倍率の中央値で判定）**と 最大 RSS 800 MB（絶対上限）** で、**1.0 秒はゲートではなく
 UX 目標**、最大応答時間はゲートにしない。4 とおりの入力の倍率・最大 RSS・測定環境は
 [skill/SKILL.md](skill/SKILL.md) の「レポートの性能基準」に実測どおり置いてある
-（第 43 ラウンドの実測で 4 とりすべて適合、重い `elsa-folder` でも倍率中央値 1.09 / 最大 RSS 648.9 MB。
+（第 43 ラウンドの実測で 4 とおりすべて適合、重い `elsa-folder` でも倍率中央値 1.09 / 最大 RSS 648.9 MB。
 かつて 1.67 で超過したときは、結果を 1 バイトも変えない軽量化で収束させ、時間で切り捨てる対応は採っていない）。
 
 検証は 2 系統あり、どちらも対象プロジェクト非依存で動く。
 
 ```sh
 node skill/scripts/test-analyzer.mjs                          # 静的解析の精度（96 項目、ブラウザ不要）
-node skill/scripts/test-report.mjs                            # 影響範囲レポート（96 項目）
+node skill/scripts/test-report.mjs                            # 影響範囲レポート（99 項目）
 node skill/scripts/test-query.mjs                             # 逆引き・影響範囲の照会（28 項目、.NET 不要）
 node skill/scripts/test-merge.mjs                             # Lambda handler の解決規則（12 項目、.NET 必要）
 node skill/scripts/test-terraform.mjs                         # API Gateway のパス組み立てと HTTP API (v2) の `target`（46 項目、.NET 不要）
@@ -164,9 +164,9 @@ stderr に警告、Markdown に「探索が収束していません」の注意�
 書き写したもの**で、正解データではなく「前回と変わったかを見る整合の測定」だと思っている。
 だからリストを作った人間と同じ前提の誤りは消えない。そこを割り引いて読んでほしい。
 
-| 実測したケース（2026-11-14 計測） | 期待 | 外部着地 | 的中 | 再現率 | 適合率 |
+| 実測したケース（2026-11-15 計測） | 期待 | 外部着地 | 的中 | 再現率 | 適合率 |
 | --- | --- | --- | --- | --- | --- |
-| demo: `src/Orders.Domain/Order.cs` | 12 | 11 | 11 | 0.917 | 1 |
+| demo: `src/Orders.Domain/Order.cs` | 12 | 12 | 11 | 0.917 | 0.917 |
 | demo: `README.md`（グラフに無い変更） | 0 | 0 | 0 | 1 | 1 |
 | demo: `infra/main.tf`（Terraform 全部） | 0 | 2 | 0 | 1 | 0 |
 | 実プロジェクト: `--api "POST /messages"` | 1 | 1 | 1 | 1 | 1 |
@@ -175,6 +175,9 @@ stderr に警告、Markdown に「探索が収束していません」の注意�
 demo の 1 件の「もれ」は届いていないのではなく**枠の分け方**の結果。
 `tf:aws_api_gateway_deployment.live` まで辿れているが、縁が `references` なので定義上の関連に落ちる
 （JSON の `score.wiringOnly` が 1 で、それがその 1 件）。着地そのものは出ている。
+適合率 1 でないのは余分な着地 1 件。`ext:rds/orders-analytics` が、Lambda `notify` を経て届いた
+DynamoDB テーブル `orders` から注釈由来の `reads` 縁（注記「DynamoDB → Redshift への週次エクスポート」）を
+辿って着地した（`score.extraExternal` がその 1 件で、期待リストには入れていない）。
 
 実プロジェクトは [Pondidum/Terraform-Demos](https://github.com/Pondidum/Terraform-Demos) の
 `api-lambda`（C# と Terraform が同じリポジトリにある最小の実例）で、**注釈を 1 件も使わず**に
@@ -185,7 +188,7 @@ demo の 1 件の「もれ」は届いていないのではなく**枠の分け�
 `--provenance` は Terraform の定義単位を結ぶ段階にも効くので、`static` だけなら API 起点でも着地 0 件になる。
 
 変更ファイルがグラフに無いときの `--folder-start` は、同じデモで **起点 1 件 → 49 件**に膨らんで
-外部着地 0 件・コード 出口 6 件だけ出た（`README.md` を変えたケースの実測）。雑に広げるより
+外部着地 0 件・コード 出口 4 件（入口 0 件）・成果物 先 1 件・受 2 件だけ出た（`README.md` を変えたケースの実測）。雑に広げるより
 「そのファイルはグラフに無い」と出したほうがマシなので、既定はオフのままにしている。
 
 レシピ集（結合ハブの棚卸し、呼び出し集中の blast radius、注釈だけの依存のレビュー、

@@ -259,7 +259,8 @@ node $SKILL/scripts/report.mjs --graph out/graph/graph.json --api "POST /orders"
   粗い変更（Terraform 1 ファイルをまるごと等）で注釈由来の着地が増えて適合率が下がるので、
   `--provenance static,terraform` か `--from tf:...` で絞る
 
-実測値は README の表にある（demo の `Order.cs` 変更で 再現率 0.917 / 適合率 1、
+実測値は README の表にある（demo の `Order.cs` 変更で 外部着地 12 / 的中 11 の
+再現率 0.917 / 適合率 0.917。余分な 1 着地は `ext:rds/orders-analytics` が `reads` 縁で着地したもの、
 `infra/main.tf` 変更は 外部着地 2 件の適合率 0、実プロジェクト 1.000 / 1.000）。
 
 ## レポートの性能基準
@@ -284,7 +285,7 @@ node $SKILL/scripts/report.mjs --graph out/graph/graph.json --api "POST /orders"
 | elsa-folder | 0.7501 秒 | 0.8144 秒 | 1.07 / 1.10 / 1.09 / 1.08 / 1.09 | 1.09 | 適合 | 648.9 MB |
 | v2-mix | 0.2285 秒 | 0.2304 秒 | 1.01 / 1.02 / 1.01 / 1.01 / 1.00 | 1.01 | 適合 | 212.0 MB |
 
-**4 とりすべてゲート内**。ただし `elsa-folder`（`--from folder:. --limit 100000`）は他の入力より
+**4 とおりすべてゲート内**。ただし `elsa-folder`（`--from folder:. --limit 100000`）は他の入力より
 1.5 倍ほど重く、縁の本数ぶんの表示用コピーを隣エントリが持つため最大 RSS も 648.9 MB まで上がる
 （上限 800 MB 内）。この入力を「遅いから」と理由に打ち切ることはしない。
 
@@ -371,7 +372,7 @@ demo と `BindingRegression/` でも同じ入力を 2 回走らせて、`rejecte
 node $SKILL/scripts/test-query.mjs           # fixtures/query/graph.json を使う（.NET 不要、28 項目）
 node $SKILL/scripts/test-merge.mjs           # Lambda handler の解決規則（.NET 必要、12 項目）
 node $SKILL/scripts/test-terraform.mjs       # API Gateway のパス組み立てと HTTP API (v2) の `target`（46 項目、.NET 不要）
-node $SKILL/scripts/test-report.mjs          # 差分 → 影響範囲レポート（96 項目、.NET 必要）
+node $SKILL/scripts/test-report.mjs          # 差分 → 影響範囲レポート（99 項目、.NET 必要）
 ```
 
 `test-merge.mjs` は `fixtures/HandlerLambda/`（`AssemblyName` を置いた csproj と `main.tf`）を
