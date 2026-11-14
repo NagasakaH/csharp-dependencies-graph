@@ -43,7 +43,14 @@ public static class TypeText
             var c = s[i];
             if (line >= 0)
             {
-                if (c == '\n') { line = -1; sb.Append(' '); }
+                // C# が改行と扱う文字（LF / CR / NEL / LS / PS）で行コメントは終わる。
+                // LF だけだと CR 単独や NEL の後にまでコメント扱いが続いて、後続の型引数を丸ごと失う
+                if (IsNewLine(c))
+                {
+                    line = -1;
+                    sb.Append(' ');
+                    if (c == '\r' && i + 1 < s.Length && s[i + 1] == '\n') i++;
+                }
                 continue;
             }
             if (c == '/' && i + 1 < s.Length && s[i + 1] == '/') { line = i; i++; continue; }
@@ -59,6 +66,9 @@ public static class TypeText
         }
         return sb.ToString();
     }
+
+    /// <summary>C# の字句規則で改行として扱われる文字（Roslyn の `SyntaxFacts.IsNewLine` と同じ集合）。</summary>
+    static bool IsNewLine(char c) => c == '\n' || c == '\r' || c == '\u0085' || c == '\u2028' || c == '\u2029';
 
     /// <summary>型引数が付いている name セグメントへ切る。`Outer&lt;Wrong&gt;.Items&lt;Correct&gt;` の型引数は
     /// 左の `Outer` ではなく**右の `Items`** に付いている（外側のものを返すと、その先で別物の型へ張る）。

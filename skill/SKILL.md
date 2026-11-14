@@ -201,7 +201,7 @@ LLM が書くときの決まりごと（これをやらないとグラフが嘘�
 ### 静的解析の精度（ブラウザ不要）
 
 ```sh
-node $SKILL/scripts/test-analyzer.mjs        # cgd がビルド済みなら即実行（90 項目）
+node $SKILL/scripts/test-analyzer.mjs        # cgd がビルド済みなら即実行（96 項目）
 ```
 
 `skill/tests/fixtures/` の C# を `cgd` にかけて、期待するエッジと「出してはいけない
@@ -223,6 +223,7 @@ node $SKILL/scripts/test-analyzer.mjs        # cgd がビルド済みなら即�
 `var` 経由 / 2 引数の `Pair<(int, int), string>` / フィールド宣言）が要素型のメンバーへ張ることを見る。
 型引数の数を `<` と `,` だけで数えるとタプル内のカンマを区切りと数え、連鎖ごと消える。
 `fixtures/TrickyType/` は型表記の文字列を数えるときの 2 つの取り違えの回帰で、コメントを構文上の括弧として数えてしまう誤り（`Pair<int /* index [start */, string>` の `[`）と、型引数が付いていない左側の name セグメントを拾う誤り（`Outer<Wrong>.Items<Correct>` の indexer が `Wrong.Id` へ断定したエッジを張る）に効く。コメント付きの `Dictionary` 宣言から値型が取れること、化ける側へ一切辿らないことも同じ fixture で確かめる。
+`fixtures/NestedArity/` は型引数の数で候補を絞るときのセグメントの回帰で、`Outer<int, string>.Inner<Item>` のように**解決するのが外側・型引数を拾うのが内側**という形で、内側型を持たない別名前空間の `App.Outer<A>` を誤って通さないことを見る。`fixtures/LineEndComment/` は行コメントの終端の回帰で、CR 単独や NEL（U+0085）の後もコメント扱いを続けて型引数を消していないか（LF は対照）。
 `fixtures/PartialOrder/` は出力の決定性で、partial 型の別ファイルにある同名オーバーロードが同じ edge ID に
 畳まれたとき、断片のバイト列が 12 回連続で一致することと、代表の行が行の若い側で固定されることを見る。
 demo と `BindingRegression/` でも同じ入力を 2 回走らせて、`rejectedTypes` を含む出力が揺れないことを確かめる。

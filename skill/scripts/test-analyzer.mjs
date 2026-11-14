@@ -385,6 +385,35 @@ check('これらの入力でアリティゲートが黙って型を拒否しな�
   JSON.stringify(tt.nodes.filter((x) => ((x.metadata || {}).unresolvedCalls || []).length > 0)
     .map((x) => [x.id, x.metadata.unresolvedCalls])));
 
+// ---- 型引数の数は「解決する側のセグメント」を数える／行コメントの終端は LF だけじゃない ----
+// 入れ子の `Outer<int, string>.Inner<Item>` で、`Normalize` が解くのは外側の `Outer`（2 引数）。
+// 内側 `Inner<Item>` の 1 引数を外側の候補に適用すると、内側型を持たない別名前空間の `App.Outer<A>`
+// を誤って通して断定した誤エッジを張る（第 14 ラウンド codex の実測）。
+const na = analyze('NestedArity');
+const naEdges = na.edges.filter((e) => e.kind !== 'contains');
+const naHas = (kind, from, to) => naEdges.some((e) => e.kind === kind && e.source === from && e.target === to);
+const naOf = (who) => naEdges.filter((e) => e.source === `member:App.Consumer.${who}`).map((e) => `${e.kind}:${e.target}`);
+
+check('入れ子の型表記は外側セグメントのアリティで候補を絞る（`Outer<int, string>.Inner<Item>` の new）',
+  naHas('creates', 'member:App.Consumer.Create', 'type:Models.Outer'), JSON.stringify(naOf('Create')));
+check('入れ子の型表記は外側セグメントのアリティで候補を絞る（indexer の要素型）',
+  naHas('accesses', 'member:App.Consumer.Read', 'member:Models.Item.Id')
+  && naHas('references', 'member:App.Consumer.Read', 'type:Models.Outer'), JSON.stringify(naOf('Read')));
+check('内側型を持たない別名前空間の `App.Outer` には張らず、型を拒否してもいない',
+  !naEdges.some((e) => e.target === 'type:App.Outer')
+  && !na.nodes.some((x) => ((x.metadata || {}).rejectedTypes || []).length > 0),
+  JSON.stringify(naEdges.filter((e) => e.target === 'type:App.Outer').map((e) => `${e.source}->${e.target}`)));
+
+// 行コメントの終端を LF だけを見ると、CR 単独や NEL の後もコメント扱いが続いて後続の型引数を消す
+const ec = analyze('LineEndComment');
+const ecEdges = ec.edges.filter((e) => e.kind !== 'contains');
+const ecItemId = 'member:Fix.EolComment.Item.Id';
+for (const [who, label] of [['DictLF', 'LF'], ['DictCR', 'CR 単独'], ['DictNEL', 'NEL（U+0085）']]) {
+  check(`行コメントの終端が${label}でも辞書の値型を取り出せる`,
+    ecEdges.some((e) => e.kind === 'accesses' && e.source === `member:Fix.EolComment.Consumer.${who}` && e.target === ecItemId),
+    JSON.stringify(ecEdges.filter((e) => e.source.endsWith(`Consumer.${who}`)).map((e) => `${e.kind}:${e.target}`)));
+}
+
 // ---- 決定性: 同じ入力を 2 回走らせてもノード・エッジ・後付け候補が揺れない ----
 // 生成日時だけをのぞいた**バイト列そのもの**を比べる。並列走りの結果を後から並べ替えると
 // 集合は同じでも出力順が揺れるので、「ソートしてから比較」では見逃してしまう

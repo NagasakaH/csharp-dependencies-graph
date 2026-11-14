@@ -128,11 +128,14 @@ public sealed class TypeIndex
     /// タプル型引数 `Box&lt;(int, string)&gt;` のカンマは型引数の区切りではないので、
     /// 丸括弧と角括弧の内側では数えない（数えると 1 引数の `Box&lt;T&gt;` を 2 引数として
     /// 拒否し、その先へ張るべき連鎖ごと消える）。
-    /// コメントと、型引数が付いていない左側の name セグメントは <see cref="TypeText.GenericCarrier"/>
-    /// で除いてから数える（`GenericArgs` と**同じ表記**を数えないと、ゲートだけ別物を数える）。</summary>
+    /// コメントを除いてから数える。数えるのは**最初の name セグメント**の型引数でなければならない。
+    /// `ResolveCore` が `Normalize` で解くのが最初のセグメント（`Outer&lt;A,B&gt;.Inner&lt;C&gt;` → `Outer`）だからで、
+    /// 内側 `Inner&lt;C&gt;` の数で外側の候補を絞ると、同名の別候補（`App.Outer&lt;A&gt;`）を誤って通して
+    /// 断定した誤エッジを張る（第 14 ラウンド codex の実測）。要素型を取るときだけ
+    /// <see cref="TypeText.GenericCarrier"/> で内側のセグメントへ切る（`GenericArgs` 側）。</summary>
     static int UsageArity(string raw)
     {
-        raw = TypeText.GenericCarrier(raw);
+        raw = TypeText.StripComments(raw);
         var lt = raw.IndexOf('<');
         if (lt <= 0) return 0;
         var depth = 0;

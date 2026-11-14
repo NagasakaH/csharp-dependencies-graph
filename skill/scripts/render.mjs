@@ -22,7 +22,7 @@ function parseArgs(argv) {
 }
 
 const opts = parseArgs(process.argv);
-if (!opts.data) { console.error('render.mjs: --data が 必要です'); process.exit(1); }
+if (!opts.data) { console.error('render.mjs: --data が必要です'); process.exit(1); }
 const template = readFileSync(opts.template, 'utf8');
 const payload = readFileSync(opts.data, 'utf8');
 if (!template.includes('__CSDG_INLINE__')) { console.error('テンプレートに __CSDG_INLINE__ がありません'); process.exit(1); }
