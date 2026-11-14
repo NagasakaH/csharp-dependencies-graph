@@ -221,7 +221,8 @@ const apiTailFrom = (node) => isIntegrationNode(node) || isRouteStart(node);
 // （双人レビュー第 31 ラウンド。`apiTail` を連鎖の資格なしで立てたまま再展開を認めると、
 // IAM ポリシー起点が 15 行 → 18 行に膨らんだ）
 // `!back` も実測して保つ（双人レビュー第 33 ラウンド agy の注記への回答）。外すと循環の縁を
-// 渡って旗が広がり、v1 基準の `demo-proj` で `get_order` の向きが in → out に動いた（差分 1 件）
+// 渡って旗が広がり、v1 基準の `demo-proj` で `get_order` の向きが out → in に動いた（差分 1 件。
+// 第 35 ラウンド agy 指摘 3 を実測で確認: 基準の `wiring/out`（段数 3）が `wiring/in` へ移る）
 const crossesApiTail = (cur, back) => !back && !!cur.chain && apiTailFrom(byId.get(cur.id));
 
 // ---- 起点を作る ----
@@ -390,6 +391,9 @@ const startApiGroups = new Set(starts.map((x) => apiGroupOf(byId.get(x.id))).fil
 // `path[0]` が必ず起点になることが常に成り立つ
 const combined = new Map();
 const wiringMap = new Map();
+// 閉包側の記録を所有している受理状態の (マスク, 予算)。記録の置き換えを
+// 展開側の予算表と同じ包含の支配関係で判定するために持つ（双人レビュー第 35 ラウンド agy 指摘 2）
+const recState = new Map();
 // 閉包の出発点として**根になったノード**（起点そのものではないが、起点の定義グループなので
 // 経路の先頭として出してよい）。
 
@@ -928,7 +932,31 @@ function runClosure(seedIds) {
       // (2) 本命として受理済みの行を、定義上の関連の縁で塗り替えようとするとき（根拠が弱い方に変わる）
       const demote = !!old && bestState.get(state.id).primary && state.rec.wiring === true;
       const shorter = !!old && !!old.via && state.rec.cut;
-      if (!demote && !shorter) wiringMap.set(state.id, state.rec);
+      // 上記 2 つを通過しても**無条件には上書きしない**。比較不能な 2 資格の経路（`chain` 単独の
+      // マスクと `apiTail` 単独のマスクなど）が同予算で着くと両方受理されるが、後着で無条件
+      // 上書きすると `direction` が縁の並び順で反転し、記録が `apiTail` の旗を落としてコードの
+      // 種から着地ごと消える（双人レビュー第 35 ラウンド agy 指摘 1・2。再現
+      // `out/tmp-r36/agy-repro-a.py` / `out/tmp-r36/agy-repro-b.py`）。
+      // 上書きは「新記録が古い記録を支配するとき」に限定する。支配は展開側の予算表と同じ
+      // 関係（マスクの包含 × 予算の非増）で決める:
+      // (1) 支配（新マスク ⊇ 記録の所有マスク かつ 予算 ≤。同マスクでの予算改善も含む。
+      //     v1 基準の `demo-iam` `order_process`（budget 0 の `invokes` 経路）と
+      //     `demo-proj` `deployment.live`（マスク 10 の向き in）はこの上書きで保たれる。実測）
+      // (2) 昇格（定義上の関連の記録を本命の経路が塗り替える）
+      // (3) cut 復旧（循環境避で切った記録が根付きの経路を引き取る）
+      // (4) `apiTail` 運び（「API の定義を越えて届いた」旗を持たない記録から持つ記録へ。
+      //     `promote` の単調な寄せと同じ事実で、旗を運ぶ経路が運ばない経路を支配する）
+      // それ以外は先着の経路を保つ（`via` / `hops` / `dir` を後から塗り替えない = 架空の経路を作らない）
+      const owner = recState.get(state.id);
+      const dominates = !!old && !!owner
+        && (mask & owner.mask) === owner.mask && state.budget <= owner.budget;
+      const promoteTo = !!old && old.wiring === true && state.rec.wiring !== true;
+      const recoverCut = !!old && !!old.cut && !state.rec.cut;
+      const carryTail = !!old && !old.apiTail && !!state.rec.apiTail;
+      if (!demote && !shorter && (!old || dominates || promoteTo || recoverCut || carryTail)) {
+        wiringMap.set(state.id, state.rec);
+        recState.set(state.id, { mask, budget: state.budget });
+      }
     }
     return true;
   };
@@ -1102,8 +1130,15 @@ while (pending && rounds < maxRounds) {
     const st = bestState.get(id);
     const rec = combined.get(id);
     const primary = st ? st.primary : !!rec && rec.wiring !== true;
+    // 「API の定義を越えて届いた」も `primary` と同じく受理済みの単調な事実を見る。
+    // 記録（`combined`）側だけ読むと、比較不能な資格の経路が後着上書きで旗を落としたとき、
+    // 実際に旗を運んだ経路が存在しても種から外れて着地が消える（双人レビュー第 35 ラウンド
+    // agy 指摘 1。再現 `out/tmp-r36/agy-repro-a.py`）。種は昇格の資格ではなく walk の出発点
+    // なので、別の経路で立った旗を拾っても架空の経路は生まれない（第 31 ラウンドで
+    // 避けたいのは「寄せた事実を展開の資格に渡す」ことで、ここと使う向きが逆）
+    const tail = st ? st.apiTail : !!rec && !!rec.apiTail;
     return (k === 'member' || k === 'type') && !walkedCode.has(id)
-      && (primary || !!rec.apiTail);
+      && (primary || tail);
   });
   const groupGrew = refreshGroups();
   // コードの種が無くても、API グループが増えたなら仕事がある（新しいグループの下で定義を

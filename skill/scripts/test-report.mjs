@@ -1323,6 +1323,94 @@ check('--limit で一覧が切れてもカウンタの不変条件は保たれ�
       + (gTable(out) ? `${gTable(out).tier}/${gTable(out).direction}` : '無し') : '実行失敗'}`).join(' | '));
 }
 
+// (14) 第 35 ラウンドの指摘（双人レビュー agy）: 閉包の `wiringMap` 記録が後着で**無条件上書き**
+// される形。比較不能な 2 資格の経路（`chain` 単独のマスクと `apiTail` 単独のマスク）が同予算で
+// 同じノードに届くと両方受理されるが、後着が記録を塗り替えるため、
+//  (A) 注釈のみの形: `member:V` の記録が `apiTail` の旗を落として codeSeeds から外れ、
+//      `ext:rds-table/orders` が縁の並び順だけで全欄から消えた（orig 6 行 / rev 5 行）
+//  (B) 純粋な Terraform の形: 合流点 `tf:aws_dynamodb_table.target` の `direction`（in/out）が
+//      並び順で反転した（orig in / rev out）
+// 直し: 記録の上書きは「支配（マスク包含 × 予算非増）/ 昇格 / cut 復旧 / `apiTail` 運び」のとき
+// だけ。codeSeeds は `primary` と同じく `bestState` の単調な旗を見る。
+// 2 つの形それぞれで、欄・向き・tier・段数が並び順を変えても不変であることを固定する
+{
+  const rowShape = (r) => [['external.out', r.external.out], ['external.in', r.external.in],
+    ['entries.out', r.entries.out], ['entries.in', r.entries.in],
+    ['artifacts.out', r.artifacts.out], ['artifacts.in', r.artifacts.in],
+    ['wiring', r.wiring], ['sameApi', r.sameApi], ['siblingEndpoints', r.siblingEndpoints]]
+    .flatMap(([b, rs]) => (rs || []).map((x) => `${b}|${x.id}=${x.tier}/${x.direction}/h${x.hops}`));
+  const findRow = (r, id) => allRows(r).find((x) => x.id === id) || null;
+
+  // A. 注釈のみの形。統合 `i`（`triggers` で起点に届く）から `references` で越えた一歩が
+  // `apiTail` を立て、旗無しの `chain` 経路（`l_out --invokes(注釈)--> 起点` の上流側から
+  // `references` で下る）と同予算で `member:V` に着く
+  const aNodes = [
+    synNode('tf:aws_lambda_function.s', 'resource', { resourceType: 'aws_lambda_function' }),
+    synNode('tf:aws_lambda_function.l_out', 'resource', { resourceType: 'aws_lambda_function' }),
+    synNode('tf:aws_s3_bucket.x1', 'resource', { resourceType: 'aws_s3_bucket' }),
+    synNode('tf:aws_api_gateway_integration.i', 'resource', { resourceType: 'aws_api_gateway_integration',
+      category: 'apigateway' }),
+    synNode('tf:aws_s3_bucket.b', 'resource', { resourceType: 'aws_s3_bucket' }),
+    synNode('member:V', 'member'),
+    synNode('ext:rds-table/orders', 'resource', { resourceType: 'aws_dynamodb_table' }),
+  ];
+  const aEdges = [
+    synEdge('invokes', 'tf:aws_lambda_function.l_out', 'tf:aws_lambda_function.s', 'human'),
+    synEdge('references', 'tf:aws_lambda_function.l_out', 'tf:aws_s3_bucket.x1'),
+    synEdge('references', 'tf:aws_s3_bucket.x1', 'member:V'),
+    synEdge('triggers', 'tf:aws_api_gateway_integration.i', 'tf:aws_lambda_function.s'),
+    synEdge('references', 'tf:aws_api_gateway_integration.i', 'tf:aws_s3_bucket.b'),
+    synEdge('references', 'member:V', 'tf:aws_s3_bucket.b'),
+    synEdge('writes', 'member:V', 'ext:rds-table/orders', 'human'),
+  ];
+  const aRuns = [['r36a-orig', aEdges, aNodes], ['r36a-rev', [...aEdges].reverse(), aNodes],
+    ['r36a-nodes-rev', aEdges, [...aNodes].reverse()]]
+    .map(([name, edges, nodes]) => [name,
+      runSyn(name, { nodes, edges }, ['--from', 'tf:aws_lambda_function.s'], name)]);
+  const aTable = (out) => (out ? findRow(out.result, 'ext:rds-table/orders') : null);
+  check('旗を運ぶ経路と運ばない経路が同予算で合流しても、注釈の先の着地が並び順で消えない（第 35 ラウンド指摘 1）',
+    aRuns.every(([, out]) => !!out && !!aTable(out)
+      && aTable(out).tier === 'primary' && aTable(out).direction === 'out')
+    && new Set(aRuns.map(([, out]) => JSON.stringify(out ? rowShape(out.result) : null))).size === 1,
+    aRuns.map(([name, out]) => `${name}: ${out ? `rows=${out.result.summary.rows} テーブル=`
+      + (aTable(out) ? `${aTable(out).tier}/${aTable(out).direction}` : '無し') : '実行失敗'}`).join(' | '));
+
+  // B. 純粋な Terraform の形（コードノード無し）。`target` へ (a) 統合 `i` を越えて `b` 経由で
+  // 届く `apiTail` を運ぶ経路（向き in）と、(b) 上流の `l_out` 側から `x1` 経由で届く旗無しの
+  // 経路（向き out）が同予算で着く。支配規則は旗を運ぶ経路を勝たせるので、どちらの並びでも
+  // 向き in（`i → b ← target` の定義経路）に着地する
+  const bNodes = [
+    synNode('tf:aws_lambda_function.s', 'resource', { resourceType: 'aws_lambda_function' }),
+    synNode('tf:aws_lambda_function.l_out', 'resource', { resourceType: 'aws_lambda_function' }),
+    synNode('tf:aws_s3_bucket.x1', 'resource', { resourceType: 'aws_s3_bucket' }),
+    synNode('tf:aws_api_gateway_integration.i', 'resource', { resourceType: 'aws_api_gateway_integration',
+      category: 'apigateway' }),
+    synNode('tf:aws_s3_bucket.b', 'resource', { resourceType: 'aws_s3_bucket' }),
+    synNode('tf:aws_dynamodb_table.target', 'resource', { resourceType: 'aws_dynamodb_table' }),
+  ];
+  const bEdges = [
+    synEdge('invokes', 'tf:aws_lambda_function.l_out', 'tf:aws_lambda_function.s', 'human'),
+    synEdge('references', 'tf:aws_lambda_function.l_out', 'tf:aws_s3_bucket.x1'),
+    synEdge('references', 'tf:aws_s3_bucket.x1', 'tf:aws_dynamodb_table.target'),
+    synEdge('triggers', 'tf:aws_api_gateway_integration.i', 'tf:aws_lambda_function.s'),
+    synEdge('references', 'tf:aws_api_gateway_integration.i', 'tf:aws_s3_bucket.b'),
+    synEdge('references', 'tf:aws_dynamodb_table.target', 'tf:aws_s3_bucket.b'),
+  ];
+  const bRuns = [['r36b-orig', bEdges, bNodes], ['r36b-rev', [...bEdges].reverse(), bNodes],
+    ['r36b-nodes-rev', bEdges, [...bNodes].reverse()]]
+    .map(([name, edges, nodes]) => [name,
+      runSyn(name, { nodes, edges }, ['--from', 'tf:aws_lambda_function.s'], name)]);
+  const bTarget = (out) => (out ? findRow(out.result, 'tf:aws_dynamodb_table.target') : null);
+  check('純粋な Terraform 構成で合流点の向きが並び順で反転しない（旗を運ぶ経路が支配し、向き in に着地）',
+    bRuns.every(([, out]) => !!out && !!bTarget(out)
+      && bTarget(out).tier === 'wiring' && bTarget(out).direction === 'in'
+      && bTarget(out).hops === 3)
+    && new Set(bRuns.map(([, out]) => JSON.stringify(out ? rowShape(out.result) : null))).size === 1,
+    bRuns.map(([name, out]) => `${name}: ` + (out
+      ? `target=${bTarget(out) ? `${bTarget(out).tier}/${bTarget(out).direction}/h${bTarget(out).hops}` : '無し'}`
+      : '実行失敗')).join(' | '));
+}
+
 rmSync(dir, { recursive: true, force: true });
 console.log(`\n${pass}/${pass + failures.length} 件成功`);
 if (failures.length) { console.log('失敗: ' + failures.join(' / ')); process.exit(1); }
