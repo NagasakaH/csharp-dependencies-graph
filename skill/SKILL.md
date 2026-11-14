@@ -274,7 +274,7 @@ demo と `BindingRegression/` でも同じ入力を 2 回走らせて、`rejecte
 ```sh
 node $SKILL/scripts/test-query.mjs           # fixtures/query/graph.json を使う（.NET 不要、17 項目）
 node $SKILL/scripts/test-merge.mjs           # Lambda handler の解決規則（.NET 必要、12 項目）
-node $SKILL/scripts/test-terraform.mjs       # API Gateway のパス組み立て（28 項目、.NET 不要）
+node $SKILL/scripts/test-terraform.mjs       # API Gateway のパス組み立てと HTTP API (v2) の `target`（38 項目、.NET 不要）
 node $SKILL/scripts/test-report.mjs          # 差分 → 影響範囲レポート（63 項目、.NET 必要）
 ```
 
@@ -292,10 +292,13 @@ node $SKILL/scripts/test-report.mjs          # 差分 → 影響範囲レポー�
 呼びに出したエンドポイント（`invokes`）を兄弟にしない、向き（影響する先 / 受ける入口）が
 縁の矢印と食い違わない、を確かめる。
 
-`test-terraform.mjs` は `fixtures/TerraformApi/`（C# を置かない Terraform だけの fixture）に
+`test-terraform.mjs` は `fixtures/TerraformApi/`（C# を置かない Terraform だけの fixture）と
+`fixtures/V2HttpApi/`（HTTP API v2 の fixture。`route` の `target` と `api_id` を通す形と崩れる形を両方置く）に
 `scan-terraform.mjs` だけを走らせ、`path_part` と `parent_id` から `/orders/{id}` の形になるか、
 method に `POST /orders` の表示名 `endpoint` が付くか、`stage_name` と v2 の `route_key` を取るか、
-**パスが決まらない method に推測で `endpoint` を張らないか**、`parent_id` が循環しても停止しないかを照合する。
+**パスが決まらない method に推測で `endpoint` を張らないか**、`parent_id` が循環しても停止しないか、
+v2 では `target` の既知の形だけを `invokes` 縁にして、読めない `target` と `api_id` を
+`metadata.unresolved` に出すか、`integration` の宣言順を入れ替えても同じ縁になるかを照合する。
 特に `parent_id = var.x` / `module.x.parent_id` / `each.value` / 補間だけ / `route_key = var.x` /
 v2 の `$default` のように**未解決の式からエンドポイントを作らない**ことを fixture で固定している
 （実在しない `POST /orders` が検索に出ると、レビューの起点として嘘になる）。「`${aws_api_gateway_rest_api.x.root_resource_id}`」のように

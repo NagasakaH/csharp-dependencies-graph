@@ -61,7 +61,8 @@ function parseBlocks(text) {
 // `attributes()` は表示用に引用符を落とした値を持つので、「引用されたリテラル」と「点を含む参照」を
 // 区別できない（実測で `path_part = "local.segment"` の endpoint が消え、
 // `path_part = aws_ssm_parameter.p.value` が通った）
-const RAW_KEYS = ['path_part', 'parent_id', 'resource_id', 'http_method', 'route_key'];
+// `api_id`（HTTP API の所属）と `target`（route の委譲先）も「決まらないときに残す」対象
+const RAW_KEYS = ['path_part', 'parent_id', 'resource_id', 'http_method', 'route_key', 'api_id', 'target'];
 function rawAttributes(body) {
   const raws = {};
   for (const raw of body.split('\n')) {
@@ -128,6 +129,22 @@ if (!tfFiles.length) {
 
 const nodes = [], edges = [], resources = new Map();
 const nodeRaws = new Map();   // ノード -> パス組み立てに使う右辺の生値（引用符込み）
+// `target` が読めた route（ノード -> { addr, file }）。宣言順に依存せず張るために覚えておく
+const routeTarget = new Map();
+// `target` の形は読めたが参照先の resource が無い、または同名アドレス衝突で選べないノード。
+// 推測で縁を張らず、`metadata.unresolved` に `target` を残す
+const missingRouteTarget = new Set();
+// `target` が書かれているのに既知の形で読めなかった route。縁を張らず `metadata.unresolved` に出す
+const unparsableRouteTarget = new Set();
+// `target = "integrations/\${aws_apigatewayv2_integration.<name>.id}"` **そのもの**だけを通す。
+// 部分一致ではなく値全体を見るので、混合補間・三項式・関数呼び出しは通さない
+function routeTargetIntegration(raw) {
+  const v = String(raw === undefined || raw === null ? '' : raw).trim();
+  const quoted = /^"([\s\S]*)"$/.exec(v);
+  const inner = quoted ? quoted[1].trim() : v;
+  const m = /^integrations\/\$\{\s*(?:resource\.)?aws_apigatewayv2_integration\.([a-zA-Z0-9_-]+)\.id\s*\}$/.exec(inner);
+  return m ? `aws_apigatewayv2_integration.${m[1]}` : null;
+}
 for (const file of tfFiles) {
   const rel = relative(opts.root, file).split(/[\\/]/).join('/');
   const text = readFileSync(file, 'utf8');
@@ -141,7 +158,7 @@ for (const file of tfFiles) {
     const attrs = attributes(block.body);
     const rawsForPath = rawAttributes(block.body);
     const meta = { resourceType: block.type, terraformAddress: address, file: rel, provider: block.kind === 'resource' ? 'terraform' : block.kind };
-    for (const key of ['function_name', 'name', 'handler', 'runtime', 'memory_size', 'timeout', 'filename', 's3_key', 'role', 'state_machine_type', 'execution_role_arn', 'rest_api_id', 'resource_id', 'http_method', 'integration_uri', 'uri', 'table_name', 'bucket', 'engine', 'topic_arn', 'queue_url', 'path_part', 'parent_id', 'stage_name', 'route_key']) {
+    for (const key of ['function_name', 'name', 'handler', 'runtime', 'memory_size', 'timeout', 'filename', 's3_key', 'role', 'state_machine_type', 'execution_role_arn', 'rest_api_id', 'resource_id', 'http_method', 'integration_uri', 'uri', 'table_name', 'bucket', 'engine', 'topic_arn', 'queue_url', 'path_part', 'parent_id', 'stage_name', 'route_key', 'api_id', 'target']) {
       if (attrs[key] !== undefined) meta[key] = attrs[key];
     }
     const node = block.kind === 'resource'
@@ -163,6 +180,24 @@ for (const file of tfFiles) {
         detail: `${rel} 内の参照`, count: 1, _file: rel,   // _file: 同名アドレスの解決にだけ使う（出力前に落とす）
       });
       if (!target) edges[edges.length - 1].metadata = { unresolvedTarget: true };
+    }
+    // `aws_apigatewayv2_route` の `target` は `integrations/\${aws_apigatewayv2_integration.x.id}` と
+    // いう**形が決まっている**書き方をする。`references` だけを張ると、伝播の資格は
+    // 「参照されている側 → 参照している側」にしか通らない設計（`report.mjs` の `refersInto`）で、
+    // `route` から `integration` へ進む一歩が 定義上の関連 に落ちる。その結果 `--api` で v2 の
+    // route を起点にしたときに `integration → triggers → Lambda → handler → C#` が本命へ届かない
+    // （双人レビュー第 25 ラウンドで agy が実測で特定、codex も再現）。**この既知の形に限定して**
+    // 動きの縁 `invokes`（route が integration に委ねる）として張る。他の書き方は推測しない
+    if (block.type === 'aws_apigatewayv2_route') {
+      // ここで縁を張らない。`integration` がこの route より**後ろ**に宣言されていると
+      // `resources` に入っていなくて、宣言順で結果が変わってしまう。宣言順に依存しないよう、
+      // ここでは読み取れた所属先を覚えておくだけにする（縁は後のまとめて張りで張る）
+      const rawTarget = (rawsForPath || {}).target;
+      const integ = routeTargetIntegration(rawTarget);
+      if (integ) routeTarget.set(node, { addr: integ, file: rel });
+      // `target` に値が書かれているのに既知の形で読めない（末尾に文字が足された混合補間など）は
+      // 推測しない。未解決として出す
+      else if (rawTarget !== undefined) unparsableRouteTarget.add(node);
     }
   }
 }
@@ -302,7 +337,9 @@ function gatewayResourcePath(node, guard = new Set()) {
 }
 // パス組み立てに使う属性のうち、**値が決まらないもの**をノードに書く。決まらない属性から
 // 推測した値は作らない設計なので、「どこを見れば復元できるか」をノード側に残す
-const PATH_ATTRS = ['path', 'path_part', 'parent_id', 'rest_api_id', 'http_method'];
+// `api_id` は HTTP API（v2）の所属、`target` は route の委譲先。決まらないときに
+// 「どこを見れば復元できるか」を残す属性として同じ扱いにする
+const PATH_ATTRS = ['path', 'path_part', 'parent_id', 'rest_api_id', 'http_method', 'api_id'];
 const unresolvableForm = (form) => {
   if (!form) return false;
   if (form.kind === 'unknown') return true;
@@ -313,6 +350,11 @@ for (const node of nodes) {
   const raws = rawValues.get(node.id);
   if (!raws || !node.metadata) continue;
   const bad = PATH_ATTRS.filter((a) => raws[a] !== undefined && unresolvableForm(valueForm(raws[a])));
+  // `target` は専用の構文で読む（`integrations/\${...}` は混合補間なので `unresolvableForm` が
+  // 正しく判定できない。ここで見ない）。**縁を張れた route は未解決に数えない**。
+  // ここで並べるのは形が読めないもの。形は読めたが参照先が無いものは、縁を張る場所が
+  // 決まる後続（`missingRouteTarget`）で `target` を足す
+  if (unparsableRouteTarget.has(node) && !bad.includes('target')) bad.push('target');
   if (bad.length) node.metadata.unresolved = bad;
 }
 
@@ -350,12 +392,38 @@ for (const node of nodes) {
         // catch-all のリテラル。実在する HTTP パスではないので `endpoint` / `apiPath` を張らず、
         // 既定ルートだと分かる旗だけ持たせる（`--api` の候補にも起点一覧にも出さない）
         meta.defaultRoute = true;
+      } else if (raw.startsWith('$')) {
+        // `$connect` / `$disconnect` など（WebSocket の eventId だけの route）。これも HTTP の
+        // メソッドとパスではないので `endpoint` を捏造しない。今回のゴールは HTTP API が対象なので、
+        // 「HTTP のパスとして存在しない」と分かる旗だけを立てる
+        meta.nonHttpRouteKey = raw;
       } else if (HTTP_VERB.test(verb)) {
         meta.apiPath = raw.startsWith('/') ? raw : `/${raw}`;
         meta.endpoint = `${verb} ${meta.apiPath}`;
       }
     }
   }
+}
+
+// ---- `aws_apigatewayv2_route` の `target` を動きの縁として張る ----
+// 同名アドレスの衝突解決（上の貼り替え）と宣言順の両方に影響しない場所で行う。
+// 解決できないとき（参照先が無い、同名で選べない）は縁を張らず `metadata.unresolved` に出す
+for (const [node, t] of routeTarget) {
+  const found = sameFileNode(t.addr, t.file);
+  // `referencedOnly`（参照されただけで宣言されていないノード）を宣言済みと取り違えると、
+  // 実在しない integration へ動きの縁を張ってしまう
+  if (!found || found.metadata.referencedOnly === true) { missingRouteTarget.add(node); continue; }
+  edges.push({
+    id: `invokes:${node.id}->${found.id}`, source: node.id, target: found.id, kind: 'invokes',
+    provenance: 'terraform', detail: '`aws_apigatewayv2_route` の `target` が integration に委譲する先',
+    count: 1,
+  });
+}
+// 参照先が無かったことはここでのみ分かる（上の未解決チェックより後でしか決まらない）
+for (const node of missingRouteTarget) {
+  if (!node.metadata) continue;
+  const bad = node.metadata.unresolved || [];
+  if (!bad.includes('target')) node.metadata.unresolved = [...bad, 'target'];
 }
 
 // data source 参照のみで存在したノードを resource として補完

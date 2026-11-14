@@ -4,7 +4,7 @@
 // レポートが `POST /orders` の形で起点を引くための値なので、外したまま黙って進まないための検査。
 // 使い方: node skill/scripts/test-terraform.mjs
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -123,6 +123,78 @@ rmSync(dir, { recursive: true, force: true });
     && res.metadata.unresolved.includes('path_part') && res.metadata.unresolved.includes('parent_id')
     && !(res.metadata.endpoint && res.metadata.endpoint.path),
     res ? JSON.stringify(res.metadata.unresolved || null) + ' ' + JSON.stringify(res.metadata.endpoint || null) : 'ノードが無い');
+}
+
+
+// ---- HTTP API (v2): `aws_apigatewayv2_route` の `target` と `api_id` ----
+// v2 は `route` → `integration` が `references` にしか入らない形になる。レポートの伝播の資格は
+// 「参照されている側 → 参照している側」にしか通らないので、`route` 起点が本命へ届かない
+// （双人レビュー第 25 ラウンドで agy が実測、codex も再現）。既知の形だけを `invokes` にする
+{
+  const v2dir = join(dir, 'v2tf');
+  const proc2 = spawnSync(process.execPath, [join(HERE, 'scan-terraform.mjs'),
+    '--root', join(HERE, '..', 'tests', 'fixtures', 'V2HttpApi'), '--out', join(dir, 'v2.tf.json')],
+    { cwd: root, encoding: 'utf8', timeout: 60_000 });
+  if (proc2.status !== 0) { console.error((proc2.stdout || '') + (proc2.stderr || '')); process.exit(1); }
+  const g2 = JSON.parse(readFileSync(join(dir, 'v2.tf.json'), 'utf8'));
+  const byAddr = new Map(g2.nodes.map((n) => [n.id.slice(3), n]));
+  const m2 = (addr) => (byAddr.get(addr) || {}).metadata || {};
+  const RT = 'aws_apigatewayv2_route'; const IN = 'aws_apigatewayv2_integration';
+  const inv = (from, to) => g2.edges.some((e) => e.kind === 'invokes' && e.source === `tf:${from}` && e.target === `tf:${to}`);
+  check('v2: `target` が指す integration へ `invokes` を張る',
+    inv(`${RT}.create`, `${IN}.create_item`),
+    JSON.stringify(g2.edges.filter((e) => e.kind === 'invokes').map((e) => e.id)));
+  check('v2: `route_key = "POST /v2/items"` から endpoint を作る',
+    m2(`${RT}.create`).endpoint === 'POST /v2/items', JSON.stringify(m2(`${RT}.create`).endpoint));
+  check('v2: `route_key = "$default"` は endpoint にせず `defaultRoute` を残す',
+    m2(`${RT}.fallback`).endpoint === undefined && m2(`${RT}.fallback`).defaultRoute === true,
+    JSON.stringify([m2(`${RT}.fallback`).endpoint, m2(`${RT}.fallback`).defaultRoute]));
+  check('v2: WebSocket の `$connect` は endpoint にしない（`nonHttpRouteKey` に残す）',
+    m2(`${RT}.connect`).endpoint === undefined && m2(`${RT}.connect`).nonHttpRouteKey === '$connect',
+    JSON.stringify([m2(`${RT}.connect`).endpoint, m2(`${RT}.connect`).nonHttpRouteKey]));
+  check('v2: `api_id` の直接参照は metadata に残す（同じ API の定義かどうかの判断材料）',
+    String(m2(`${IN}.create_item`).api_id || '').includes('aws_apigatewayv2_api.shop.id'),
+    JSON.stringify(m2(`${IN}.create_item`).api_id));
+  const bad = (addr) => (m2(addr).unresolved || []);
+  check('v2: 既知の形でない `target`（末尾に文字が足された混合補間）は縁を張らず `unresolved` に出す',
+    !inv(`${RT}.mixed_target`, `${IN}.create_item`) && bad(`${RT}.mixed_target`).includes('target'),
+    JSON.stringify([bad(`${RT}.mixed_target`), g2.edges.filter((e) => e.source === `tf:${RT}.mixed_target`).map((e) => e.kind + ':' + e.target)]));
+  check('v2: 宣言されていない integration を指す `target` も縁を張らず `unresolved` に出す',
+    !g2.edges.some((e) => e.kind === 'invokes' && e.source === `tf:${RT}.missing_target`)
+    && bad(`${RT}.missing_target`).includes('target'),
+    JSON.stringify([bad(`${RT}.missing_target`)]));
+  check('v2: `api_id = var.*` は所属を推測せず `unresolved` に `api_id` を出す',
+    bad(`${RT}.via_var`).includes('api_id'), JSON.stringify(bad(`${RT}.via_var`)));
+  check('v2: `api_id` を直接参照している route / integration は未解決にしない',
+    !bad(`${RT}.create`).includes('api_id') && !bad(`${IN}.create_item`).includes('api_id')
+    && !bad(`${RT}.create`).includes('target'),
+    JSON.stringify([bad(`${RT}.create`), bad(`${IN}.create_item`)]));
+
+  // 宣言順（integration が route の前でも後ろでも）で結果が変わらないこと
+  const apiBlk = 'resource "aws_apigatewayv2_api" "a" {\n  name = "a"\n}\n';
+  const integBlk = 'resource "aws_apigatewayv2_integration" "i" {\n  api_id           = aws_apigatewayv2_api.a.id\n'
+    + '  integration_type = "AWS_PROXY"\n  integration_uri  = "arn:aws:lambda:ap-northeast-1:1:function:f"\n}\n';
+  const routeBlk = 'resource "aws_apigatewayv2_route" "r" {\n  api_id    = aws_apigatewayv2_api.a.id\n'
+    + '  route_key = "POST /x"\n  target    = "integrations/${aws_apigatewayv2_integration.i.id}"\n}\n';
+  const scanOrder = (tag, blocks) => {
+    const d = join(dir, `order-${tag}`);
+    mkdirSync(d, { recursive: true });
+    writeFileSync(join(d, 'api.tf'), blocks.join('\n'), 'utf8');
+    const o = join(dir, `order-${tag}.json`);
+    const pr = spawnSync(process.execPath, [join(HERE, 'scan-terraform.mjs'), '--root', d, '--out', o],
+      { cwd: root, encoding: 'utf8', timeout: 60_000 });
+    if (pr.status !== 0) { console.error((pr.stdout || '') + (pr.stderr || '')); process.exit(1); }
+    const gg = JSON.parse(readFileSync(o, 'utf8'));
+    return {
+      invokes: gg.edges.filter((e) => e.kind === 'invokes').map((e) => `${e.source}->${e.target}`).sort(),
+      unresolved: gg.nodes.filter((n) => (n.metadata || {}).unresolved).map((n) => `${n.id}:${n.metadata.unresolved.join('/')}`).sort(),
+    };
+  };
+  const fwd = scanOrder('fwd', [apiBlk, integBlk, routeBlk]);
+  const rev = scanOrder('rev', [apiBlk, routeBlk, integBlk]);
+  check('v2: integration の宣言が route より後ろでも同じ `invokes` が張られる（宣言順に依存しない）',
+    fwd.invokes.length === 1 && JSON.stringify(fwd) === JSON.stringify(rev),
+    JSON.stringify([fwd, rev]));
 }
 
 console.log(`\n${pass}/${pass + failures.length} 件成功`);

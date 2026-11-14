@@ -125,6 +125,18 @@ const endpointNodes = graph.nodes.filter((n) => endpointOf(n));
 // `category === 'apigateway'` だけの条件だと、同じ Lambda を共有する**別 API** の
 // rest_api / resource / deployment まで「起点と同じ API」に分類してしまう（実測で取り違え）。
 // 群が決まらないもの（`aws_apigatewayv2_*` は `api_id` を採っていない）は推測せず、定義上の関連に残す
+// 値**全体**が `aws_apigatewayv2_api.<name>`（`.id` 付き・`resource.` 付き・`\${...}` 1 個だけ）
+// であるときだけ所属を決める。三項式や文字列混在の中で部分一致して群を決めるのは誤り
+// （`rest_api_id` の `refAddressOf` は v1 の既存出力を守るためそのまま）
+const strictRefAddress = (value, type) => {
+  const v = String(value === undefined || value === null ? '' : value).trim();
+  const quoted = /^"([\s\S]*)"$/.exec(v);
+  const inner = (quoted ? quoted[1] : v).trim();
+  const one = quoted ? /^\$\{\s*([^{}]+?)\s*\}$/.exec(inner) : null;
+  const expr = one ? one[1].trim() : inner;
+  const m = new RegExp(`^(?:resource\\.)?${type}\\.([a-zA-Z0-9_-]+)(?:\\[[^\\]]*\\])?(?:\\.[a-zA-Z0-9_-]+)*$`).exec(expr);
+  return m ? `${type}.${m[1]}` : null;
+};
 const refAddressOf = (value, type) => {
   const m = new RegExp(`\\b(?:resource\\.)?${type}\\.([a-zA-Z0-9_-]+)\\b`).exec(String(value === undefined || value === null ? '' : value));
   return m ? `${type}.${m[1]}` : null;
@@ -135,6 +147,16 @@ function apiGroupOf(node) {
   const m = (node.metadata) || {};
   if (m.category !== 'apigateway') { apiGroupCache.set(node.id, null); return null; }
   if (m.resourceType === 'aws_api_gateway_rest_api') { apiGroupCache.set(node.id, node.id.slice(3)); return node.id.slice(3); }
+  // HTTP API（`aws_apigatewayv2_*`）。本体の `aws_apigatewayv2_api` が群そのもの。
+  // `route` / `integration` / `stage` / `deployment` は `api_id` が単一の参照のときだけ同じ群。
+  // `api_id` が決まらないとき（`var` / `local` / 混合補間など）は推測せず群なし＝定義上の関連
+  if (m.resourceType === 'aws_apigatewayv2_api') {
+    const self = (m.terraformAddress || '').replace(/^module\.[^.]+\./, '');
+    if (self) { apiGroupCache.set(node.id, self); return self; }
+    apiGroupCache.set(node.id, null); return null;
+  }
+  const v2 = strictRefAddress(m.api_id, 'aws_apigatewayv2_api');
+  if (v2) { apiGroupCache.set(node.id, v2); return v2; }
   const direct = refAddressOf(m.rest_api_id, 'aws_api_gateway_rest_api');
   if (direct) { apiGroupCache.set(node.id, direct); return direct; }
   // resource 経由（`parent_id` を辿る）。循環しても有限回でやめる
@@ -408,7 +430,15 @@ function walkWithSwitch(seedIds, first) {
             // Terraform の `references` は「そのブロックを文中に書いた」だけで値が動かない。
             // walk で辿っても定義上の関連のままにする（実測: `admin_users` / `admin_api` が
             // 「動きの根拠: `references`」付きで本命に昇格した）
-            wiring: e.kind === 'references' && e.provenance === 'terraform',
+            wiring: (e.kind === 'references' && e.provenance === 'terraform')
+              // 兄弟エンドポイントから外へ進む一歩は、その API の実装を巻き込むので昇格しない
+              || !!cur.sibBlocked
+              // 起点がエンドポイントのとき、実装の対応縁（`handler` / `exposed-by`）を
+              // **逆に**渡った先は「同じコードを実行する別の入口」。起点の実行ではないので
+              // 兄弟として出し、影響する先には数えない（起点がコードのときは逆に渡った先が
+              // 本命 = 「このメソッドを実行している Lambda」の逆引きなので、そこは昇格させる）
+              || (startIsEndpoint && FLIP_INTO_IMPL.has(e.kind) && !arrowAt(e, to)
+                && flipAmbiguous(e.kind, cur.id)),
             hops: cur.hops + 1, via: back ? null : cur.id, cut: back, corr,
             // 「呼ばれて成立する」は**この一歩が `invokes` だった**こと。しかも矢印どおりに
             // 辿った一歩（呼ばれる側へ着いた一歩）だけ。経路に `invokes` が含まれるという判定に
@@ -417,6 +447,7 @@ function walkWithSwitch(seedIds, first) {
             // （呼び出し元へ着いた一歩）に立てるのも間違い
             reachedByInvokes: e.kind === 'invokes' && arrowAt(e, to),
             edge: { id: e.id, kind: e.kind, provenance: e.provenance, source: e.source, target: e.target },
+            sibBlocked: isSiblingEndpointNode(to),
           };
           found.set(to, rec);
           next.push(rec);
@@ -482,6 +513,21 @@ const MOVEMENT = new Set(['triggers', 'invokes', 'handler', 'exposed-by']);
 // 公開している」という向きなので、矢印の元側（コード）が下流になる
 const ARROW_REVERSED = new Set(['exposed-by']);
 const arrowAt = (edge, id) => (ARROW_REVERSED.has(edge.kind) ? edge.source : edge.target) === id;
+// `handler` / `exposed-by` を**逆向き**に越える一歩（コード側から実体側へ戻る一歩）が、
+// 唯一の実体を指しているのか、同じメソッドを実装する複数の中身のどれかを指しているのかを数える。
+// 2 件以上あれば「どれがこのエンドポイントの実装か」は決まらないので推測しない。逆向き
+// `handler` を無制限に認めた結果、1 本のエンドポイント起点から 800 本の Lambda が本命に
+// 並んだ（1 エンドポイント 1 Lambda を共有する形の大規模 fixture で実測。双人レビューの P1）
+const flipFanOut = new Map();   // `kind\u0000下流のノード` -> 上流の実体の集合
+for (const e of graph.edges) {
+  if (!FLIP_INTO_IMPL.has(e.kind)) continue;
+  const down = arrowAt(e, e.source) ? e.source : e.target;
+  const up = down === e.source ? e.target : e.source;
+  const key = `${e.kind}\u0000${down}`;
+  if (!flipFanOut.has(key)) flipFanOut.set(key, new Set());
+  flipFanOut.get(key).add(up);
+}
+const flipAmbiguous = (kind, fromId) => ((flipFanOut.get(`${kind}\u0000${fromId}`) || new Set()).size > 1);
 const tfAdj = new Map();
 for (const e of graph.edges) {
   if (e.provenance !== 'terraform') continue;
@@ -515,6 +561,20 @@ const touchedApiGroups = new Set(startApiGroups);
 const inTouchedApiGroup = (id) => {
   const g = apiGroupOf(byId.get(id));
   return (g === null || g === undefined) ? false : touchedApiGroups.has(g);
+};
+// エンドポイント（`GET /orders` のように HTTP のメソッドとパスで引けるノード）の集合
+const endpointIdSet = new Set();
+for (const [id, n] of byId) if (endpointOf(n)) endpointIdSet.add(id);
+// **兄弟エンドポイント**: 起点ではないエンドポイントで、起点から**動きとして届いていない**もの
+// （同じコードを使う別の API、または同じ API の別の route）。そこ先を「起点が実行する実装」と
+// して広げない。`api_id` が同じ／同じメソッドを公開しているという事実は「一緒に見る対象」で
+// あり、起点の実行の一部ではない（双人レビュー第 25 ラウンドの合意: API グループの一致と
+// 起点の `target` が示す実装関係は区別する）。逆に起点から `invokes` で呼びに出した先は
+// 起点の実行の一部なので広める（`Handler → invokes → API B` の既存のふるまいを守る）
+const isSiblingEndpointNode = (id) => {
+  if (!startIsEndpoint || startSet.has(id) || !endpointIdSet.has(id)) return false;
+  const st = bestState.get(id);
+  return !(st ? st.reachedByInvokes : false);
 };
 const bestState = new Map();   // id -> { budget, primary, elig, down, reachedByInvokes, movementEvidence }
 // **受理した事実（本命か / 動きの根拠 / 旗）はここ、経路（`via` と表示する縁）は記録側**に置く。
@@ -646,12 +706,20 @@ function runClosure(seedIds) {
       // これを忘れると、IAM ロールだけを共有する別 Lambda 専用の integration や
       // その handler まで本命に伝播した（双人レビュー P1。`references` をまたいだ伝播資格を
       // 縁の種類だけ見ていたのが原因）
-      const primary = movement && cur.elig;
+      // 起点がエンドポイントのとき、`handler` / `exposed-by` を**逆向き**に越えた一歩は
+      // 「そのコードを実装している別の入口」を覗いているだけなので、そこからは伝播させない。
+      // 逆向き `handler` 経由で別 API の Lambda やその handler まで本命になっていた（双人レビュー P1）
+      const flipped = startIsEndpoint && FLIP_INTO_IMPL.has(edge.kind) && !arrowAt(edge, to)
+        && flipAmbiguous(edge.kind, cur.id);
+      const primary = movement && cur.elig && !cur.sibBlocked && !flipped;
       // 定義の縁を渡るときは**参照している側へ進む一歩だけ**資格を受け継ぐ。
       // 「自分が使っているもの」（Lambda → IAM ロール、Lambda → テーブル名）へ渡った先は
       // 資格を失うので、そこで繋がっているだけの第三者にまでは広がらない
-      const elig = primary || inTouchedApiGroup(to)
-        || (!movement && cur.elig && refersInto(edge, cur.id, to));
+      // 兄弟エンドポイントそのものは 定義上の関連 / 兄弟欄 に出す。ただしそこから先の
+      // 伝播の資格は与えない（`api_id` が同じだけの別 route の実装を本命にしない）
+      const sib = isSiblingEndpointNode(to);
+      const elig = !sib && !flipped && (primary || inTouchedApiGroup(to)
+        || (!movement && cur.elig && refersInto(edge, cur.id, to)));
       const rec = {
         id: to, edge,
         hops: cur.hops + 1, switches: 0, via: back ? null : cur.id, cut: back, wiring: !primary,
@@ -660,6 +728,7 @@ function runClosure(seedIds) {
         // 一歩（呼ばれる側へ着いた一歩）だけ。逆にたどった一歩（呼び出し元へ着いた一歩）に
         // 立てると「自分が呼んだ」と読める旗が上流に立った（双人レビュー第 20 ラウンド P2）
         reachedByInvokes: edge.kind === 'invokes' && arrowAt(edge, to),
+        sibBlocked: sib,
         // 向きは「縁の向き × その行が矢印のどちら側か」。動きの縁なら矢印の先が下流。
         // `references`（定義）は向きに意味無いので辿ってきたノードの向きを継ぐ
         // 動きの縁は矢印の先が下流。`SFN → invokes → この Lambda` は SFN が上流なので
@@ -670,7 +739,7 @@ function runClosure(seedIds) {
       };
       const state = {
         id: to, hops: rec.hops, budget, primary, elig, via: rec.via, rec,
-        down: rec.down, reachedByInvokes: rec.reachedByInvokes,
+        down: rec.down, reachedByInvokes: rec.reachedByInvokes, sibBlocked: rec.sibBlocked,
       };
       // メンバ（`handler` の届く先）では展開しない。コード側の縁を辿るのは本命の walk だけにさせる
       if (offer(state) && (byId.get(to) || {}).kind === 'resource') queue.push(state);
@@ -701,6 +770,9 @@ const refreshGroups = () => {
   for (const [id, rec] of combined) {
     const st = bestState.get(id);
     if (!(st ? st.primary : rec.wiring !== true)) continue;
+    // 兄弟エンドポイント（起点から動きとして届いていない別の API）の群を増やすと、その API の
+    // `integration` が「同じ API の定義」として伝播の資格を得て、別 route の Lambda まで本命になる
+    if (isSiblingEndpointNode(id)) continue;
     const g = apiGroupOf(byId.get(id));
     if (g !== null && g !== undefined) touchedApiGroups.add(g);
   }
