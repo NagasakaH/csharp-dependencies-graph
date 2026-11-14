@@ -193,7 +193,7 @@ public static class Program
                     raws.Sort(StringComparer.Ordinal);
                     var shown = raws.Take(opt.MaxUnresolvedPerMember).ToList();
                     meta["unresolvedCalls"] = shown;
-                    // 上限で切ったときは「種類数」と「出現総数」を分けて出す。
+                    // 掲載した件数より総数が多いときは「種類数」と「出現総数」を分けて出す（重複出現があれば 8 件未満でも付く）。
                     // 8 件ちょうどで埋まったのか、重複を含めて 9 種類以上あったのかを
                     // 読み手が判別できるようにするため
                     if (raws.Count > shown.Count) meta["unresolvedKinds"] = raws.Count;

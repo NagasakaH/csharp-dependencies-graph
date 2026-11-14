@@ -354,6 +354,37 @@ check('Consumer から化ける側（Fix.TupleArg.Wrong）には一切辿らな�
   !targEdges.some((e) => e.target.includes('Fix.TupleArg.Wrong.')),
   JSON.stringify(targEdges.filter((e) => e.target.includes('Fix.TupleArg.Wrong.')).map((e) => `${e.source}->${e.target}`)));
 
+// ---- 型表記の「コメント」と「型引数が付いている名前」をとりちがえない ----
+// 型表記の `ToString()` はノードの内側のコメントを残す。コメントの中の `[` を構文上の括弧として
+// 数えると型引数の数を誤って、正常な連鎖を黙って消す（第 13 ラウンドの実測で 2 本消失）。
+// `Outer<Wrong>.Items<Correct>` は型引数が右の `Items` に付いている。左を拾うと `Wrong.Id` へ
+// 断定した誤エッジを新しく張る（第 13 ラウンドで新規発生）。
+const tt = analyze('TrickyType');
+const ttEdges = tt.edges.filter((e) => e.kind !== 'contains');
+const ttHas = (kind, from, to) => ttEdges.some((e) => e.kind === kind && e.source === from && e.target === to);
+const ttConsumer = (n) => `member:Fix.TrickyType.Consumer.${n}`;
+const ttOf = (who) => ttEdges.filter((e) => e.source === ttConsumer(who)).map((e) => `${e.kind}:${e.target}`);
+const ttItemId = 'member:Fix.TrickyType.Item.Id';
+const ttCorrectId = 'member:Fix.TrickyType.Correct.Id';
+
+check('ネストしたジェネリック型の indexer は右側セグメントの型引数で解く（引数渡し）',
+  ttHas('accesses', ttConsumer('NestedIndexer'), ttCorrectId), JSON.stringify(ttOf('NestedIndexer')));
+check('ネストしたジェネリック型の indexer は右側セグメントの型引数で解く（ローカル変数）',
+  ttHas('accesses', ttConsumer('NestedField'), ttCorrectId), JSON.stringify(ttOf('NestedField')));
+check('型引数の取り違えで化ける側（Fix.TrickyType.Wrong）には一切辿らない',
+  !ttEdges.some((e) => e.target.includes('Fix.TrickyType.Wrong.')),
+  JSON.stringify(ttEdges.filter((e) => e.target.includes('Fix.TrickyType.Wrong.')).map((e) => `${e.source}->${e.target}`)));
+check('ブロックコメント内の `[` で型引数の数を誤らない（Pair<int /* … [ … */, string>）',
+  ttHas('accesses', ttConsumer('BlockComment'), ttItemId), JSON.stringify(ttOf('BlockComment')));
+check('コメント付きの辞書宣言から値型を取り出せる（Dictionary<int /* … [ … */, Item>）',
+  ttHas('accesses', ttConsumer('DictComment'), ttItemId), JSON.stringify(ttOf('DictComment')));
+check('型表記の途中に行コメントが入っても同じ解決になる',
+  ttHas('accesses', ttConsumer('LineComment'), ttItemId), JSON.stringify(ttOf('LineComment')));
+check('これらの入力でアリティゲートが黙って型を拒否しない（未解決 0 件）',
+  !tt.nodes.some((x) => ((x.metadata || {}).unresolvedCalls || []).length > 0),
+  JSON.stringify(tt.nodes.filter((x) => ((x.metadata || {}).unresolvedCalls || []).length > 0)
+    .map((x) => [x.id, x.metadata.unresolvedCalls])));
+
 // ---- 決定性: 同じ入力を 2 回走らせてもノード・エッジ・後付け候補が揺れない ----
 // 生成日時だけをのぞいた**バイト列そのもの**を比べる。並列走りの結果を後から並べ替えると
 // 集合は同じでも出力順が揺れるので、「ソートしてから比較」では見逃してしまう

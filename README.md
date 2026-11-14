@@ -27,7 +27,7 @@ open out/graph/graph.html
 検証は 2 系統あり、どちらも対象プロジェクト非依存で動く。
 
 ```sh
-node skill/scripts/test-analyzer.mjs                          # 静的解析の精度（83 項目、ブラウザ不要）
+node skill/scripts/test-analyzer.mjs                          # 静的解析の精度（90 項目、ブラウザ不要）
 node skill/scripts/test-query.mjs                             # 逆引き・影響範囲の照会（17 項目、.NET 不要）
 node skill/scripts/test-merge.mjs                             # Lambda handler の解決規則（12 項目、.NET 必要）
 node skill/scripts/verify.mjs --html out/graph/graph.html --shots out/shots   # ブラウザ実操作（25 項目）
@@ -38,7 +38,7 @@ node skill/scripts/verify.mjs --html out/graph/graph.html --shots out/shots   # 
 静的解析テストは「出てはいけないエッジ」と「消えてはいけないエッジ」の両方を見る。
 名前が型メンバを隠す構文（ラムダ引数・ローカル関数・兄弟ブロックの同名 var）と、
 `var` / `foreach` の型推論の回帰、型解決（型引数の数、`using` / `global using` による到達性、戻り値型を
-宣言元で解決する）の回帰、同じ入力を 2 回走らせて出力が揺れないこと（決定性）に効く。
+宣言元で解決する）の回帰、型表記のコメントや型引数の付いている名前セグメントの取り違え、同じ入力を 2 回走らせて出力が揺れないこと（決定性）に効く。
 
 ## レビュー・設計での使い方
 

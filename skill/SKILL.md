@@ -99,6 +99,11 @@ node $SKILL/scripts/build.mjs \
   `Microsoft.AspNetCore.Http.Endpoint` なので**どちらも誤り**（`using Elsa.Workflows;` からの
   「内側名前空間 +1」という近似が生き残らせている）。得点 0 の曖昧さは張らないが、
   `ambiguous` を持つ縁は断定済みの縁と混ぜて読まない
+- **ネストした構築済み汎用型（`Outer<T>.Items<U>`）のプロパティ / メソッドは外側の型でメンバを探す**。
+  indexer（`p[0].Id`）は型引数の付いている `Items<U>` 側から要素型を解くので内側の型へ正しく張るが、
+  `p.Deep.Id` は畳んだ `Outer` で `Deep` を探すため届かない（内側にしかない名前は未到達どまり。
+  逆に `Outer` の側に同名メンバがあると誤って張る可能性がある）。`type:` ID が外側の型へ畳まれる
+  問題と同じ根なので、内側の型を別ノードとして区別する話とあわせて再検討する（判断記録 47）
 - 型がソースコードに書かれていない名前（`out var`、`is var x` / `case var x`、タプル分割、
   `foreach ((var a, b) in ...)`、LINQ の `join` の範囲変数、`dynamic`、外部型）は
   名前だけ塞いで未解決にする。外側の同名フィールドに化けるより未解決のほうが正しい
@@ -196,7 +201,7 @@ LLM が書くときの決まりごと（これをやらないとグラフが嘘�
 ### 静的解析の精度（ブラウザ不要）
 
 ```sh
-node $SKILL/scripts/test-analyzer.mjs        # cgd がビルド済みなら即実行（83 項目）
+node $SKILL/scripts/test-analyzer.mjs        # cgd がビルド済みなら即実行（90 項目）
 ```
 
 `skill/tests/fixtures/` の C# を `cgd` にかけて、期待するエッジと「出してはいけない
@@ -217,6 +222,7 @@ node $SKILL/scripts/test-analyzer.mjs        # cgd がビルド済みなら即�
 **タプルを型引数に受けた連鎖**（プロパティ / 呼び出し / タプルキーの indexer / `foreach` 要素 /
 `var` 経由 / 2 引数の `Pair<(int, int), string>` / フィールド宣言）が要素型のメンバーへ張ることを見る。
 型引数の数を `<` と `,` だけで数えるとタプル内のカンマを区切りと数え、連鎖ごと消える。
+`fixtures/TrickyType/` は型表記の文字列を数えるときの 2 つの取り違えの回帰で、コメントを構文上の括弧として数えてしまう誤り（`Pair<int /* index [start */, string>` の `[`）と、型引数が付いていない左側の name セグメントを拾う誤り（`Outer<Wrong>.Items<Correct>` の indexer が `Wrong.Id` へ断定したエッジを張る）に効く。コメント付きの `Dictionary` 宣言から値型が取れること、化ける側へ一切辿らないことも同じ fixture で確かめる。
 `fixtures/PartialOrder/` は出力の決定性で、partial 型の別ファイルにある同名オーバーロードが同じ edge ID に
 畳まれたとき、断片のバイト列が 12 回連続で一致することと、代表の行が行の若い側で固定されることを見る。
 demo と `BindingRegression/` でも同じ入力を 2 回走らせて、`rejectedTypes` を含む出力が揺れないことを確かめる。

@@ -127,9 +127,12 @@ public sealed class TypeIndex
     /// <summary>使用側に書かれた型引数の数。閉じないなど判定不能なら 0（ゲートは発動しない）。
     /// タプル型引数 `Box&lt;(int, string)&gt;` のカンマは型引数の区切りではないので、
     /// 丸括弧と角括弧の内側では数えない（数えると 1 引数の `Box&lt;T&gt;` を 2 引数として
-    /// 拒否し、その先へ張るべき連鎖ごと消える）。</summary>
+    /// 拒否し、その先へ張るべき連鎖ごと消える）。
+    /// コメントと、型引数が付いていない左側の name セグメントは <see cref="TypeText.GenericCarrier"/>
+    /// で除いてから数える（`GenericArgs` と**同じ表記**を数えないと、ゲートだけ別物を数える）。</summary>
     static int UsageArity(string raw)
     {
+        raw = TypeText.GenericCarrier(raw);
         var lt = raw.IndexOf('<');
         if (lt <= 0) return 0;
         var depth = 0;
