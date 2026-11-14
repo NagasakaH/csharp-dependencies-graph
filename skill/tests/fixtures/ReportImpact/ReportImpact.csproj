@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <!-- Lambda の handler 指定にあるアセンブリ名と突き合わせるため、明示的な AssemblyName を置く -->
+    <AssemblyName>ReportImpact</AssemblyName>
+    <NoWarn>CS0169;CS0414;IDE0060</NoWarn>
+  </PropertyGroup>
+
+</Project>

@@ -19,21 +19,39 @@ open out/graph/graph.html
 
 ## 1. PR の影響範囲をレビュー前に決める
 
-変更したファイルから辿って、**外部リソースと公開 API に着地するかどうか**だけまず見る。
+変更したファイル一覧をそのまま渡すと、**影響を受ける入口（呼び出し元・API エンドポイント）**と
+**影響する外部リソース（読み書きする先）**を一覧にしたレポートが出る。
 
 ```sh
-git diff --name-only origin/main... > out/changed.txt
+git diff --name-only origin/main... | node skill/scripts/report.mjs \
+  --graph out/graph/graph.json --changed - --md out/impact.md --json out/impact.json
+```
+
+出方は 4 枠に分けてある（混ぜるほど読み間違えるので分けたまま読む）:
+
+| 枠 | 意味 | 縁 |
+| --- | --- | --- |
+| 影響する外部リソース | 変更が読み書きする先。マイグレーション・権限・デプロイの確認対象 | `writes` `reads` `references` `invokes` `triggers` `handler` |
+| 影響を受ける入口 | 変更を使う呼び出し元と、その経路にある Lambda / API Gateway | 同上（逆向き） |
+| 定義上の関連 | Terraform の `references`（そのブロックを文中に書いた）だけ。変更で値は動かない | IAM・rest_api・deployment など見直しの候補 |
+| 同じ API の定義 / 同じコードを使う別エンドポイント | 起点がエンドポイントのとき、起点自身を定義するノードと、同じ Lambda を共有する兄弟 | 起点の数に含めない |
+
+- 起点は**変更ファイルの中身**から作る。`.cs` はその中のメソッド、`.tf` はそのファイルが宣言している
+  リソース（`metadata.file` で照らす。リソースの `parent` はフォルダなので階層ではたどれない）
+- 変更ファイルがグラフに無いときは**起点にしない**（`fallbacks` に出すだけ）。`--folder-start` は
+  配下を巻き込んで適合率が下がるので、理由があるときだけ（demo で `README.md` を渡すと
+  着地 0 件が 13 件に膨らむ実測）
+- コード起点で `.cs` の中にある型やメソッドは「影響する先」に並ばない（起点自身の一部なので）
+- 着地が 0 件なら「内部リファクタリング寄り」、Lambda / テーブル / API Gateway に着けば
+  受け入れ確認をレビュー項目に足す
+- 削除ファイルは起点にならない（グラフから消えたノードなので当然）。削除の影響を見たいときは
+  レビュー前に `git diff --name-only --diff-filter=D` を出して `--from` で手で辿る
+- 手作業の照会（1 ノードから双方向に数ホップ）は `query.mjs` のほうが早い:
+
+```sh
 node skill/scripts/query.mjs --graph out/graph/graph.json --changed out/changed.txt \
   --hops 3 --via-parent --target-kind resource
 ```
-
-- `--via-parent` が効く: csproj 単位で付いた注釈（`deploys` など）を、変更ファイルから階層を降りて拾う。
-  無いと `project:` で止まって Lambda に届かない。
-- 着地が 0 件なら「内部リファクタリング寄り」、Lambda / テーブル / API Gateway に着けば
-  受け入れ確認（デプロイ・マイグレーション・権限）をレビュー項目に足す。
-- 変更ファイルがグラフに無いときは最も近い親フォルダを起点にして、その旨を stderr に警告として出す
-  （`--changed` の性質上、削除ファイルは起点にならない）。親がルートのだけのときは `folder:.` を起点にする
-  が、そこは階層で届いただけで依存エッジの証拠ではない。`--json` では `fallbacks` に元パスと落ち先が残る。
 
 ## 2. 「この変更は公開エンドポイントに載るか」
 

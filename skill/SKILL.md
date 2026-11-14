@@ -196,6 +196,35 @@ LLM が書くときの決まりごと（これをやらないとグラフが嘘�
 「注釈 JSON」で書き出してリポジトリに置き、`--annotation` で再生成すると恒久化される。
 書き出しには localStorage から復元した注釈も含まれるので、リロードしても失えない。
 
+## 差分 → 影響範囲のレポート
+
+「この変更で影響を受けるエンドポイントとテーブルは?」に答えるのが `report.mjs`。
+`git diff --name-only` をそのまま渡せる（`--changed -`）。
+
+```sh
+git diff --name-only origin/main... | node $SKILL/scripts/report.mjs \
+  --graph out/graph/graph.json --changed - --md out/impact.md --json out/impact.json
+node $SKILL/scripts/report.mjs --graph out/graph/graph.json --api "POST /orders" --md out/orders.md
+```
+
+- **起点は変更ファイルの中身**。`.cs` はその中のメソッドへ自動で展開し、`.tf` はそのファイルが宣言して
+  いるリソースを起点にする。グラフに無い変更ファイルは**起点にしない**（`fallbacks` に出すだけ。
+  `--folder-start` は誤検出を膨らませるので理由があるときだけ）
+- **4 つの枠に分けて出す**: 影響する外部リソース / 影響を受ける入口 / 定義上の関連（Terraform の
+  `references`。変更で値は動かない）/ 同じ API の定義・同じコードを使う別エンドポイント。
+  起点がエンドポイントのときは、起点を定義する `resource` / `rest_api` / `integration` を
+  「影響を受ける外部リソース」に数えない
+- **Terraform の縁は向きに意味がない**ので無方向で閉じる（`--wiring-hops` 既定 3 段）。ただし
+  `triggers` / `invokes` / `handler` は動きとして伝わるので本命、`references` だけ定義上に回す。
+  `data` ソースは几乎所有りを参照するので既定では閉じない（`--include-data`）
+- `--expect` に期待する着地一覧（`{"expect": [...], "direction": "out"}`）を渡すと再現率・適合率を
+  出して JSON に書く。**数値を記録していないと「もっともらしく間違う」レポートになる**
+- 注釈（`llm` / `human`）由来の行は「静的解析では決まらない対応付け」として件数を出す。
+  粗い変更（Terraform 1 ファイルをまるごと等）で注釈由来の着地が増えて適合率が下がるので、
+  `--provenance static,terraform` か `--from tf:...` で絞る
+
+実測値は README の表にある（demo 再現率 0.917 / 適合率 0.917、実プロジェクト 1.000 / 1.000）。
+
 ## 検証する
 
 ### 静的解析の精度（ブラウザ不要）
@@ -234,12 +263,18 @@ demo と `BindingRegression/` でも同じ入力を 2 回走らせて、`rejecte
 node $SKILL/scripts/test-query.mjs           # fixtures/query/graph.json を使う（.NET 不要、17 項目）
 node $SKILL/scripts/test-merge.mjs           # Lambda handler の解決規則（.NET 必要、12 項目）
 node $SKILL/scripts/test-terraform.mjs       # API Gateway のパス組み立て（10 項目、.NET 不要）
+node $SKILL/scripts/test-report.mjs          # 差分 → 影響範囲レポート（21 項目、.NET 必要）
 ```
 
 `test-merge.mjs` は `fixtures/HandlerLambda/`（`AssemblyName` を置いた csproj と `main.tf`）を
 `build.mjs` まで通し、張る 5 とおり（一致／アセンブリ名省略／`Outer+Inner`／`Outer+Middle+Inner`／別型）と
 張らない 5 とおり（アセンブリ名違い／アセンブリ名を宣言している csproj のファイル名／空要素を含む形／
 4 要素以上／型が実在しない）を照合する。警告文はビルド出力に出るので、テストはそちらを読む。
+
+`test-report.mjs` は `fixtures/ReportImpact/`（C# と `infra/main.tf` が同じリポジトリにある形）を
+`build.mjs` まで通し、変更ファイル起点の展開、兄弟ファイルの巻き込み回避、Terraform の
+`references` を本命に混ぜないこと、`--api` の解決、`--include-data`、グラフに無い変更を起点にしないこと、
+`--changed -`、Markdown と JSON の件数の一致を照合する。
 
 `test-terraform.mjs` は `fixtures/TerraformApi/`（C# を置かない Terraform だけの fixture）に
 `scan-terraform.mjs` だけを走らせ、`path_part` と `parent_id` から `/orders/{id}` の形になるか、

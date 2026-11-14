@@ -57,6 +57,36 @@ node skill/scripts/query.mjs --graph out/demo/graph.json \
   --from ext:rds-column/orders-analytics.public.order_summary.order_id --dir both --hops 3
 ```
 
+`report.mjs` は同じ照会を**差分まるごとのレポート**にする。レビューに貼れる Markdown と JSON が出る。
+
+```sh
+# PR の変更ファイル → 影響を受ける入口と外部リソース（git diff をそのまま渡せる）
+git diff --name-only origin/main... | node skill/scripts/report.mjs \
+  --graph out/graph/graph.json --changed - --md out/impact.md --json out/impact.json
+
+# HTTP のメソッドとパスでも引ける
+node skill/scripts/report.mjs --graph out/demo/graph.json --api "POST /orders"
+```
+
+出方は「影響する外部リソース」「影響を受ける入口」「定義上の関連（Terraform の `references`）」
+「同じ API の定義 / 同じコードを使う別エンドポイント」の 4 枠に分ける。混ぜるほど読み間違えるため。
+`--expect` に期待する着地を書くと再現率・適合率が出るので、計測値を記録できる。
+
+| 実測したケース | 期待 | 着地 | 的中 | 再現率 | 適合率 |
+| --- | --- | --- | --- | --- | --- |
+| demo: `src/Orders.Domain/Order.cs` | 12 | 12 | 11 | 0.917 | 0.917 |
+| demo: `README.md`（グラフに無い変更） | 0 | 0 | 0 | 1 | 1 |
+| demo: `infra/main.tf`（Terraform 全部） | 0 | 3 | 0 | 1 | 0 |
+| 実プロジェクト: `--api "POST /messages"` | 1 | 1 | 1 | 1 | 1 |
+| 実プロジェクト: `cs/ExampleLambdaApi/Handler.cs` | 2 | 2 | 2 | 1 | 1 |
+
+実プロジェクトは [Pondidum/Terraform-Demos](https://github.com/Pondidum/Terraform-Demos) の
+`api-lambda`（C# と Terraform が同じリポジトリにある最小の実例）で、**注釈を 1 件も使わず**に
+`POST /messages` → Lambda → `Handler.Handle` まで Terraform だけ出ている。
+`infra/main.tf` をまとめて変えたケースが適合率 0 になるのは、Terraform 経由で注釈由来の
+外部リソース（`ext:rds/…`）まで届くため。粒度の荒い変更は `--provenance static,terraform` で
+注釈由来を切るか、`--from tf:aws_lambda_function.…` と 1 リソースに絞る。
+
 レシピ集（結合ハブの棚卸し、呼び出し集中の blast radius、注釈だけの依存のレビュー、
 誤読しないための前提）は [skill/reference/review-workflows.md](skill/reference/review-workflows.md)。
 
