@@ -1329,12 +1329,17 @@ check('--limit で一覧が切れてもカウンタの不変条件は保たれ�
     ['r34-nodes-rev', gEdges]].map(([name, edges], i) => [name,
       runSyn(name, { nodes: i === 2 ? [...gNodes].reverse() : gNodes, edges },
         ['--from', 'tf:aws_lambda_function.a'], name)]);
-  const gShape = (out) => (out ? allRows(out.result).map((x) => `${x.id}=${x.tier}/${x.direction}/h${x.hops}`) : null);
+  const gShape = (out) => (out ? allRows(out.result).map((x) => `${x.id}=${x.tier}/${x.direction}/h${x.hops}`
+    + `/sw${x.switches}`) : null);
   const gTable = (out) => (out ? allRows(out.result).find((x) => x.id === 'ext:rds-table/orders') : null);
   check('注釈 invokes を複数持つ統合で、定義ノードへ戻る折り返しが chain の再展開を止めない（第 33 ラウンド）',
     gRuns.every(([, out]) => !!out && !!gTable(out)
       && gTable(out).tier === 'primary' && gTable(out).direction === 'out')
-    && new Set(gRuns.map(([, out]) => JSON.stringify(gShape(out)))).size === 1,
+    && new Set(gRuns.map(([, out]) => JSON.stringify(gShape(out)))).size === 1
+    // `member:Mid → member:C` の `calls`（static）の一歩は向きを変えているので 1。`member:C` には
+    // 別経路（統合 `i` からの注釈 `invokes`）も届くが、`mergeFlags` がその `corr` を引き継いでも
+    // 表示の一歩が注釈縁でない限り数える（第 44 ラウンド。引き継ぎ値で決めると 1 / 0 に割れた）
+    && gRuns.every(([, out]) => !!out && allRows(out.result).find((x) => x.id === 'member:C').switches === 1),
     gRuns.map(([name, out]) => `${name}: ${out ? `rows=${out.result.summary.rows} テーブル=`
       + (gTable(out) ? `${gTable(out).tier}/${gTable(out).direction}` : '無し') : '実行失敗'}`).join(' | '));
 }
@@ -1792,6 +1797,92 @@ check('--limit で一覧が切れてもカウンタの不変条件は保たれ�
   // out/tmp-r43/dedup-count.py: 候補 157,300 件 → 78,650 件、対象 3,935 → 2,393 ノード）
   check('walk の候補集合に同じ (親, 縁) の重複が残っていたら警告する（第 43 ラウンド）',
     runs.every((out) => !!out && !/同じ \(親, 縁\) の重複/.test(out.stderr)));
+}
+
+// ---- (18) 第 44 ラウンド: 後着の一歩の事実と、表示経路から数える向き変え回数 ----
+// 双人レビュー第 43 ラウンド両名の指摘「同じ表示経路なのに 欄・向き・向き変え回数が縁の並び順で
+// 変わる」。原因は 2 つあった。
+//  (1) `found` で先着と合流した一歩の縁は `mergeFlags` が旗だけを寄せて捨てるので `promote`
+//      （＝`noteFacts`）へ届かない。「同じノードへ届いた動きの縁」の事実が縁の並び順で有無に
+//      変わり、`directionOf` が 動きの縁の矢印 を読むか 辿った向きへ落ちるかで欄が入れ替わった
+//  (2) 向き変え回数を表示経路ではなく到着時点の値で出していた（`mergeFlags` が向きと対応を
+//      取せずに寄せた混ざり物。注釈の縁の `corr` も同じノードへ届いた別の一歩から引き継がる）
+// どちらも **表示に決まった連鎖と、到着した全ての縁** から決めることで直した。最小反例は
+// 自動最小化の実測（out/tmp-r44/min-2.json・min-5.json / 手順 out/tmp-r44/shrink.log）
+{
+  const n44 = (id) => synNode(id, 'member');
+  const e44 = (id, kind, source, target, provenance) => ({ id, kind, source, target, provenance, metadata: {} });
+  const shape44 = (r) => allRows(r).map((x) => `${x.id}=${x.bucket}/${x.tier}/${x.direction}/h${x.hops}`
+    + `/sw${x.switches}/e${x.evidence ? x.evidence.id : '-'}`
+    + `/mv:${x.movementEvidence ? x.movementEvidence.id : '-'}/via:${x.via || '-'}`
+    + `/path:${(x.path || []).join('>')}`).join('\n');
+  const row44 = (out, id) => (out ? allRows(out.result).find((x) => x.id === id) : null);
+  // 4 通りの縁順（ファイル順・逆順・隣り合う 1 組の入れ替え 2 通り）で表が 1 通りかをみる。
+  // ここに挙げた反例自体は全縁順（4 縁 = 24 とおり、5 縁 = 120 とおり。`out/tmp-r44/allperm.py`）
+  // でも 1 通りに収まった。収まらない反例（cut 判定ともう 1 系統）は決定 67 に残してある
+  const orders44 = (edges) => {
+    const n = edges.length;
+    return [['fwd', edges], ['rev', [...edges].reverse()],
+      // 隣り合う 1 組だけ入れ替えた 2 通り（先頭同士と末尾同士）
+      ['sw1', [edges[1], edges[0], ...edges.slice(2)]],
+      ['sw2', ...[[...edges.slice(0, n - 2), edges[n - 1], edges[n - 2]]]]];
+  };
+
+  // 反例 1: `member:N0` は注釈の `calls` で `member:N7` に届き、`member:N7` は `member:N1` が呼ぶ。
+  // 同じ `member:N1` へ `member:N4` から 動きの縁 `triggers` も届く。後着として消えた方の並びでは
+  // `triggers` を忘れて 影響を受ける入口 に並んでいた（実測 4 縁。min-2.json）
+  const g44a = [
+    e44('e2', 'calls', 'member:N1', 'member:N7', 'terraform'),
+    e44('e4', 'calls', 'member:N0', 'member:N7', 'human'),
+    e44('e6', 'triggers', 'member:N0', 'member:N4', 'llm'),
+    e44('e8', 'triggers', 'member:N4', 'member:N1', 'static'),
+  ];
+  const runs44a = orders44(g44a).map(([name, es]) => [name, runSyn(`r44-min2-${name}`,
+    { nodes: ['member:N0', 'member:N1', 'member:N4', 'member:N7'].map(n44), edges: es },
+    ['--from', 'member:N0', '--hops', '4'], `r44-min2-${name}`)]);
+  check('後着の一歩の動きの縁も事実へ寄せる。4 とおりの縁順で 欄・向き・動きの根拠 が 1 通り（第 44 ラウンド）',
+    runs44a.every(([, out]) => !!out)
+      && new Set(runs44a.map(([, out]) => shape44(out.result))).size === 1
+      && runs44a.every(([, out]) => {
+        const r = row44(out, 'member:N1');
+        return !!r && r.direction === 'out' && !!r.movementEvidence && r.movementEvidence.id === 'e8';
+      }),
+    runs44a.map(([name, out]) => `${name}: ${out ? `${(row44(out, 'member:N1') || {}).direction}`
+      + `/mv:${((row44(out, 'member:N1') || {}).movementEvidence || {}).id || '-'}` : '実行失敗'}`).join(' | '));
+
+  // 反例 2: 並行する 2 縁（`invokes` と `calls`）と 定義ノードへ戻る `references` の形。
+  // `member:N2` の 動きの根拠 と 呼ばれて成立 が並び順で消えていた（実測 5 縁。min-5.json）
+  const g44b = [
+    e44('e0', 'invokes', 'member:N1', 'member:N2', 'static'),
+    e44('e4', 'references', 'member:N2', 'member:N3', 'static'),
+    e44('e5', 'calls', 'member:N1', 'member:N2', 'static'),
+    e44('e6', 'handler', 'member:N0', 'member:N3', 'terraform'),
+    e44('e8', 'invokes', 'member:N1', 'member:N0', 'llm'),
+  ];
+  const runs44b = orders44(g44b).map(([name, es]) => [name, runSyn(`r44-min5-${name}`,
+    { nodes: ['member:N0', 'member:N1', 'member:N2', 'member:N3'].map(n44), edges: es },
+    ['--from', 'member:N0', '--hops', '4'], `r44-min5-${name}`)]);
+  check('並行する縁と定義ノードへ戻る折り返しのある形で、4 とおりの縁順の表が 1 通り（第 44 ラウンド）',
+    runs44b.every(([, out]) => !!out)
+      && new Set(runs44b.map(([, out]) => shape44(out.result))).size === 1
+      && runs44b.every(([, out]) => {
+        const r = row44(out, 'member:N2');
+        return !!r && r.direction === 'out' && r.switches === 1 && !!r.movementEvidence;
+      }),
+    runs44b.map(([name, out]) => `${name}: ${out ? JSON.stringify(shape44(out.result).split('\n').length) : '実行失敗'}`).join(' | '));
+
+  // 向き変え回数は**表示に決まった根拠経路**の属性。選び直しが組み上げた経路は walk の探索予算
+  // （1 回）を超えてよいので、2 回以上も正直に出す（Astra 裁定 A、out/review-astra44.log）。
+  // 「向き変えを含む行 N 件」は `switches` が 1 以上の行数で、JSON の `secondOrder` と同じ
+  const md44 = join(dir, 'r44-sw-demo.md');
+  const d44 = run(['--api', 'POST /orders', '--md', md44], 'r44-sw-demo');
+  check('向き変え回数は 2 以上も正直に出し、件数は 1 以上の行数と一致する（第 44 ラウンド）',
+    !!d44 && allRows(d44.result).some((x) => x.switches >= 2)
+      && d44.result.summary.secondOrder === allRows(d44.result).filter((x) => x.switches >= 1).length
+      && /向き変えを含む行/.test(readFileSync(md44, 'utf8')),
+    d44 ? `回数=${JSON.stringify(allRows(d44.result).reduce((a, x) => {
+      a[x.switches] = (a[x.switches] || 0) + 1; return a; }, {}))} secondOrder=${d44.result.summary.secondOrder}`
+      : '実行失敗');
 }
 
 rmSync(dir, { recursive: true, force: true });

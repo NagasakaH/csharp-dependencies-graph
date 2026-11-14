@@ -836,6 +836,19 @@ function walkWithSwitch(seedIds, first) {
           // `noteArrival` と同じ型）。先に `found` の先着で打ち切ると、同じ資格の別経路が
           // 後から届いても表示が縁の並び順で決まる（第 41 ラウンド）
           addWalkCandidate(to, rec, cur);
+          // **到着した全ての一歩**の事実を受理の表へ寄せる。`found` で先着と合流させられた
+          // 一歩の縁は `mergeFlags` が旗だけを寄せて捨て、`promote`（＝ここ）へは届かない。
+          // そのため「同じノードへ届いた動きの縁」という事実が縁の並び順で有無に変わる
+          // （実測 out/tmp-r44/min-2.json、4 ノード 4 縁: `member:N4 → triggers → member:N1` の
+          // 一歩が後着で消えた方だけ 動きの根拠 が無しになり、`directionOf` が 動きの縁の矢印 を
+          // 読まずに 辿った向きへ落ちて 影響する先 / 影響を受ける入口 が入れ替わった）。
+          // 閉包側はすでに全ての到着を `noteArrival` で寄せていたので、walk と揃えた
+          noteFacts(to, {
+            primary: rec.wiring !== true && rec.chain !== false,
+            elig: rec.wiring !== true, chain: rec.chain !== false,
+            down: rec.down, reachedByInvokes: rec.reachedByInvokes, edge: rec.edge,
+            edgeIsArrival: !rec.cut, apiTail: rec.apiTail,
+          });
           const prevRec = found.get(to);
           if (!prevRec) {
             found.set(to, rec);
@@ -1722,17 +1735,34 @@ const hpop = () => {
 // 数え直す（到着時に凍結しない）。選び直しの比較（`heapLt` / `heapLtWalk`）が読むのも、
 // 表示が読むのもこの確定値で、**読む項目と順序は変えない**
 const settledSw = new Map();   // 確定済みのノード id -> 根から数えた向き変え回数
-// 1 歩が向きを変えているか。walk の展開と同じ規則で見る — 機械的な向き `mdir` が親の基準向き
-// （`mdir` が無ければ `dir`）と違い、かつ対応付け（注釈）の縁のときだけ数える。機械的な向きを
-// 持たない一歩（Terraform の定義を無方向に閉じる閉包の一歩）は向きを変えない
-const stepSwitches = (parentRec, rec) => {
-  if (!rec.mdir || rec.corr || !parentRec) return 0;
-  const base = parentRec.mdir || parentRec.dir || null;
-  return base && rec.mdir !== base ? 1 : 0;
+// この一歩がどの向きで縁を渡った一歩か。**表示に使う縁の端点から決める** — walk が持つ機械的な
+// 向き `mdir` は到着した経路ごとの値で、`mergeFlags` が向きだけ先着のまま残すと実在しない組合せ
+// （`mdir: 'out'` なのに親は別経路）になり得る。端点から決めれば同じ一歩（同じ親・同じ縁）は
+// どの到着から来ても同じ向きになる（実測 `out/tmp-r43-review/switch-a.json` の 5 ノードで
+// `mdir` を読んだ版は `switches` が 2 / 1 に割れた。双人レビュー第 43 ラウンド指摘 2）
+const stepDirOf = (rec) => {
+  if (!rec || !rec.edge) return null;
+  if (rec.edge.target === rec.id) return 'out';
+  if (rec.edge.source === rec.id) return 'in';
+  return null;   // 縁の端点がこのノードではない（あってはならない形）
 };
-// `id` の一歩から根へ向かって `via` を辿った連鎖の向き変え回数。機械的な向きの無い一歩
-// （閉包の一歩）で打ち切る — 閉包の一歩は向きを変えないので、そこより手前の向きも数えない
-// （第 42 ラウンドまで閉包の記録は `switches: 0` だった。表示の意味は変えない）。
+// 1 歩が向きを変えているか。walk の展開と同じ規則で見る — 親の一歩の向きと違い、かつ
+// 対応付け（注釈）の縁のときだけ数える。機械的な向きを持たない一歩（Terraform の定義を
+// 無方向に閉じる閉包の一歩）は向きを変えない（下の `switchCount` がそこで打ち切る）
+const stepSwitches = (parentRec, rec) => {
+  const d = stepDirOf(rec);
+  const p = stepDirOf(parentRec);
+  if (!d || !p || d === p) return 0;
+  // 対応付け（注釈）の縁を渡る向き替えは数えない（walk の展開と同じ）。記録の `corr` は
+  // `mergeFlags` が**同じノードへ届いた別の一歩**の値を引き継ぐ（論理和）ので、表示の一歩が
+  // 注釈縁でなくても true になる（実測 `member:Mid → member:C` の `calls`（static）の行が、
+  // 別経路の `invokes`（human）との合流で `corr: true` になり、向き変え回数が 1 / 0 に割れた）
+  if (rec.edge && CORRESPONDENCE.has(rec.edge.provenance)) return 0;
+  return 1;
+};
+// `id` の一歩から根へ向かって `via` を辿った連鎖の向き変え回数。各一歩の向きは**表示に使う
+// 縁の端点**から決める（上の `stepDirOf`）ので、walk の到着から作った記録でも閉包の到着から
+// 作った記録でも同じ一歩は同じ向きになる。縁の無い一歩（起点）で打ち切る。
 // `lookup` は経路の記録の引き方（選び直し中は `picked` を優先し、表示は `combined`）。
 // `done` は確定済みの値の表（無くても数えられるが、確定値があればそこから）
 const switchCount = (id, lookup, done) => {
@@ -1744,7 +1774,7 @@ const switchCount = (id, lookup, done) => {
       const hit = done.get(cur.id);
       if (hit !== undefined) return total + hit;
     }
-    if (!cur.mdir) break;
+    if (!cur.edge) break;   // 起点など、縁の無い一歩で打ち切る（これより上に数える材料はない）
     const p = cur.via ? lookup(cur.via) : null;
     total += stepSwitches(p, cur);
     if (!p || seen.has(cur.id)) break;        // `via` が循環している（あってはならない形）
@@ -1847,8 +1877,45 @@ for (const [id, list] of walkCands) {
 // 待てずに選び直せず、子の子へ波及する。土台は `combined` の現レコード（起点まで遡れる）を
 // そのまま使うので表示は壊れない。選び直しできない行は第 40 ラウンドどおり閉包の候補に任せる
 const walkRepick = new Set(walkItems.map(([id]) => id));
+// 土台は「選び直されないノード」すべてではない。今の `combined` の連鎖が選び直し対象を横切る
+// ノード（候補が 1 件だけで、親が選び直し対象になっているノード）を土台にすると、その子は
+// 親の確定前に `considerCand` され、**確定前の連鎖**から向き変え回数と連鎖の文字列を計算して
+// 凍結する（双人レビュー第 43 ラウンド agy 指摘 1。10 ノードの反例で表示経路が同じなのに
+// `switches` が 2 と 0 に割れた）。そのようなノードは土台にせず、今の表示の一歩を単一候補として
+// 選び直しへ参加させ、親の確定を待たせる
+const baseState = new Map();   // id -> true 土台 / false 親の確定を待つ
+const baseDecide = (start) => {
+  const stack = [];
+  const seen = new Set();
+  let cur = start;
+  let val = false;
+  for (;;) {
+    const known = baseState.get(cur);
+    if (known !== undefined) { val = known; break; }
+    if (seen.has(cur)) { val = false; break; }          // 連鎖が循環（あってはならない形）
+    seen.add(cur);
+    if (walkRepick.has(cur)) { val = false; break; }    // 連鎖が選び直し対象を横切る
+    const rec = combined.get(cur);
+    if (!rec) { val = false; break; }                   // 連鎖が記録の外へ出た
+    if (!rec.via) { val = true; break; }                // 根（起点など）へ届いた
+    stack.push(cur);
+    cur = rec.via;
+  }
+  for (const n of stack) if (!baseState.has(n) && !walkRepick.has(n)) baseState.set(n, val);
+  if (!walkRepick.has(start)) baseState.set(start, val);
+  return val;
+};
 const settledWalk = new Set();
-for (const id of rooted) if (!walkRepick.has(id)) settledWalk.add(id);
+for (const id of rooted) {
+  if (walkRepick.has(id)) continue;
+  if (baseDecide(id)) { settledWalk.add(id); continue; }
+  const rec = combined.get(id);
+  // 単一候補の条目として選び直しへ入れる。選ばれる一歩は今と同じなので表示は変わらない
+  // （この条目が選ばれると `picked` と `combined` へ同じ記録を書き戻す）
+  if (rec && rec.via && rooted.has(rec.via)) walkItems.push([id, [{ rec }]]);
+  else settledWalk.add(id);   // 親が根に届かないなら待つ先が無いので土台（下の警告で出る）
+}
+
 for (;;) {
   const reach = new Set(settledWalk);
   let grew = true;
@@ -1930,17 +1997,15 @@ if (stranded.length) {
   process.stderr.write(`[report] 警告: ${stranded.length} ノードの表示経路を起点へ繋げませんでした（打ち切りのまま残します）\n`);
 }
 
-// 表示する向き変え回数。選び直して確定した行は `settledSw` の確定値（上の `settlePool`）。
-// 選び直さない行（土台）も `combined` の**表示に決まった連鎖**から同じ規則で数え直す —
-// 記録が持つ到着時点の値は `mergeFlags` が向きを保ったまま回数だけ寄せたり、`promote` が
-// `via` を書き換えたりして、表示経路と食い違った値になり得る（第 43 ラウンド指摘 2）。
-// 機械的な向きを持たない記録（Terraform の定義を閉じた一歩）は 0 のまま — 閉包の一歩は
-// 向きを変えないので数え不出のところから打ち切る（第 42 ラウンドまでの表示の意味のまま）
-const displaySwitches = (id, info) => {
-  const hit = settledSw.get(id);
-  if (hit !== undefined) return hit;
-  return info.mdir ? switchCount(id, (x) => combined.get(x), null) : (info.switches || 0);
-};
+// 表示する向き変え回数。**表示に決まった連鎖だけの関数**として、行を組み立てる直前に数え直す。
+// 選び直しの途中で確定した値（`settledSw`）は比較の材料として使うが、表示へは乗せない —
+// 閉包側の記録への差し替え（上の `alt`）で `via` の連鎖は行の組み立て直前まで動くし、
+// 選び直せなかった行（土台・閉包だけ）は確定値を持っていない。確定値を表示に使うと、表示経路が
+// 同じなのに値だけ縁の並び順で揺れる（双人レビュー第 43 ラウンド指摘 2）。ここを通すと
+// 表示される連鎖に向きの変え方が 2 回ある行は正直に `2` と出る（walk は 1 回の予算でしか歩かない
+// ので、そうした経路は選び直しが独立に親を選び直した結果として組み上がった連鎖であり、walk が歩いた
+// 経路そのものではない。段数・根拠・欄は変えない）
+const displaySwitches = (id) => switchCount(id, (x) => combined.get(x), null);
 
 // ---- 行を組み立てる ----
 // 根拠経路を `via` を辿って組み立てる。止め所は 3 つで、どれで止まったかを行に書く：
@@ -2034,7 +2099,7 @@ for (const [id, info] of combined) {
     // 表示する段数は**経路の長さ**。探索側が持つ段数は「定義単位をまたいだ数」で、
     // 動きの縁を越えたら数え直す予算なので、そのまま出すと `path` と食い違った
     // （実測: demo の `--api` で 1 行が 8 段 / 経路 6 ノード）
-    hops: p.length - 1, switches: displaySwitches(id, info), correspondence: !!info.corr,
+    hops: p.length - 1, switches: displaySwitches(id), correspondence: !!info.corr,
     pathRoot: root, via: info.via || null,
     // 動きの縁（`triggers` / `invokes` / `handler`）が別の経路で見つかっていれば、
     // 定義を辿っただけの縁が先着していても本命にする。その縁は `movementEvidence` として
@@ -2201,7 +2266,12 @@ const summary = {
   // 対応が読めなかった（レビュー指摘）
   siblingEndpointsOnly: siblingRows().filter((r) => !!r.endpoint).length,
   siblingDefs: siblingRows().filter((r) => !r.endpoint).length,
-  secondOrder: rows.filter((r) => r.switches === 1).length,
+  // **向きを変えて届いた行の数**（`switches` が 1 以上の行）。向き変え回数は表示に決まった
+  // 根拠経路の属性なので、選び直しが組み上げた経路は walk の探索予算（1 回）を超えることがある
+  // （実測 fixture-api で 15 行が 2 回。Astra 裁定 A、`out/review-astra44.log`）。かつては
+  // `switches === 1` を数えていたため、2 回以上の行を「向きを変えていない」側へ落としていた。
+  // 欄の名前は v1 の出力契約のまま残す（`--json` を読む側を壊さない。意味はここで決める）
+  secondOrder: rows.filter((r) => r.switches >= 1).length,
   // 総行数。各欄（外部 / 入口 / 成果物 / 定義上 / 同じ API / 兄弟）の合計と必ず同じになる。
   // 過去に「primary かつ sameApi の行がどの欄にも入らず消える」不具合があったので、
   // この 2 つが一致することを検査で固定する（JSON を渡して誰も生データを読まなくても確かめられる）
@@ -2278,7 +2348,7 @@ const siblingEpIds = new Set(siblingRows().filter((r) => !!r.endpoint).map((r) =
 const reachedRealEndpoints = reachedEndpoints.filter((e) => !siblingEpIds.has(e.id));
 const reachedSiblingEndpoints = reachedEndpoints.filter((e) => siblingEpIds.has(e.id));
 const SIBLING_LIST_HINT = '一覧は `--list-siblings`（本数は `--limit`）';
-let md = `# 影響範囲レポート\n\n- グラフ: \`${summary.graph}\`\n- 起点 ${summary.starts} 件（展開後 ${summary.expandedStarts} 件、グラフに無く起点にしなかった変更 ${summary.fallbacks} 件）\n- 探索 ${summary.hops} ホップ（方向の切り替え 1 回まで許可、二段到達 ${summary.secondOrder} 件）/ Terraform の定義単位は ${summary.wiringHops} 段まで無方向で閉じる / 階層（parent・contains）は起点の展開にのみ使用\n- 本命: 影響する先 ${summary.primaryOut} / 影響を受ける入口 ${summary.primaryIn} / コード 出口 ${summary.entryOut}・入口 ${summary.entryIn} / 成果物 先 ${summary.artifactsOut}・受 ${summary.artifactsIn} / 定義上の関連 ${summary.wiring} / 同じ API の定義 ${summary.sameApi} / 同じコードを使う別の API ${summary.siblings}（エンドポイント ${summary.siblingEndpointsOnly}・定義ノード ${summary.siblingDefs}）。**「本命」は「最短」を意味しません**\n- 各段数欄は**表示経路の段数**です（起点 0 段、表示経路の関係 1 本を 1 段。表の値と行の経路表示は一致させます）。**最短とは限りません**。経路全体の整合性を保つため、より長い代表経路を表示する場合があります。この段数は影響の強さやレビューの優先度を示しません\n- 根拠の由来: ${Object.entries(summary.byProvenance).map(([k, v]) => `${provLabel(k)} ${v}`).join(' / ') || 'なし'}（**注釈由来 ${summary.annotationRows} 件**は静的解析では決まらない対応付け）\n\n`;
+let md = `# 影響範囲レポート\n\n- グラフ: \`${summary.graph}\`\n- 起点 ${summary.starts} 件（展開後 ${summary.expandedStarts} 件、グラフに無く起点にしなかった変更 ${summary.fallbacks} 件）\n- 探索 ${summary.hops} ホップ（向きの変えは探索中 1 回まで許可、表示経路で向き変えを含む行 ${summary.secondOrder} 件）/ Terraform の定義単位は ${summary.wiringHops} 段まで無方向で閉じる / 階層（parent・contains）は起点の展開にのみ使用\n- 本命: 影響する先 ${summary.primaryOut} / 影響を受ける入口 ${summary.primaryIn} / コード 出口 ${summary.entryOut}・入口 ${summary.entryIn} / 成果物 先 ${summary.artifactsOut}・受 ${summary.artifactsIn} / 定義上の関連 ${summary.wiring} / 同じ API の定義 ${summary.sameApi} / 同じコードを使う別の API ${summary.siblings}（エンドポイント ${summary.siblingEndpointsOnly}・定義ノード ${summary.siblingDefs}）。**「本命」は「最短」を意味しません**\n- 各段数欄は**表示経路の段数**です（起点 0 段、表示経路の関係 1 本を 1 段。表の値と行の経路表示は一致させます）。**最短とは限りません**。経路全体の整合性を保つため、より長い代表経路を表示する場合があります。この段数は影響の強さやレビューの優先度を示しません\n- 根拠の由来: ${Object.entries(summary.byProvenance).map(([k, v]) => `${provLabel(k)} ${v}`).join(' / ') || 'なし'}（**注釈由来 ${summary.annotationRows} 件**は静的解析では決まらない対応付け）\n\n`;
 if (result.score) {
   const s = result.score;
   md += `## 精度（期待一覧との突き合わせ）\n\n- ケース: ${s.case}（方向 ${s.direction}）\n- 期待 ${s.expected} 件 / 外部リソースへの着地 ${s.landedExternal} 件 / 的中 ${s.hitExternal} 件\n- **再現率 ${s.recall} / 適合率 ${s.precision}**\n- 取りこぼし: ${s.missed.map((x) => `\`${x}\``).join(', ') || 'なし'}\n- 余分な着地: ${s.extraExternal.map((x) => `\`${label(x)}\``).join(', ') || 'なし'}\n- 取りこぼしのうち到達はしていた（定義上の関連に回ったもの）: ${s.wiringOnly} 件\n${s.note ? `\n> ${s.note}\n` : ''}\n`;
