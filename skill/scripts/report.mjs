@@ -214,6 +214,13 @@ for (const e of graph.edges) {
 // 立てないのは定義の縁だけで届いたノード（IAM ロールを共有するだけの別 Lambda など）なので、
 // ポリシー起点が膨らまないという以前の意図はそのまま残る
 const apiTailFrom = (node) => isIntegrationNode(node) || isRouteStart(node);
+// 旗を立てるのは **起点の実装の連鎖にいるまま定義を越えた**一歩だけ。連鎖が既に
+// 切れている（= 定義の縁で届いただけ）状態で定義ノードに着いても、そこからの一歩は
+// 「起点が呼びに出した先の実装の下流」ではない。IAM ロールを共有するだけの別 Lambda の
+// 統合を越えたところで、その Lambda の実装を起点の影には数えない
+// （双人レビュー第 31 ラウンド。`apiTail` を連鎖の資格なしで立てたまま再展開を認めると、
+// IAM ポリシー起点が 15 行 → 18 行に膨らんだ）
+const crossesApiTail = (cur, back) => !back && !!cur.chain && apiTailFrom(byId.get(cur.id));
 
 // ---- 起点を作る ----
 const starts = [];
@@ -417,9 +424,9 @@ function walkWithSwitch(seedIds, first) {
   // `chain: true` の正規の連鎖が同じノードで捨てられ、その先まで 定義上の関連 に落ちていた
   // （双人レビュー第 30 ラウンド指摘 D、両名実測。`Handler.A → M1 → X` に対して
   // `Caller.C → X` の逆向き一歩が先着すると `X` がいつまでも wiring のままだった）。
-  // 閉包側（runClosure）はすでに `(chain, elig, down)` の 8 枠 + 予算で支配判定をしているので、
-  // walk も同じ形にする。枠は下のビットの集合で、旗が立つほど広い（= 上の枠が下を支配する）。
-  // 旗は `mergeFlags` で単調に立つだけなので、1 ノードあたりの再展開は高々 64 枠ぶん有限回
+  // 閉包側（runClosure）はすでに `(chain, elig, down, apiTail)` の 16 枠 + 予算で支配判定をしている。
+  // walk も同じ形にするが、枠は下の 5 つ + 向き（下記）で、旗が立つほど広い（= 上の枠が下を支配する）。
+  // 旗は `mergeFlags` で単調に立つだけなので、1 ノードあたりの再展開は高々 32 枠ぶん有限回
   const WALK_CHAIN = 1;        // 起点の実装関係で結ばれた連鎖
   const WALK_DOWN = 2;         // 実装側（この先は 影響する先）
   const WALK_INVOKES = 4;      // 起点が呼びに出した一歩で着いた
@@ -428,7 +435,16 @@ function walkWithSwitch(seedIds, first) {
   const WALK_IN = 32;          // このノードから `in` 側を辿れる
   const WALK_OUT = 64;         // このノードから `out` 側を辿れる
   // 辿れる向きは「両方向」なら `in` と `out` の両方のビットを立てる。包含で支配判定をするので、
-  // 両方向を辿れる枠は片方向だけの枠を自動的に支配する
+  // 両方向を辿れる枠は片方向だけの枠を自動的に支配する。
+  // `apiTail` は枠に入れない（双人レビュー第 31 ラウンド agy 指摘 1 の walk 側の半分）。この旗は
+  // コードの種（`codeSeeds`）の資格だが、種を見るのは**記録**（`combined`）で、旗はそこで
+  // 単調に寄せられる。しかも walk は着いたノードをその場で展開し続けるので、旗が後から立った
+  // ノードの先まで歩き終わっている = 再展開を待たなくてもコードは届く。実際に種が必要になるのは
+  // 閉包（定義側）で着いたコードで、そこは `runClosure` 側の 16 枠が塞ぐ。
+  // 枠に入れた形も実測した（旗が後から立ったノードの先を問う fixture は両形で通る）。が、起点が
+  // エンドポイントのレポートで `method` が別方向で再展開されるようになり、同じ API を定義する
+  // 行の 向き が in → out に反転して根拠の `detail` / `count` も落ちた（v1 基準の 2 行が動く）。
+  // 得るものが無く v1 の契約を動かすだけなので枠には入れない
   const stateKey = (r) => (r.chain ? WALK_CHAIN : 0)
     | (r.down ? WALK_DOWN : 0)
     | (r.reachedByInvokes ? WALK_INVOKES : 0)
@@ -454,12 +470,18 @@ function walkWithSwitch(seedIds, first) {
     else expandedState.set(id, [{ key, hops }]);
   };
   // 先着の記録へ新しい一歩の**旗だけ**を寄せる。`via` / `hops` / `dir` / 根拠の縁は
-  // 書き換えない（`promote` と同じ約束）。昇格を解くのは動きの縁・注釈の縁のときだけ
+  // 書き換えない（`promote` と同じ約束）
   const mergeFlags = (prev, rec) => {
-    const kind = rec.edge ? rec.edge.kind : null;
-    const prov = rec.edge ? rec.edge.provenance : null;
-    const wiring = prev.wiring === true
-      && !(rec.wiring !== true && (MOVEMENT.has(kind) || CORRESPONDENCE.has(prov))) ? true : prev.wiring;
+    // `wiring` は**本命の事実を落とす方向に合わせない**。後から届いた一歩がそれ自体
+    // 本命 の資格（昇格を止められていない && 連鎖に入っている）を持つなら、先着の
+    // `wiring: true` を解く。兄弟エンドポイント経由の到着が先着しても、正規の `calls`
+    // 経路が後から届いたときに 定義上の関連 のまま残っていた（双人レビュー第 31 ラウンド
+    // 指摘 1。`A → H → M → X → D` に兄弟 B が H と X を公開する形で、縁の並び順だけで
+    // `X` が primary / wiring に割れた）。逆に後から届いた定義の縁（`references` など）が
+    // 先着の本命を落とすことはない。判定式は `promote` の `primary` と同じ 1 歩分の条件で、
+    // 別の経路の旗を足し合わせた架空の経路は作らない
+    const promotable = rec.wiring !== true && rec.chain !== false;
+    const wiring = promotable ? false : prev.wiring;
     return {
       ...prev,
       chain: !!(prev.chain || rec.chain),
@@ -568,7 +590,7 @@ function walkWithSwitch(seedIds, first) {
             reachedByInvokes: calledOut,
             // **API の定義（統合・method・route）を越えて届いた**経路の旗。この旗が立った
             // コードは 2 段目の walk の種にする（指摘 C）。親が既に立てているなら引き継ぐ
-            apiTail: !!cur.apiTail || apiTailFrom(byId.get(cur.id)),
+            apiTail: !!cur.apiTail || crossesApiTail(cur, back),
             edge: { id: e.id, kind: e.kind, provenance: e.provenance, source: e.source, target: e.target },
             sibBlocked: sibHere,
             // 実装側へ**入った**一歩（`handler` / `exposed-by` を逆向きに渡った一歩）。
@@ -628,6 +650,7 @@ function promote(cur, rec) {
     primary: rec.wiring !== true && rec.chain !== false,
     elig: rec.wiring !== true, chain: rec.chain !== false,
     down: rec.down, reachedByInvokes: rec.reachedByInvokes, edge: rec.edge,
+    apiTail: rec.apiTail,
   });
   if (rec.reachedByInvokes) cur.reachedByInvokes = true;
   // 「API の定義を越えて届いた」も単調に立つだけ（一度経路に入ったら消さない）
@@ -783,11 +806,16 @@ const bestState = new Map();   // id -> { budget, primary, elig, down, reachedBy
 // walk が後から事実を強くしたとき、その資格での展開をまだしていないのに `offer()` が
 // 「改善なし」と判断して再展開を省いた（双人レビュー第 20 ラウンド P1: 定義参照が 1 本
 // 増えただけで上流の Step Functions が 定義上の関連 に落ちた）
-// 展開記録は `budgets` を `(chain, elig, down)` の 8 通り（0..7）ごとに持つ。1 つの `budget` に
+// 展開記録は `budgets` を `(chain, elig, down, apiTail)` の 16 通り（0..15）ごとに持つ。1 つの `budget` に
 // 平坦に合併すると、積束で比較不能な 2 状態（`chain: false, budget: 1` と `chain: true, budget: 3`）が
 // `{ chain: true, budget: 1 }` に化けて、一度も展開していない `(chain: true, budget: 2)` を
 // 「展開済み」と誤判定した（双人レビュー第 22 ラウンドの最小反例 B、第 29 ラウンドで `chain` の枠を足す）
-const NO_BUDGETS = [Infinity, Infinity, Infinity, Infinity, Infinity, Infinity, Infinity, Infinity];
+// 枠のビットは下の名前で持つ（立った枠が、その旗だけを落とした下位の枠を同じ予算で支配する）
+const CLOSURE_DOWN = 1;        // 実装側（この先は 影響する先）
+const CLOSURE_ELIG = 2;        // 伝播の資格
+const CLOSURE_CHAIN = 4;       // 起点の実装関係で結ばれた連鎖
+const CLOSURE_API_TAIL = 8;    // API の定義（統合・method・route）を越えて届いた
+const NO_BUDGETS = new Array(CLOSURE_API_TAIL * 2).fill(Infinity);
 const expandedAt = new Map();   // id -> { primary, gen, budgets: [8] }
 // `touchedApiGroups` が増えると、同じ資格の種でも子側の伝播資格 (`inTouchedApiGroup`) が変わる。
 // 世代を持たないと「同じ資格だから展開済み」と却下されて、届いた API の定義が
@@ -795,7 +823,7 @@ const expandedAt = new Map();   // id -> { primary, gen, budgets: [8] }
 let apiGen = 0;
 function noteFacts(id, f) {
   const prev = bestState.get(id)
-    || { primary: false, elig: false, down: false, reachedByInvokes: false, chain: false, movementEvidence: null };
+    || { primary: false, elig: false, down: false, reachedByInvokes: false, chain: false, apiTail: false, movementEvidence: null };
   const kind = f.edge ? f.edge.kind : null;
   bestState.set(id, {
     ...prev,
@@ -806,6 +834,10 @@ function noteFacts(id, f) {
     // **起点の実装関係で結ばれた連鎖**に入っていること。`elig`（一覧に出す資格）より厳しい。
     // 連鎖に入っていないノードは動きの縁を渡っても本命へ昇格しない
     chain: prev.chain || !!f.chain,
+    // 「API の定義を越えて届いた」も他の旗と同じく単調（一度立ったら消さない）。共有ロールなど
+    // 定義の縁だけで届いた一歩が先着しても、後から `apiTail` を立てて届いた事実を捨てない
+    // （双人レビュー第 31 ラウンド agy 指摘 1）
+    apiTail: prev.apiTail || !!f.apiTail,
     movementEvidence: prev.movementEvidence
       || f.movementEvidence || (MOVEMENT.has(kind) ? f.edge : null) || null,
   });
@@ -827,32 +859,39 @@ function runClosure(seedIds) {
     // 事実は一度立ったら消えない。弱い方の状態が後から来ても旗を戻さないよう、ここで合流させる
     noteFacts(state.id, {
       primary: state.primary, elig: state.elig, down: state.down, reachedByInvokes: state.reachedByInvokes,
-      chain: state.chain, edge: state.rec ? state.rec.edge : null,
+      chain: state.chain, apiTail: state.apiTail, edge: state.rec ? state.rec.edge : null,
     });
     // 展開するのは (a) 今の世代ではまだ展開していない、(b) 初めて本命として展開する、
-    // (c) 同じ `(chain, elig, down)` の資格で前回より小さい予算で届いた、のいずれかのとき。
+    // (c) 同じ `(chain, elig, down, apiTail)` の資格で前回より小さい予算で届いた、のいずれかのとき。
     // (c) は本命でなくても効く（定義上の関連にも `--wiring-hops` の予算は及ぶ）。第 22 ラウンドの
     // 最小反例では `references` で budget 2 のノードが、`invokes` を越えて budget 1 で届き直したとき
     // に却下され、その先 1 ノードがどの欄にも出なかった
     const done = expandedAt.get(state.id);
     const fresh = !done || done.gen !== apiGen;
     // 予算は非負整数で (c) ごとに厳密に減り、(a)(b) は高々 1 回、世代はグループ増でしか上がらない。
-    // だから 1 ノード 1 世代あたりの再展開は高々 `8 * (予算 + 1) + 1` 回、世代は高々
+    // だから 1 ノード 1 世代あたりの再展開は高々 `16 * (予算 + 1) + 1` 回、世代は高々
     // `API グループ数 + 1` なので有限に止まる
-    const mask = (state.chain ? 4 : 0) | (state.elig ? 2 : 0) | (state.down ? 1 : 0);
+    const mask = (state.chain ? CLOSURE_CHAIN : 0) | (state.elig ? CLOSURE_ELIG : 0)
+      | (state.down ? CLOSURE_DOWN : 0) | (state.apiTail ? CLOSURE_API_TAIL : 0);
     const prevBudget = fresh ? Infinity : done.budgets[mask];
     const better = fresh || (state.primary && !done.primary) || state.budget < prevBudget;
     if (!better) return false;
     const budgets = fresh ? [...NO_BUDGETS] : [...done.budgets];
     budgets[mask] = Math.min(prevBudget, state.budget);
-    // `chain` と `elig` は立つほど展開が広い旗（同じ予算なら同じ一歩を全て辿れる）。だから
-    // 立った資格は、その旗だけを落とした下位の資格も同じ予算で支配する。更新を忘れると
-    // 後から来た弱い資格の状態が無意味に再展開される
+    // `chain` / `elig` / `apiTail` は立つほど展開が広い旗（同じ予算なら同じ一歩を全て辿れる）。
+    // だから立った資格は、その旗だけを落とした下位の資格も同じ予算で支配する。更新を忘れると
+    // 後から来た弱い資格の状態が無意味に再展開される。逆に `apiTail` の支配を効かせないと、
+    // IAM ロールを共有するだけの経路（`apiTail: false`）が先着した瞬間に、後から `apiTail` を
+    // 立てて届いた経路が却下され、その先のテーブルが全欄から消える（双人レビュー第 31 ラウンド
+    // agy 指摘 1）
     if (state.chain) {
-      budgets[mask & ~4] = Math.min(budgets[mask & ~4], budgets[mask]);
+      budgets[mask & ~CLOSURE_CHAIN] = Math.min(budgets[mask & ~CLOSURE_CHAIN], budgets[mask]);
     }
     if (state.elig) {
-      budgets[mask & ~2] = Math.min(budgets[mask & ~2], budgets[mask]);
+      budgets[mask & ~CLOSURE_ELIG] = Math.min(budgets[mask & ~CLOSURE_ELIG], budgets[mask]);
+    }
+    if (state.apiTail) {
+      budgets[mask & ~CLOSURE_API_TAIL] = Math.min(budgets[mask & ~CLOSURE_API_TAIL], budgets[mask]);
     }
     expandedAt.set(state.id, {
       primary: !!state.primary || !!done?.primary,
@@ -902,6 +941,7 @@ function runClosure(seedIds) {
       reachedByInvokes: rec ? !!rec.reachedByInvokes : false,
       primary, elig: primary || inTouchedApiGroup(id),
       chain,
+      apiTail: !!rec.apiTail,
       via: null, rec,
     };
     if (offer(state)) queue.push(state);
@@ -948,8 +988,10 @@ function runClosure(seedIds) {
         // 立てると「自分が呼んだ」と読める旗が上流に立った（双人レビュー第 20 ラウンド P2）
         reachedByInvokes: edge.kind === 'invokes' && arrowAt(edge, to) && !internalInvokes(cur.id, to),
         // walk と同じ「API の定義を越えて届いた」旗。閉包は Terraform の定義を無方向に閉じるので、
-        // `integration → references → resource` のような定義側もここを通る
-        apiTail: !!(cur.rec && cur.rec.apiTail) || apiTailFrom(byId.get(cur.id)),
+        // `integration → references → resource` のような定義側もここを通る。旗は**この経路が
+        // 運んできたもの**だけを使う（`bestState` の寄せ集めを種に渡すと、別の経路で立った旗が
+        // 無い経路にも付く。実測: IAM ポリシー起点が 19 行に膨らんだ）。立てる条件は walk と同じ
+        apiTail: !!cur.apiTail || crossesApiTail(cur, back),
         sibBlocked: sib,
         chain,
         // 向きは「縁の向き × その行が矢印のどちら側か」。動きの縁なら矢印の先が下流。
@@ -963,6 +1005,7 @@ function runClosure(seedIds) {
       const state = {
         id: to, hops: rec.hops, budget, primary, elig, via: rec.via, rec, chain,
         down: rec.down, reachedByInvokes: rec.reachedByInvokes, sibBlocked: rec.sibBlocked,
+        apiTail: !!rec.apiTail,
       };
       // メンバ（`handler` の届く先）では展開しない。コード側の縁を辿るのは本命の walk だけにさせる
       if (offer(state) && (byId.get(to) || {}).kind === 'resource') queue.push(state);

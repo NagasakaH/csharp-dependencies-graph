@@ -29,10 +29,10 @@ open out/graph/graph.html
 
 ```sh
 node skill/scripts/test-analyzer.mjs                          # 静的解析の精度（96 項目、ブラウザ不要）
-node skill/scripts/test-report.mjs                            # 影響範囲レポート（63 項目）
+node skill/scripts/test-report.mjs                            # 影響範囲レポート（85 項目）
 node skill/scripts/test-query.mjs                             # 逆引き・影響範囲の照会（17 項目、.NET 不要）
 node skill/scripts/test-merge.mjs                             # Lambda handler の解決規則（12 項目、.NET 必要）
-node skill/scripts/test-terraform.mjs                         # API Gateway のパス組み立てと HTTP API (v2) の `target`（38 項目、.NET 不要）
+node skill/scripts/test-terraform.mjs                         # API Gateway のパス組み立てと HTTP API (v2) の `target`（46 項目、.NET 不要）
 node skill/scripts/verify.mjs --html out/graph/graph.html --shots out/shots   # ブラウザ実操作（25 項目）
 ```
 

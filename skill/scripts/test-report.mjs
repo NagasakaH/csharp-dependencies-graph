@@ -1074,6 +1074,117 @@ check('--limit で一覧が切れてもカウンタの不変条件は保たれ�
     fan ? JSON.stringify(fanRows.map((x) => [x.id.replace(/^tf:aws_/, ''), x.tier])) : '実行失敗');
 }
 
+// (11) 第 31 ラウンドの指摘 1（双人レビュー両名）: 後から届いた「本命の事実」が先着で消える
+{
+  // A. 兄弟エンドポイント（同じコードを公開する別の API）が先に届いても、正規の `calls` 経路が
+  // 後から同じノードへ着いたならそこは本命。`mergeFlags` が先着の `wiring: true` を凍結していた
+  // 頃は、縁の並び順だけで 定義上の関連 のまま残った。3 通り（兄弟なし / 順 / 逆）で揃うこと
+  const gNodes = [
+    synNode('tf:aws_api_gateway_method.a', 'resource', { resourceType: 'aws_api_gateway_method',
+      category: 'apigateway', endpoint: 'POST /a' }),
+    synNode('tf:aws_api_gateway_method.b', 'resource', { resourceType: 'aws_api_gateway_method',
+      category: 'apigateway', endpoint: 'POST /b' }),
+    synNode('member:H', 'member'), synNode('member:M', 'member'),
+    synNode('member:X', 'member'), synNode('member:D', 'member'),
+  ];
+  const gEdges = [
+    synEdge('exposed-by', 'member:H', 'tf:aws_api_gateway_method.a', 'human'),
+    synEdge('exposed-by', 'member:H', 'tf:aws_api_gateway_method.b', 'human'),
+    synEdge('exposed-by', 'member:X', 'tf:aws_api_gateway_method.b', 'human'),
+    synEdge('calls', 'member:H', 'member:M', 'static'),
+    synEdge('calls', 'member:M', 'member:X', 'static'),
+    synEdge('calls', 'member:X', 'member:D', 'static'),
+  ];
+  const orders = {
+    'r31-sol-none': gEdges.filter((e) => !e.id.includes('method.b')),
+    'r31-sol-orig': gEdges,
+    'r31-sol-rev': [...gEdges].reverse(),
+  };
+  const sols = Object.entries(orders).map(([name, edges]) => {
+    const out = runSyn(name, { nodes: gNodes, edges }, ['--api', 'POST /a'], name);
+    return [name, out, out ? allRows(out.result).filter((x) => x.id.startsWith('member:')) : []];
+  });
+  check('兄弟エンドポイント経由が先着しても正規の calls 経路が本命（縁の並び 3 通りで同じ結果）',
+    sols.every(([, out, ms]) => !!out && out.result.summary.entryOut === 4
+      && ms.length === 4 && ms.every((x) => x.tier === 'primary')),
+    sols.map(([name, out, ms]) => `${name} 出口${out ? out.result.summary.entryOut : '-'} `
+      + ms.map((x) => `${x.id.split(':').pop()}=${x.tier === 'primary' ? '本命' : '定義上'}`).join(',')).join(' | '));
+
+  // B. IAM ロールを共有する別 Lambda への扇入力が先着しても、**統合を越えて**届いたコードの先が
+  // 行ごと消えない（agy 指摘 1）。`apiTail` を枠に入れないと弱い枠が先着して再展開が止まり、
+  // `ext:rds-table/orders` が全欄から落ちる。扇の有無・縁の並び順に関係なく残ることを固定する
+  const tNodes = [
+    synNode('tf:aws_lambda_function.a', 'resource', { resourceType: 'aws_lambda_function' }),
+    synNode('tf:aws_iam_role.r', 'resource', { resourceType: 'aws_iam_role' }),
+    synNode('tf:aws_api_gateway_integration.i', 'resource', { resourceType: 'aws_api_gateway_integration',
+      category: 'apigateway' }),
+    synNode('tf:aws_api_gateway_resource.res', 'resource', { resourceType: 'aws_api_gateway_resource',
+      category: 'apigateway' }),
+    synNode('tf:aws_lambda_function.b', 'resource', { resourceType: 'aws_lambda_function' }),
+    synNode('member:B.Handle', 'member'),
+    synNode('ext:rds-table/orders', 'resource', { resourceType: 'aws_dynamodb_table' }),
+  ];
+  const tEdges = [
+    synEdge('references', 'tf:aws_lambda_function.a', 'tf:aws_iam_role.r'),
+    synEdge('references', 'tf:aws_lambda_function.b', 'tf:aws_iam_role.r'),
+    synEdge('triggers', 'tf:aws_api_gateway_integration.i', 'tf:aws_lambda_function.a'),
+    synEdge('references', 'tf:aws_api_gateway_integration.i', 'tf:aws_api_gateway_resource.res'),
+    synEdge('references', 'tf:aws_lambda_function.b', 'tf:aws_api_gateway_resource.res'),
+    synEdge('handler', 'tf:aws_lambda_function.b', 'member:B.Handle'),
+    synEdge('writes', 'member:B.Handle', 'ext:rds-table/orders', 'human'),
+  ];
+  const withRole = runSyn('r31-shared-role', { nodes: tNodes, edges: tEdges },
+    ['--from', 'tf:aws_lambda_function.a'], 'r31-shared-role');
+  const withRoleRev = runSyn('r31-shared-role-rev', { nodes: tNodes, edges: [...tEdges].reverse() },
+    ['--from', 'tf:aws_lambda_function.a'], 'r31-shared-role-rev');
+  const noRole = runSyn('r31-no-role', { nodes: tNodes,
+    edges: tEdges.filter((e) => !e.id.includes('aws_iam_role.r')) },
+  ['--from', 'tf:aws_lambda_function.a'], 'r31-no-role');
+  const tailOf = (out, id) => {
+    const hit = out ? allRows(out.result).find((x) => x.id === id) : null;
+    return hit ? `${hit.tier}/${hit.direction}` : '無し';
+  };
+  check('共有ロールの扇入力が先着しても 統合を越えた先のコードとテーブルが 定義上の関連 に残る（扇あり / 逆順 / 扇なし）',
+    [withRole, withRoleRev, noRole].every((out) => !!out
+      && tailOf(out, 'member:B.Handle') === 'wiring/out'
+      && tailOf(out, 'ext:rds-table/orders') === 'wiring/out'),
+    [withRole, withRoleRev, noRole].map((out) => out
+      ? `ハンドル=${tailOf(out, 'member:B.Handle')} テーブル=${tailOf(out, 'ext:rds-table/orders')}` : '実行失敗').join(' | '));
+
+  // C. 逆に、**連鎖の外**（定義の縁だけ）で届いた統合を越えた旗でコードの種を増やさない。
+  // IAM ポリシー起点が Lambda → 統合 → その Lambda のハンドルを経て実装の中身まで膨らむのは
+  // 暴走なので、旗は起点の実装の連鎖にいるときだけ立てる（指摘 B で広げた分との両立）
+  const cNodes = [
+    synNode('tf:aws_iam_role_policy.p', 'resource', { resourceType: 'aws_iam_role_policy' }),
+    synNode('tf:aws_iam_role.r', 'resource', { resourceType: 'aws_iam_role' }),
+    synNode('tf:aws_lambda_function.s', 'resource', { resourceType: 'aws_lambda_function' }),
+    synNode('tf:aws_api_gateway_integration.i', 'resource', { resourceType: 'aws_api_gateway_integration',
+      category: 'apigateway' }),
+    synNode('tf:aws_api_gateway_resource.res', 'resource', { resourceType: 'aws_api_gateway_resource',
+      category: 'apigateway' }),
+    synNode('member:S.Handle', 'member'), synNode('member:S.Deep', 'member'),
+    synNode('ext:rds-table/t', 'resource', { resourceType: 'aws_dynamodb_table' }),
+  ];
+  const cEdges = [
+    synEdge('references', 'tf:aws_iam_role_policy.p', 'tf:aws_iam_role.r'),
+    synEdge('references', 'tf:aws_lambda_function.s', 'tf:aws_iam_role.r'),
+    synEdge('triggers', 'tf:aws_api_gateway_integration.i', 'tf:aws_lambda_function.s'),
+    synEdge('references', 'tf:aws_api_gateway_integration.i', 'tf:aws_api_gateway_resource.res'),
+    synEdge('handler', 'tf:aws_lambda_function.s', 'member:S.Handle'),
+    synEdge('calls', 'member:S.Handle', 'member:S.Deep', 'static'),
+    synEdge('writes', 'member:S.Deep', 'ext:rds-table/t', 'human'),
+  ];
+  const fromPolicy = runSyn('r31-from-policy', { nodes: cNodes, edges: cEdges },
+    ['--from', 'tf:aws_iam_role_policy.p'], 'r31-from-policy');
+  check('IAM ポリシー起点は 定義の縁だけで届いた統合の先を種にしない（実装の中身とテーブルが増えない）',
+    !!fromPolicy && !allRows(fromPolicy.result).some((x) => x.id === 'ext:rds-table/t')
+    && !allRows(fromPolicy.result).some((x) => x.id === 'member:S.Deep')
+    && fromPolicy.result.summary.entryOut === 0 && fromPolicy.result.summary.entryIn === 0
+    && allRows(fromPolicy.result).every((x) => x.tier === 'wiring'),
+    fromPolicy ? JSON.stringify([fromPolicy.result.summary.rows, fromPolicy.result.summary.wiring,
+      allRows(fromPolicy.result).map((x) => x.id.replace(/^tf:aws_/, ''))]) : '実行失敗');
+}
+
 rmSync(dir, { recursive: true, force: true });
 console.log(`\n${pass}/${pass + failures.length} 件成功`);
 if (failures.length) { console.log('失敗: ' + failures.join(' / ')); process.exit(1); }
