@@ -441,12 +441,20 @@ const methodTriple = (raws, file) => {
   if (!api || !res || !verb) return null;
   const up = verb.toUpperCase();
   if (up === '*' || !HTTP_VERB.test(up)) return null;
-  // 参照先の resource / rest API が同じファイルに 1 件とれないものは「決まっている」と数えない
-  const declared = (type, name) => (byAddress.get(`${type}.${name}`) || [])
-    .filter((n) => n.metadata.file === file && n.metadata.referencedOnly !== true);
-  if (declared('aws_api_gateway_rest_api', api.name).length !== 1) return null;
-  if (declared('aws_api_gateway_resource', res.name).length !== 1) return null;
-  return `${api.name}\u0000${res.name}\u0000${up}`;
+  // 参照先の rest API / resource を**実体のノード**として解決する（パス組み立ての `gatewayResourcePath`
+  // と同じ `sameFileNode`）。名前だけで決めると、別ディレクトリの独立 API が同じローカル名
+  // （`rest_api.a` / `resource.r` / `POST`）を使っただけで「三点組の重複宣言」になり、
+  // 正常な対応まで落ちた（双人レビュー第 30 ラウンド A、両名実測: `POST /one` の invokes が消えた）。
+  // `sameFileNode` は「同じファイルに 1 件 > 候補が全体で 1 件 > 選べない」の順で決めるので、
+  //  ・`api.tf` に rest API / resource、`orders.tf` に method / integration の分割 → 解決する
+  //  （従来は「同じファイルに宣言が無い」で縁を張っていなかった。第 30 ラウンド agy 指摘 1）
+  //  ・module をまたいだ同名アドレス（候補 2 件で同じファイルにも無い）→ 解決しない
+  // キーは解決後のノード id。実体が違えば別扱いになり、本当に同じ実体へ同じ三点組が 2 本
+  // 届いたときだけ重複になる
+  const apiNode = sameFileNode(`aws_api_gateway_rest_api.${api.name}`, file);
+  const resNode = sameFileNode(`aws_api_gateway_resource.${res.name}`, file);
+  if (!apiNode || !resNode) return null;
+  return `${apiNode.id}\u0000${resNode.id}\u0000${up}`;
 };
 const v1Methods = new Map();     // 3 点セット -> method ノード（同じ値の method が複数なら縁を張らない）
 for (const node of nodes) {

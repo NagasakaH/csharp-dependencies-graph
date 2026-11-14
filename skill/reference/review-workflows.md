@@ -39,6 +39,21 @@ git diff --name-only origin/main... | node skill/scripts/report.mjs \
 | リポジトリ内の成果物 | 経路上にあった `.csproj` / `.cs` / フォルダ / solution。触るかもしれないビルド単位 | 動きの証拠ではない。レビューの分担に使う |
 | 定義上の関連 | Terraform の `references`（そのブロックを文中に書いた）。**値が動くとは限らないが、定義を書き換えたら効く範囲** | IAM・rest_api・deployment など見直しの候補 |
 
+**実行経路とみなす条件**（第 29 ラウンドの裁定。第 30 ラウンドの双人レビューで両名が文書化を要求）:
+`method → invokes → integration`（v2 の `target`、v1 の三点組）または統合からメソッドへの直接参照・
+注釈があるときだけ実行経路とみなす。無いものは 定義上の関連 に残して対応未確定の警告を出す
+（「その API の下に method が 1 件しかない」での橋渡しは作らない。候補が 1 件なのは対応が確定した
+証拠にならない）。
+
+**兄弟ルートは 本命 の結果に影響せず、別欄に要約する**。同じ Lambda / handler を共有しているだけの
+別エンドポイント（`$default` を含める）は起点の実行経路に数えない。一覧は既定では出さず **件数だけ**
+出す（実測: 40 API × 20 route のグラフで 799 本を並べていた）。一覧を出すのは `--list-siblings` を
+立てたときだけで、本数は暗黙の 12 本ではなく `--limit` に従う。
+JSON の各行には、実際に印刷した欄名と同じ `bucket` と理由コード（`siblingReason` =
+`shared-code-endpoint` / `sibling-api-definition`、`unresolvedCorrReason` = `no-method-correspondence`）を
+立てるので、エクスポート単体で「なぜこの欄のこの行なのか」を説明できる（`tier` は内部の昇格状態なので
+兄弟欄の行が `primary` を持つことがある。欄の判定は `bucket` を見る）。
+
 段数の数え方は「**定義の縁（`references`）だけ数えて、動きの縁（`triggers` / `invokes` / `handler`）を
 越えたら数え直し**」。Terraform の定義単位をどこまで閉じるかの上限（`--wiring-hops`、既定 3）を
 動きの縁にまで適用すると、同じ Lambda を使う別 API が既定の段数で完全に消えた（実測: 3 段で 0 件、

@@ -203,7 +203,7 @@ check('Markdown に「同じコードを使う別エンドポイント」の別�
     const f = join(dir, 'b.md');
     spawnSync(process.execPath, [join(HERE, 'report.mjs'), '--graph', GRAPH, '--api', 'POST /orders', '--md', f], { cwd: root, encoding: 'utf8' });
     const t = readFileSync(f, 'utf8');
-    return t.includes('同じコードを使う別エンドポイント') && t.includes('起点と同じ API を定義するノード');
+    return t.includes('同じコードを使う別の API') && t.includes('起点と同じ API を定義するノード');
   })());
 
 // ---- 第 16 ラウンドのレビューで出た 6 件を固定する ----
@@ -738,6 +738,105 @@ check('--limit で一覧が切れてもカウンタの不変条件は保たれ�
   check('比較不能な資格を 1 つの予算に合併しない（`(elig, budget)` の届け直しで先が出る）',
     !!lam2 && lam2.tier === 'primary' && lam2.direction === 'out',
     lam2 ? JSON.stringify([lam2.tier, lam2.direction]) : (e ? '出ていない' : '実行失敗'));
+
+  // walk 側も同じ形にする（双人レビュー第 30 ラウンド指摘 D、両名実測）。
+  // `Handler.A → M1 → X` の正規の連鎖より、`Caller.C → X`（`calls` を逆向きに渡る一歩で
+  // 着いた `chain: false`）が先に着く並び。ノード id だけの先着で打ち切ると `X` が
+  // 定義上の関連 に落ち、その先まで消える
+  const wdNodes = [
+    synNode('tf:aws_api_gateway_method.m', 'resource',
+      { resourceType: 'aws_api_gateway_method', category: 'apigateway', endpoint: 'POST /a' }),
+    synNode('member:Handler.A', 'member'), synNode('member:Caller.C', 'member'),
+    synNode('member:M1', 'member'), synNode('member:X', 'member'),
+    synNode('member:Deeper', 'member'),
+  ];
+  const wdEdges = [
+    synEdge('exposed-by', 'member:Handler.A', 'tf:aws_api_gateway_method.m', 'human'),
+    synEdge('calls', 'member:Caller.C', 'member:Handler.A', 'static'),
+    synEdge('calls', 'member:Caller.C', 'member:X', 'static'),
+    synEdge('calls', 'member:Handler.A', 'member:M1', 'static'),
+    synEdge('calls', 'member:M1', 'member:X', 'static'),
+    synEdge('calls', 'member:X', 'member:Deeper', 'static'),
+  ];
+  const wd = runSyn('walk-dominance', { nodes: wdNodes, edges: wdEdges },
+    ['--from', 'tf:aws_api_gateway_method.m'], 'walk-dominance');
+  const atWd = (id) => (wd ? allRows(wd.result).find((x) => x.id === id) : null);
+  check('逆向き一歩の先着が後の `chain: true` 連鎖を潰さない（`X` とその先が 本命）',
+    !!wd && (atWd('member:X') || {}).tier === 'primary'
+    && (atWd('member:Deeper') || {}).tier === 'primary'
+    && (atWd('member:Caller.C') || {}).tier === 'wiring',
+    wd ? JSON.stringify(allRows(wd.result).map((x) => [x.id, x.tier])) : '実行失敗');
+}
+
+// (7b) v2 の `$default`（既定ルート）を起点にしたとき（双人レビュー第 30 ラウンド指摘 B）。
+// 表示名を持たないので `--api` では引けないが、`--from` に選んだ以上は他の route と同じ制限が
+// 掛からないと、共有している integration 経由で**別ルートの Lambda** まで起点の実装になる
+{
+  const nodes = [
+    synNode('tf:aws_apigatewayv2_api.shop', 'resource',
+      { resourceType: 'aws_apigatewayv2_api', category: 'apigateway' }),
+    synNode('tf:aws_apigatewayv2_route.fallback', 'resource', {
+      resourceType: 'aws_apigatewayv2_route', category: 'apigateway',
+      route_key: '$default', defaultRoute: true, api_id: 'aws_apigatewayv2_api.shop.id',
+    }),
+    synNode('tf:aws_apigatewayv2_route.other', 'resource', {
+      resourceType: 'aws_apigatewayv2_route', category: 'apigateway', route_key: 'DELETE /v2/orders',
+      endpoint: 'DELETE /v2/orders', api_id: 'aws_apigatewayv2_api.shop.id',
+    }),
+    synNode('tf:aws_apigatewayv2_integration.shared', 'resource', {
+      resourceType: 'aws_apigatewayv2_integration', category: 'apigateway',
+      api_id: 'aws_apigatewayv2_api.shop.id',
+    }),
+    synNode('tf:aws_apigatewayv2_integration.other', 'resource', {
+      resourceType: 'aws_apigatewayv2_integration', category: 'apigateway',
+      api_id: 'aws_apigatewayv2_api.shop.id',
+    }),
+    synNode('tf:aws_lambda_function.create_fn', 'resource', { resourceType: 'aws_lambda_function' }),
+    synNode('tf:aws_lambda_function.cancel_fn', 'resource', { resourceType: 'aws_lambda_function' }),
+    synNode('member:Shop.Orders.Create', 'member'),
+    synNode('member:Shop.Orders.Cancel', 'member'),
+    synNode('member:Shop.Shared', 'member'),
+  ];
+  const edges = [
+    synEdge('invokes', 'tf:aws_apigatewayv2_route.fallback', 'tf:aws_apigatewayv2_integration.shared'),
+    synEdge('invokes', 'tf:aws_apigatewayv2_route.other', 'tf:aws_apigatewayv2_integration.shared'),
+    synEdge('invokes', 'tf:aws_apigatewayv2_route.other', 'tf:aws_apigatewayv2_integration.other'),
+    synEdge('references', 'tf:aws_apigatewayv2_integration.shared', 'tf:aws_apigatewayv2_api.shop'),
+    synEdge('references', 'tf:aws_apigatewayv2_integration.other', 'tf:aws_apigatewayv2_api.shop'),
+    synEdge('references', 'tf:aws_apigatewayv2_route.fallback', 'tf:aws_apigatewayv2_api.shop'),
+    synEdge('triggers', 'tf:aws_apigatewayv2_integration.shared', 'tf:aws_lambda_function.create_fn'),
+    synEdge('triggers', 'tf:aws_apigatewayv2_integration.other', 'tf:aws_lambda_function.cancel_fn'),
+    synEdge('handler', 'tf:aws_lambda_function.create_fn', 'member:Shop.Orders.Create'),
+    synEdge('handler', 'tf:aws_lambda_function.cancel_fn', 'member:Shop.Orders.Cancel'),
+    synEdge('calls', 'member:Shop.Orders.Create', 'member:Shop.Shared', 'static'),
+    synEdge('calls', 'member:Shop.Orders.Cancel', 'member:Shop.Shared', 'static'),
+  ];
+  const dr = runSyn('default-route', { nodes, edges },
+    ['--from', 'tf:aws_apigatewayv2_route.fallback'], 'default-route');
+  const atDr = (id) => (dr ? allRows(dr.result).find((x) => x.id === id) : null);
+  check('`$default` 起点でも委譲先（共有 integration の Lambda と handler）は本命で届く',
+    !!dr && dr.result.summary.startIsEndpoint === true
+    && (atDr('tf:aws_lambda_function.create_fn') || {}).tier === 'primary'
+    && (atDr('member:Shop.Orders.Create') || {}).tier === 'primary',
+    dr ? JSON.stringify([dr.result.summary.startIsEndpoint,
+      allRows(dr.result).map((x) => [x.id.replace(/^.*:/, ''), x.tier])]) : '実行失敗');
+  check('`$default` 起点では共有 integration を使う**別ルート**の Lambda と handler は 定義上の関連',
+    !!dr && (atDr('tf:aws_lambda_function.cancel_fn') || {}).tier === 'wiring'
+    && (atDr('member:Shop.Orders.Cancel') || {}).tier === 'wiring',
+    dr ? JSON.stringify([
+      (atDr('tf:aws_lambda_function.cancel_fn') || {}).tier,
+      (atDr('member:Shop.Orders.Cancel') || {}).tier]) : '実行失敗');
+  // 表示名を持たないので `--api` の検索対象にはならない（実在しない HTTP パスを捏造しない）。
+  // `--api` は `動詞 /パス` の形しか受け付けないので、ここで弾かれることを固定する
+  const apiGraph = join(dir, 'default-route-api.graph.json');
+  writeFileSync(apiGraph, JSON.stringify({ nodes, edges }));
+  const apiOut = join(dir, 'default-route-api.json');
+  if (existsSync(apiOut)) rmSync(apiOut);
+  const byApi = spawnSync(process.execPath, [join(HERE, 'report.mjs'), '--graph', apiGraph,
+    '--api', '$default', '--json', apiOut], { cwd: root, encoding: 'utf8' });
+  check('`--api "$default"` では引けない（終了 2。実在しない endpoint を作らない）',
+    byApi.status === 2 && !existsSync(apiOut),
+    JSON.stringify([byApi.status, (byApi.stderr || '').trim().slice(0, 60), existsSync(apiOut)]));
 }
 
 // (8) 第 29 ラウンドの裁定の表示側: 本命にしない代償を黙らせない
@@ -750,6 +849,7 @@ check('--limit で一覧が切れてもカウンタの不変条件は保たれ�
   const intRow = g ? allRows(g.result).find((x) => x.id === 'tf:aws_api_gateway_integration.b') : null;
   check('method との対応が入力から決まらない統合には 対応未確定 の理由を立て、サマリに警告を 1 行出す',
     !!g && !!intRow && intRow.unresolvedCorr === true && intRow.tier === 'wiring'
+    && intRow.unresolvedCorrReason === 'no-method-correspondence' && intRow.bucket === 'wiring'
     && g.result.summary.unresolvedCorr === 1
     && countOf(g.stdout, WARN) === 1 && countOf(g.md, WARN) === 1
     && g.md.includes(REASON)
@@ -800,13 +900,53 @@ check('--limit で一覧が切れてもカウンタの不変条件は保たれ�
     && JSON.stringify(land(many)) === JSON.stringify(want)
     && JSON.stringify(land(lots)) === JSON.stringify(want),
     [few, many, lots].map((x) => JSON.stringify(land(x))).join(' / '));
-  check('兄弟ルートは件数で要約し、一覧は先頭だけ出して残りは件数で示す',
+  // 第 30 ラウンド指摘 F: 兄弟ルートの既定表示は**件数だけ**。一覧は `--list-siblings` を
+  // 立てたときだけ出し、本数は暗黙の 12 本ではなく `--limit` に従う
+  check('兄弟ルートは既定が件数だけの要約で、一覧を出さない（--list-siblings で一覧）',
     !!lots && lots.result.summary.siblingEndpointsOnly === 29
-    && lots.md.includes('他のルート 17 件') && lots.stdout.includes('他のルート 18 件')
+    && lots.md.includes('兄弟ルート 29 件') && lots.md.includes('--list-siblings')
     && ((lots.md.split('### 同じコードを使う別の API')[1] || '').split('\n### ')[0]
-      .split('\n').filter((x) => x.startsWith('- `')).length) === 12,
+      .split('\n').filter((x) => x.startsWith('- `')).length) === 0
+    && lots.stdout.includes('兄弟ルート 29 件（一覧は --list-siblings）')
+    && !lots.stdout.includes('他のルート'),
     lots ? JSON.stringify([lots.result.summary.siblingEndpointsOnly,
-      lots.md.includes('他のルート 17 件'), lots.stdout.includes('他のルート 18 件')]) : '実行失敗');
+      lots.md.includes('兄弟ルート 29 件'),
+      (lots.md.split('### 同じコードを使う別の API')[1] || '').split('\n### ')[0]
+        .split('\n').filter((x) => x.startsWith('- `')).length,
+      lots.stdout.includes('兄弟ルート 29 件（一覧は --list-siblings）')]) : '実行失敗');
+  // 一覧を出するときの本数は `--limit` に従う（`--limit 5` と `--limit 50` で 12 本に固定される
+  // 不整合をなくす）。JSON 行には理由コードを立てる
+  const listed = runSyn('sib-listed', apiShape(3, 30, true),
+    [...start, '--list-siblings', '--limit', '5'], 'sib-listed');
+  const listed50 = runSyn('sib-listed50', apiShape(3, 30, true),
+    [...start, '--list-siblings', '--limit', '50'], 'sib-listed50');
+  const bulletCount = (m) => ((m.split('### 同じコードを使う別の API')[1] || '').split('\n### ')[0]
+    .split('\n').filter((x) => x.startsWith('- `')).length);
+  check('兄弟ルートの一覧は --list-siblings で出し、本数は --limit に従う（JSON 行に理由コード）',
+    !!listed && !!listed50 && bulletCount(listed.md) === 5 && listed.md.includes('他のルート 24 件')
+    && bulletCount(listed50.md) === 29 && !listed50.md.includes('他のルート')
+    && listed50.result.siblingEndpoints.every((r) => typeof r.siblingReason === 'string'
+      && ['shared-code-endpoint', 'sibling-api-definition'].includes(r.siblingReason)),
+    [listed, listed50].map((x) => (x ? JSON.stringify([bulletCount(x.md), x.md.includes('他のルート 24 件')]) : '実行失敗')).join(' / '));
+
+  // 一覧を既定で出すのをやめたぶん、JSON 単体で「どの欄の・なぜこの行なのか」が読めること
+  const expectedBucket = (r) => {
+    const m = new Map();
+    for (const b of ['external', 'entries', 'artifacts']) {
+      for (const d of ['in', 'out']) for (const x of r[b][d]) m.set(x.id, `${b}.${d}`);
+    }
+    for (const b of ['sameApi', 'siblingEndpoints', 'wiring']) for (const x of r[b]) m.set(x.id, b);
+    return m;
+  };
+  check('JSON の各行に出た欄名（bucket）が立ち、兄弟の行は理由コードを持つ',
+    !!listed50 && (() => {
+      const m = expectedBucket(listed50.result);
+      return m.size === listed50.result.summary.rows
+        && allRows(listed50.result).every((x) => x.bucket === m.get(x.id))
+        && listed50.result.siblingEndpoints.every((x) => !!x.siblingReason);
+    })(),
+    listed50 ? JSON.stringify([listed50.result.summary.rows, expectedBucket(listed50.result).size,
+      allRows(listed50.result).filter((x) => x.bucket === 'siblingEndpoints').length]) : '実行失敗');
 
   // 実データでよくある形: integration の `resource_id` が **method を直接参照**している
   // （`http_method` の三つ組が要らない）。この対応縁は入力をそのまま読めるので昇格してよい
@@ -853,6 +993,85 @@ check('--limit で一覧が切れてもカウンタの不変条件は保たれ�
     && !g.stdout.includes(ZERO_MSG) && !g.md.includes(ZERO_MSG),
     z ? JSON.stringify([z.result.summary.primaryOut, countOf(z.stdout, ZERO_MSG),
       countOf(z.md, ZERO_MSG)]) : '実行失敗');
+}
+
+// (9) 第 30 ラウンドの指摘 C / E: コード起点でも「API の定義を越えた先」の行が消えない
+{
+  // C. 対応未確定の統合の下流で届いたコードは、そのままにすると 2 段目の walk の種ではぐれ、
+  // その先の `writes` が**行ごと消える**。`touched-api-nocorr` のテーブルがその実測
+  const nc = runOn('touched-api-nocorr.graph.json', ['--from', 'tf:aws_lambda_function.a'], 'r30-nocorr');
+  const ncRows = nc ? allRows(nc.result) : [];
+  const atNc = (id) => ncRows.find((x) => x.id === id);
+  check('コード起点でも 対応未確定の統合の先（ハンドルとその書き込み先）が 定義上の関連 に残る',
+    !!nc && (atNc('member:B.Handle') || {}).tier === 'wiring'
+    && (atNc('ext:rds-table/orders') || {}).tier === 'wiring'
+    && (atNc('ext:rds-table/orders') || {}).direction === 'out'
+    && nc.result.summary.primaryOut === 1 && nc.result.summary.entryOut === 1
+    && nc.result.summary.unresolvedCorr === 1,
+    nc ? JSON.stringify([nc.result.summary.rows,
+      [atNc('member:B.Handle'), atNc('ext:rds-table/orders')].map((x) => x && [x.tier, x.direction])]) : '実行失敗');
+  // 同じゲートを「届いたコードなら何でも種」にすると、IAM ポリシー起点が定義の縁だけで
+  // 全 Lambda とそのハンドルへ膨らむ。15 行のままを固定する
+  const iam = run(['--from', 'tf:aws_iam_role_policy.dynamo_policy', '--limit', '100000'], 'r30-iam');
+  check('IAM ポリシー起点は定義の縁だけで届いたコードを種にしない（15 行のまま膨らまない）',
+    !!iam && iam.result.summary.rows === 15 && iam.result.summary.wiring === 15
+    && iam.result.summary.primaryOut === 0 && iam.result.summary.primaryIn === 0
+    && iam.result.summary.entryOut === 0 && iam.result.summary.entryIn === 0,
+    iam ? JSON.stringify([iam.result.summary.rows, iam.result.summary.wiring,
+      iam.result.summary.entryOut]) : '実行失敗');
+
+  // E. 起点がコードのときも「統合がメソッドを指している一歩」は連鎖に残す（v1 の実データ形）。
+  // 以前は逆向きの `references` というだけで切り、統合の先の Lambda が 定義上の関連 に落ちていた
+  const eNodes = [
+    synNode('tf:aws_lambda_function.start', 'resource', { resourceType: 'aws_lambda_function' }),
+    synNode('member:A.Start', 'member'),
+    synNode('tf:aws_api_gateway_method.m', 'resource', { resourceType: 'aws_api_gateway_method',
+      category: 'apigateway', endpoint: 'POST /x' }),
+    synNode('tf:aws_api_gateway_integration.i', 'resource', { resourceType: 'aws_api_gateway_integration',
+      category: 'apigateway' }),
+    synNode('tf:aws_lambda_function.impl', 'resource', { resourceType: 'aws_lambda_function' }),
+    synNode('member:Impl.Handle', 'member'),
+    synNode('ext:rds-table/rows', 'resource', { resourceType: 'aws_dynamodb_table', category: 'dynamodb' }),
+  ];
+  const eEdges = [
+    synEdge('handler', 'tf:aws_lambda_function.start', 'member:A.Start'),
+    synEdge('invokes', 'member:A.Start', 'tf:aws_api_gateway_method.m', 'human'),
+    synEdge('references', 'tf:aws_api_gateway_integration.i', 'tf:aws_api_gateway_method.m'),
+    synEdge('triggers', 'tf:aws_api_gateway_integration.i', 'tf:aws_lambda_function.impl'),
+    synEdge('handler', 'tf:aws_lambda_function.impl', 'member:Impl.Handle'),
+    synEdge('writes', 'member:Impl.Handle', 'ext:rds-table/rows', 'human'),
+  ];
+  const eRun = runSyn('r30-ref-chain', { nodes: eNodes, edges: eEdges },
+    ['--from', 'member:A.Start'], 'r30-ref-chain');
+  const eRows = eRun ? allRows(eRun.result) : [];
+  const atE = (id) => eRows.find((x) => x.id === id);
+  check('コード起点でも「統合がメソッドを指している一歩」を越えた先（Lambda・ハンドル・テーブル）が本命',
+    !!eRun && (atE('tf:aws_api_gateway_integration.i') || {}).tier === 'primary'
+    && (atE('tf:aws_lambda_function.impl') || {}).tier === 'primary'
+    && (atE('member:Impl.Handle') || {}).tier === 'primary'
+    && (atE('ext:rds-table/rows') || {}).tier === 'primary',
+    eRun ? JSON.stringify(eRows.map((x) => [x.id.replace(/^tf:aws_/, ''), x.tier])) : '実行失敗');
+  // 同じ一歩を「何でも連鎖に残す」にすると、ロールを共有する別 Lambda への扇出が復活する
+  const fanNodes = [
+    synNode('tf:aws_iam_role_policy.p', 'resource', { resourceType: 'aws_iam_role_policy' }),
+    synNode('tf:aws_iam_role.r', 'resource', { resourceType: 'aws_iam_role' }),
+    synNode('tf:aws_lambda_function.s', 'resource', { resourceType: 'aws_lambda_function' }),
+    synNode('tf:aws_lambda_function.other', 'resource', { resourceType: 'aws_lambda_function' }),
+    synNode('member:Other.Handle', 'member'),
+  ];
+  const fanEdges = [
+    synEdge('references', 'tf:aws_iam_role_policy.p', 'tf:aws_iam_role.r'),
+    synEdge('references', 'tf:aws_lambda_function.s', 'tf:aws_iam_role.r'),
+    synEdge('references', 'tf:aws_lambda_function.other', 'tf:aws_iam_role.r'),
+    synEdge('handler', 'tf:aws_lambda_function.other', 'member:Other.Handle'),
+  ];
+  const fan = runSyn('r30-iam-fan', { nodes: fanNodes, edges: fanEdges },
+    ['--from', 'tf:aws_iam_role_policy.p'], 'r30-iam-fan');
+  const fanRows = fan ? allRows(fan.result) : [];
+  check('ロールを参照している別 Lambda への扇出は依然として 定義上の関連（指摘 E で広げない）',
+    !!fan && fanRows.every((x) => x.tier === 'wiring')
+    && (fanRows.find((x) => x.id === 'member:Other.Handle') || {}).tier === 'wiring',
+    fan ? JSON.stringify(fanRows.map((x) => [x.id.replace(/^tf:aws_/, ''), x.tier])) : '実行失敗');
 }
 
 rmSync(dir, { recursive: true, force: true });

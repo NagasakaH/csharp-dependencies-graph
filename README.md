@@ -97,6 +97,19 @@ node skill/scripts/report.mjs --graph out/demo/graph.json --api "POST /orders"
 | 同じコードを使う別の API | `### 同じコードを使う別の API（…）` | `siblingEndpoints` | `siblings`（内訳は `siblingEndpointsOnly` / `siblingDefs`） |
 | 定義上の関連 | `### 定義上の関連（…）` | `wiring` | `wiring` |
 
+**実行経路とみなす条件**（第 29 ラウンドの裁定）: `method → invokes → integration`（v2 の `target`、
+v1 の三点組）または統合からメソッドへの直接参照・注釈があるときだけ実行経路とみなす。無いものは
+定義上の関連 に残して対応未確定の警告を出す（「その API の下に method が 1 件しかない」で橋を掛けたり、
+同じ API の定義を辿っただけで実装側を昇格したりしない）。
+
+**兄弟ルートは 本命 の結果に影響せず、別欄に要約する**（第 29 / 30 ラウンド）。同じ Lambda・handler を
+共有しているだけの別エンドポイント（`route_key = "$default"` を含む）は起点の実行経路に数えない。
+既定の表示は **件数だけ**で、一覧は `--list-siblings` を立てたときだけ `--limit` 本並べる
+（実測: 40 API × 20 route のグラフで 799 本が画面を埋めていた）。JSON の各行には印刷した欄名と同じ
+`bucket` と理由コード（`siblingReason` = `shared-code-endpoint` / `sibling-api-definition`、
+`unresolvedCorrReason` = `no-method-correspondence`）を立てる。`tier` は内部の昇格状態なので、
+欄の判定は `bucket` を見る。
+
 向きは縁の意味で決める。(1) 動きの縁（`triggers` / `invokes` / `handler` / `exposed-by`）で届いていれば
 **矢印の先が下流**（`exposed-by` だけ逆向きで、コード側が下流）。(2) 起点がエンドポイントで、その
 **実装側**に入ったなら（`exposed-by` や `handler` を手前に渡ったところ）そこから先は全部 影響する先。

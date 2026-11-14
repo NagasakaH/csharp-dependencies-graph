@@ -250,6 +250,49 @@ rmSync(dir, { recursive: true, force: true });
     varRef.invokes.length === 0 && varRef.unresolved.some((x) => x.includes('aws_api_gateway_integration.i')
       && x.includes('rest_api_id')),
     JSON.stringify(varRef));
+
+  // ---- 三点組のキーは**実体（解決済みノード id）**で決める（第 30 ラウンド指摘 A、両名）----
+  // キーが「rest API 名 / resource 名 / 動詞」だけだと、別ディレクトリの独立 API が同じローカル名を
+  // 使っただけで「三点組の重複宣言」として潰れ、正常な対応まで落ちた
+  const scanV1Files = (tag, files) => {
+    const d = join(dir, `multi-${tag}`);
+    mkdirSync(d, { recursive: true });
+    for (const [name, body] of Object.entries(files)) {
+      const p = join(d, name);
+      mkdirSync(dirname(p), { recursive: true });
+      writeFileSync(p, body, 'utf8');
+    }
+    const o = join(dir, `multi-${tag}.json`);
+    const pr = spawnSync(process.execPath, [join(HERE, 'scan-terraform.mjs'), '--root', d, '--out', o],
+      { cwd: root, encoding: 'utf8', timeout: 60_000 });
+    if (pr.status !== 0) { console.error((pr.stdout || '') + (pr.stderr || '')); process.exit(1); }
+    const gg = JSON.parse(readFileSync(o, 'utf8'));
+    return gg.edges.filter((e) => e.kind === 'invokes').map((e) => `${e.source}->${e.target}`).sort();
+  };
+  // 別ディレクトリに同名アドレスの独立 API を置いても、両方の `invokes` が残る
+  const modFile = (mod) => {
+    const body = api.replace('name = "a"', `name = "${mod}"`) + res.replace('path_part   = "orders"', `path_part   = "${mod}"`)
+      + method('POST') + integ('  http_method = "POST"\n');
+    return [`modules/${mod}/main.tf`, body];
+  };
+  const twoMods = scanV1Files('twomod', Object.fromEntries([modFile('m1'), modFile('m2')]));
+  check('別ディレクトリの同名アドレス（module 名・ローカル名・動詞が同じ）は両方の `invokes` が残る',
+    twoMods.length === 2 && twoMods.every((x) => x.includes('main.tf#aws_api_gateway_method.m')
+      && x.includes('main.tf#aws_api_gateway_integration.i')),
+    JSON.stringify(twoMods));
+  // 本当に同じ実体へ同じ三点組が 2 本書いたときだけ不確定（上の `dup` 検査と同じ結論であることを、
+  // 名前ではなく**実体 id**で判定している証拠として、上の 2 ディレクトリケースと対で固定する）
+  const sameTripleTwice = scanV1Files('sametriple', {
+    'api.tf': api + res,
+    'orders.tf': method('POST', 'm') + method('POST', 'm2') + integ('  http_method = "POST"\n'),
+  });
+  check('同じ実体の三点組を本当に 2 つ宣言したときだけ縁を張らない',
+    sameTripleTwice.length === 0, JSON.stringify(sameTripleTwice));
+  // よくある分割（`api.tf` に rest API / resource、`orders.tf` に method / integration）で決まる
+  const split = scanV1Files('split', { 'api.tf': api + res, 'orders.tf': method('POST') + integ('  http_method = "POST"\n') });
+  check('三点組がファイル跨ぎで分かれていても縁を張る（`api.tf` / `orders.tf` の分割）',
+    split.length === 1 && split[0] === 'tf:aws_api_gateway_method.m->tf:aws_api_gateway_integration.i',
+    JSON.stringify(split));
 }
 
 console.log(`\n${pass}/${pass + failures.length} 件成功`);

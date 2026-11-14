@@ -220,9 +220,22 @@ node $SKILL/scripts/report.mjs --graph out/graph/graph.json --api "POST /orders"
   段数は定義の縁（`references`）だけ数え、動きの縁を越えたら数え直す。
 - 起点がエンドポイントのときは、起点を定義する `resource` / `rest_api` / `integration` /
   `deployment` を「影響を受ける外部リソース」に数えない。
+- **実行経路とみなす条件**: `method → invokes → integration`（v2 の `target`、v1 の三点組）または
+  統合からメソッドへの直接参照・注釈があるときだけ実行経路とみなす。無いものは 定義上の関連 に残して
+  対応未確定の警告を出す（「その API の下に method が 1 件しかない」での橋渡しは作らない）
+- **兄弟ルートは 本命 の結果に影響せず、別欄に要約する**: 同じ Lambda / handler を共有しているだけの
+  別エンドポイント（`route_key = "$default"` を含める）は起点の実行経路に数えない。既定の一覧は出さず
+  **件数だけ**出す（一覧は `--list-siblings`、本数は `--limit`）。JSON 行には理由コードを立てる
+  （`siblingReason` = `shared-code-endpoint` / `sibling-api-definition`、
+  `unresolvedCorrReason` = `no-method-correspondence`）。各行には印刷した欄名と同じ `bucket` も立てる
+  （`tier` は内部の昇格状態。欄の判定は `bucket` で見る）
 - **Terraform の縁は向きに意味がない**ので無方向で閉じる（`--wiring-hops` 既定 3 段）。ただし
   `triggers` / `invokes` / `handler` は動きとして伝わるので本命、`references` だけ定義上に回す。
   `data` ソースはほとんどを参照するので既定では閉じない（`--include-data`）
+- **逆向きの定義の縁が先に先着しても 本命 を潰さない**: 同一ノードへの到達は旗（本命 / 定義上 /
+  `invokes` で届いた / 段数の残り）の包含関係で支配判定し、支配する旗で届いた経路は再展開する。
+  先に着いた順だけで打ち切ると、`references` を逆向きに歩いた一歩が後からの `chain: true` を殺す
+  （第 30 ラウンド指摘 D。実測で `demo-order` の 3 行が出力から消えていた）
 - **探索の打ち切り**: 外側の探索は「まだ歩いていないコードのノード」か「未登録の API グループ」が
   無くなるまで続ける。実行したラウンド数は `summary.rounds`、上限（既定
   `6 + API グループ数 + コードのノード数 + 2`、`--max-rounds`）は `summary.maxRounds` に出る。
@@ -290,7 +303,10 @@ node $SKILL/scripts/test-report.mjs          # 差分 → 影響範囲レポー�
 （欄の合計 == `summary.rows`）、根拠経路に `null` が混ざらない、IAM ロールだけを共有する別 Lambda を
 昇格させない、`project:` 起点がパスの所属で展開される、`--provenance static` が closure にも効く、
 呼びに出したエンドポイント（`invokes`）を兄弟にしない、向き（影響する先 / 受ける入口）が
-縁の矢印と食い違わない、を確かめる。
+縁の矢印と食い違わない、逆向きの定義の縁が先着しても 本命 が潰れない、`route_key = "$default"` を
+起点にすると委譲先は本命で別ルートは定義上になる、兄弟ルートは既定で件数だけ出して `--list-siblings`
+で `--limit` 本まで並べる、IAM ポリシー起点が定義の縁だけで届いたコードを種にせず 15 行のまま、
+コード起点でも「統合がメソッドを指している一歩」を越えた先が本命、を確かめる。
 
 `test-terraform.mjs` は `fixtures/TerraformApi/`（C# を置かない Terraform だけの fixture）と
 `fixtures/V2HttpApi/`（HTTP API v2 の fixture。`route` の `target` と `api_id` を通す形と崩れる形を両方置く）に
