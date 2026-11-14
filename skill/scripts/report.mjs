@@ -29,7 +29,7 @@ const USAGE = `使い方: report.mjs --graph <graph.json> [--changed <変更フ�
                 [--json <out>] [--md <out>] [--expect <期待一覧.json>] [--no-expand] [--folder-start]
                 [--wiring-hops N] [--include-data] [--limit N] [--max-rounds N] [--list-siblings]
 
-  --changed   1 行 1 パスの一覧ファイル。`-` で標準入力（git diff --name-only をそのまま渡せる）。
+  --changed   1 行 1 パスの一覧ファイル。「-」で標準入力（git diff --name-only をそのまま渡せる）。
               パスは graph.json の node.path と同じ表記（リポジトリ根からの相対）。
   --api       API Gateway のメソッドとパスで起点を引く（"POST /orders"）。パスの末尾の / はどちらでもよい。
   --list-siblings 兄弟ルート（同じコードを使う別のエンドポイント）の**一覧**を出す。既定は件数だけの

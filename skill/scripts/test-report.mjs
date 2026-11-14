@@ -19,6 +19,21 @@ function check(label, ok, detail) {
   if (ok) { pass++; console.log(`PASS ${label}`); } else { failures.push(label); console.log(`FAIL ${label}${detail ? `  ${detail}` : ''}`); }
 }
 
+// --help は .NET が無くても出せる。 USAGE はリテラルの中に ASCII のバッククォートを
+// 入れると式として解釈されて NaN になり、第 46 ラウンドまでずっと「NaN」だけ出ていた
+// （`--help` の出力がこのスクリプトの唯一の契約開示なので、必ず検査する）。
+const help = spawnSync(process.execPath, [join(HERE, 'report.mjs'), '--help'], { encoding: 'utf8' });
+const helpOut = (help.stdout || '') + (help.stderr || '');
+check('--help が使い方を出して 0 で終わる', help.status === 0 && helpOut.startsWith('使い方:') && !helpOut.includes('NaN'),
+  `exit=${help.status} 先頭=${JSON.stringify(helpOut.slice(0, 24))}`);
+check('--help に 向き の値域と none の注記がある',
+  helpOut.includes('in / out / none') && helpOut.includes('この表示経路に 向き を決める') && helpOut.includes('「—」'),
+  JSON.stringify(helpOut.slice(0, 80)));
+const noargs = spawnSync(process.execPath, [join(HERE, 'report.mjs')], { encoding: 'utf8' });
+check('--graph 無しは使い方を標準エラーに出して 2 で終わる',
+  noargs.status === 2 && (noargs.stderr || '').startsWith('使い方:') && !(noargs.stderr || '').includes('NaN'),
+  `exit=${noargs.status} 先頭=${JSON.stringify((noargs.stderr || '').slice(0, 24))}`);
+
 if (!process.env.CGD_BIN && !existsSync(join(HERE, '..', 'analyzer', 'bin', 'Release', 'net9.0', 'cgd'))) {
   console.error('[test] skill/analyzer/bin/Release/net9.0/cgd がありません。`dotnet build skill/analyzer/cgd.csproj -c Release` を先に実行してください。');
   process.exit(1);
