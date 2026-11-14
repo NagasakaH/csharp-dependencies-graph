@@ -84,6 +84,18 @@ node skill/scripts/report.mjs --graph out/demo/graph.json --api "POST /orders"
   **別 API から自分の API へ流入している意味ではない**（`影響を受ける入口` に並べると誤読できる）
 - 定義上の関連 — Terraform の `references`（ブロックを文中に書いただけ）
 
+枠と、Markdown の見出しと、JSON の欄名と、`summary` のカウンタの対応は次どおり
+（Markdown の見出しは `## 影響を受ける API エンドポイント` をのぞいてすべて `###`）。
+
+| 枠 | Markdown の見出し | JSON の欄 | `summary` のカウンタ |
+| --- | --- | --- | --- |
+| 影響する外部リソース / 影響を受ける入口 | `### 影響する外部リソース（…）` / `### 影響を受ける入口（…）` | `external.out` / `external.in` | `primaryOut` / `primaryIn` |
+| コード側の出口 / 影響を受ける入口 | `### 影響するコード側の出口（…）` / `### 影響を受けるコード側の入口（…）` | `entries.out` / `entries.in` | `entryOut` / `entryIn` |
+| リポジトリ内の成果物 | `### 影響するリポジトリ内の成果物（…）` / `### 影響を受けるリポジトリ内の成果物（…）` | `artifacts.out` / `artifacts.in` | `artifactsOut` / `artifactsIn` |
+| 同じ API を定義するノード | `### 起点と同じ API を定義するノード（…）` | `sameApi` | `sameApi` |
+| 同じコードを使う別の API | `### 同じコードを使う別の API（…）` | `siblingEndpoints` | `siblings`（内訳は `siblingEndpointsOnly` / `siblingDefs`） |
+| 定義上の関連 | `### 定義上の関連（…）` | `wiring` | `wiring` |
+
 向きは縁の意味で決める。(1) 動きの縁（`triggers` / `invokes` / `handler` / `exposed-by`）で届いていれば
 **矢印の先が下流**（`exposed-by` だけ逆向きで、コード側が下流）。(2) 起点がエンドポイントで、その
 **実装側**に入ったなら（`exposed-by` や `handler` を手前に渡ったところ）そこから先は全部 影響する先。
@@ -111,9 +123,10 @@ JSON の一覧はすべて `--limit`（既定 200）で**打ち切る**。打ち
 true になり、`summary` の各欄の数は**打ち切る前**のままなので「欄の合計 == 総行数」は常にカウンタ側で
 確かめる。
 
-探索の深さにも打ち切れがある。外側の探索は「まだ歩いていないコードのノード」か「未登録の API グループ」が
-無くなるまで繰り返し、回数の上限は既定で `6 + グラフ中の API グループ数 + コードのノード数 + 2`
-（`--max-rounds` で変えられる）。上限に達して仕事が残ったときは `summary.unresolved` が true になり、
+探索の深さにも打ち切りがある。外側の探索は「まだ歩いていないコードのノード」か「未登録の API グループ」が
+無くなるまで繰り返し、実行したラウンド数は `summary.rounds`、その上限は `summary.maxRounds` に出る。
+上限は既定で `6 + グラフ中の API グループ数 + コードのノード数 + 2`（`--max-rounds` で変えられる）。
+上限に達して仕事が残ったときは `summary.unresolved` が true になり、
 stderr に警告、Markdown に「探索が収束していません」の注意書きを出す。どちらも結果が完全でないことを
 隠さない。
 
