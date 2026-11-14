@@ -425,8 +425,8 @@ function walkWithSwitch(seedIds, first) {
   // （双人レビュー第 30 ラウンド指摘 D、両名実測。`Handler.A → M1 → X` に対して
   // `Caller.C → X` の逆向き一歩が先着すると `X` がいつまでも wiring のままだった）。
   // 閉包側（runClosure）はすでに `(chain, elig, down, apiTail)` の 16 枠 + 予算で支配判定をしている。
-  // walk も同じ形にするが、枠は下の 5 つ + 向き（下記）で、旗が立つほど広い（= 上の枠が下を支配する）。
-  // 旗は `mergeFlags` で単調に立つだけなので、1 ノードあたりの再展開は高々 32 枠ぶん有限回
+  // walk も同じ形にするが、枠は下の 6 つ + 向き（下記）で、旗が立つほど広い（= 上の枠が下を支配する）。
+  // 旗は `mergeFlags` で単調に立つだけなので、1 ノードあたりの再展開は高々 64 枠ぶん有限回
   const WALK_CHAIN = 1;        // 起点の実装関係で結ばれた連鎖
   const WALK_DOWN = 2;         // 実装側（この先は 影響する先）
   const WALK_INVOKES = 4;      // 起点が呼びに出した一歩で着いた
@@ -434,18 +434,19 @@ function walkWithSwitch(seedIds, first) {
   const WALK_UNBLOCKED = 16;   // 兄弟エンドポイントからの外出ではない
   const WALK_IN = 32;          // このノードから `in` 側を辿れる
   const WALK_OUT = 64;         // このノードから `out` 側を辿れる
+  const WALK_API_TAIL = 128;   // この経路が API の定義（統合・method・route）を越えて届いた
   // 辿れる向きは「両方向」なら `in` と `out` の両方のビットを立てる。包含で支配判定をするので、
   // 両方向を辿れる枠は片方向だけの枠を自動的に支配する。
-  // `apiTail` は枠に入れない（双人レビュー第 31 ラウンド agy 指摘 1 の walk 側の半分）。この旗は
-  // コードの種（`codeSeeds`）の資格だが、種を見るのは**記録**（`combined`）で、旗はそこで
-  // 単調に寄せられる。しかも walk は着いたノードをその場で展開し続けるので、旗が後から立った
-  // ノードの先まで歩き終わっている = 再展開を待たなくてもコードは届く。実際に種が必要になるのは
-  // 閉包（定義側）で着いたコードで、そこは `runClosure` 側の 16 枠が塞ぐ。
-  // 枠に入れた形も実測した（旗が後から立ったノードの先を問う fixture は両形で通る）。が、起点が
-  // エンドポイントのレポートで `method` が別方向で再展開されるようになり、同じ API を定義する
-  // 行の 向き が in → out に反転して根拠の `detail` / `count` も落ちた（v1 基準の 2 行が動く）。
-  // 得るものが無く v1 の契約を動かすだけなので枠には入れない
+  // `apiTail` も枠に入れる（双人レビュー第 32 ラウンド agy 指摘の案 A）。前ラウンドまでは
+  // 「旗は記録（`combined`）へ寄せれば足りる、walk は着いたノードをその場で展開し続けるので
+  // 先まで届く」と外していた。が、それは旗を結んだ縁を walk も辿れる場合の話。
+  // 旗を結ぶ一歩が注釈（`human` / `llm`）だと、閉包（`runClosure`）は `provenance: 'terraform'`
+  // の縁しか辿らないので旗を中継できず、枠に入れないと着地ごと消える。実測
+  // （`out/tmp-r33/agy-repro2.py`）: `u` への 2 経路のうち旗を立てる側が定義側の先着に負けて
+  // 再展開されず、`u -> invokes(注釈) -> V.Entry` の先 `ext:rds-table/orders` が縁の並び順だけで
+  // 消えた（`orig` 6 行 / `rev` 7 行）。枠に入れたことで生じる塗り替えは下の `back` ガードで塞ぐ
   const stateKey = (r) => (r.chain ? WALK_CHAIN : 0)
+    | (r.apiTail ? WALK_API_TAIL : 0)
     | (r.down ? WALK_DOWN : 0)
     | (r.reachedByInvokes ? WALK_INVOKES : 0)
     | (r.wiring !== true ? WALK_PROMOTABLE : 0)
@@ -609,6 +610,28 @@ function walkWithSwitch(seedIds, first) {
               && !refCutsChain(e, cur.id, to),
           };
           const prevRec = found.get(to);
+          // 循環境避で **API の定義ノード（統合・method・route）へ戻る一歩**は、旗を先着の記録に
+          // 寄せるだけで再展開しない。`apiTail` を枠に入れたとき v1 基準を塗り替えたのは、まさに
+          // この一歩が開いた再展開だった（実測: `--from tf:aws_api_gateway_method.post_order` で
+          // `post_order --exposed-by(注釈)--> 実装` を折り返して `post_order` へ戻る一歩が `mdir` を
+          // `out` に反転させ、`hops: 3` の walk 経路が `orders_path` / `rest_api.orders` を
+          // 向き out・根拠は `detail` / `count` 無しで先着した）。同じノードの定義まわりの行は
+          // 閉包が `hops: 1`・完全な縁（`detail` / `count` 付き）で既に記録しているので、
+          // walk が深く塗り替える意味はない。
+          // 他の打ち手も実測して落ちた（`out/tmp-r33/try-candidates.log`、`out/tmp-r33/deep-tail.py`、
+          // `out/tmp-r33/try-edge-detail.py`）:
+          // (a) 段数の扱い（`apiTail` だけを新たに立てる再展開を、先着より深い段数で閉じる）は
+          //     v1 基準 0 件を通すが、旗を立てる一歩が 1 段深く届く fixture で `ext:rds-table/orders`
+          //     が再び消える（7 行 / 出ない）。直ったように見えるのが段数の一致に依存していて脆い
+          // (b) walk の `edge` に `detail` / `count` を残す手は根拠だけ戻り、向き の in → out 反転が
+          //     残る（v1 差分 2 件のまま）
+          // (c) ガードを `back` 全般（v1 差分: `demo-order` の `entryIn` 3 → 1）や `resource` 全般
+          //     （v1 差分: `real-api` の `aws_lambda_permission` の向き）へ広げると別の実測が壊れる
+          // だからガードは「循環境避 × API の定義ノード」の交わりにだけ絞る
+          if (back && apiTailFrom(byId.get(to))) {
+            found.set(to, prevRec ? mergeFlags(prevRec, rec) : rec);
+            continue;
+          }
           if (!prevRec) {
             found.set(to, rec);
             markExpanded(to, stateKey(rec), rec.hops);

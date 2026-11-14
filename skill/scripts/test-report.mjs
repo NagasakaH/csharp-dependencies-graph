@@ -1185,6 +1185,100 @@ check('--limit で一覧が切れてもカウンタの不変条件は保たれ�
       allRows(fromPolicy.result).map((x) => x.id.replace(/^tf:aws_/, ''))]) : '実行失敗');
 }
 
+// (12) 第 32 ラウンドの指摘（双人レビュー agy・案 A）: `apiTail` を walk の枠に入れた形での
+// 縁の並び順の揺れと、同じ API を定義する行の塗り替え
+{
+  // A. 注釈（`invokes`）を跨いだ先に旗を立てる形。`u` への 2 経路（定義側と統合側）のうち
+  // 旗を立てる側が後着だと、枠に旗が無い限り `u` が再展開されず `ext:rds-table/orders` が
+  // 縁の並び順だけで全欄から消えた（orig 6 行 / rev 7 行）。並び順 2 通りで同じ結果になること、
+  // および テーブルがどちらでも 定義上の関連 として残ることを固定する
+  const uNodes = [
+    synNode('tf:aws_lambda_function.a', 'resource', { resourceType: 'aws_lambda_function' }),
+    synNode('tf:aws_iam_role.r', 'resource', { resourceType: 'aws_iam_role' }),
+    synNode('tf:aws_api_gateway_integration.i', 'resource', { resourceType: 'aws_api_gateway_integration',
+      category: 'apigateway' }),
+    synNode('tf:aws_lambda_function.u', 'resource', { resourceType: 'aws_lambda_function' }),
+    synNode('member:V.Entry', 'member'),
+    synNode('tf:aws_lambda_function.b', 'resource', { resourceType: 'aws_lambda_function' }),
+    synNode('member:B.Handle', 'member'),
+    synNode('ext:rds-table/orders', 'resource', { resourceType: 'aws_dynamodb_table' }),
+  ];
+  const uEdges = [
+    synEdge('references', 'tf:aws_iam_role.r', 'tf:aws_lambda_function.a'),
+    synEdge('references', 'tf:aws_lambda_function.u', 'tf:aws_iam_role.r'),
+    synEdge('triggers', 'tf:aws_api_gateway_integration.i', 'tf:aws_lambda_function.a'),
+    synEdge('references', 'tf:aws_lambda_function.u', 'tf:aws_api_gateway_integration.i'),
+    synEdge('invokes', 'member:V.Entry', 'tf:aws_lambda_function.u', 'human'),
+    synEdge('handler', 'tf:aws_lambda_function.b', 'member:V.Entry'),
+    synEdge('handler', 'tf:aws_lambda_function.b', 'member:B.Handle'),
+    synEdge('writes', 'member:B.Handle', 'ext:rds-table/orders', 'human'),
+  ];
+  // 旗を立てる一歩が 1 段深く届く形（統合と `u` の間にリソースを 1 つ挟む）。段数で閉じる打ち手
+  // だとこの形では再び着地が消えるので、段数に依存しない直し方であることを固定する
+  const uNodesDeep = [...uNodes, synNode('tf:aws_api_gateway_resource.mid', 'resource',
+    { resourceType: 'aws_api_gateway_resource', category: 'apigateway' })];
+  const uEdgesDeep = (tail) => [
+    uEdges[0], uEdges[1], uEdges[2],
+    synEdge('references', 'tf:aws_api_gateway_resource.mid', 'tf:aws_api_gateway_integration.i'),
+    synEdge('references', 'tf:aws_lambda_function.u', 'tf:aws_api_gateway_resource.mid'),
+    ...tail];
+  const shapeOf = (out) => (out ? allRows(out.result)
+    .map((x) => `${x.id}=${x.tier}/${x.direction}/h${x.hops}`) : null);
+  const uRuns = [
+    ['u-orig', { nodes: uNodes, edges: uEdges }],
+    ['u-rev', { nodes: uNodes, edges: [...uEdges].reverse() }],
+    ['u-deep', { nodes: uNodesDeep, edges: uEdgesDeep(uEdges.slice(4)) }],
+    ['u-deep-rev', { nodes: uNodesDeep, edges: uEdgesDeep(uEdges.slice(4)).reverse() }],
+  ].map(([name, g]) => [name, runSyn(name, g, ['--from', 'tf:aws_lambda_function.a'], name)]);
+  const tableOf = (out) => (out ? allRows(out.result).find((x) => x.id === 'ext:rds-table/orders') : null);
+  check('注釈を跨いだ先の旗が後から立つ形で、縁の並び順が逆でも同じ着地が残る（第 32 ラウンド案 A）',
+    uRuns.every(([, out]) => !!out && !!tableOf(out)
+      && tableOf(out).tier === 'wiring' && tableOf(out).direction === 'out')
+    // 段数の違う 2 つの形それぞれで、縁の並び順だけの差が消えること
+    && JSON.stringify(shapeOf(uRuns[0][1])) === JSON.stringify(shapeOf(uRuns[1][1]))
+    && JSON.stringify(shapeOf(uRuns[2][1])) === JSON.stringify(shapeOf(uRuns[3][1])),
+    uRuns.map(([name, out]) => `${name}: ${out ? `rows=${out.result.summary.rows} テーブル=`
+      + (tableOf(out) ? `${tableOf(out).tier}/${tableOf(out).direction}` : '無し') : '実行失敗'}`).join(' | '));
+
+  // B. 同じ API を定義する行を walk の折り返しで塗り替えない。`method --exposed-by(注釈)--> 実装`
+  // を折り返して `method` へ戻る一歩が `mdir` を反転させ、`references` で定義側へ再突入すると
+  // `hops: 3` の walk 経路が 向き out・根拠薄い で先着した（v1 基準の 2 行が in → out）。
+  // 定義跨ぎの広がり自体は閉包が `hops: 1`・完全な縁で記録しているので、向きは in のまま
+  const defNodes = [
+    synNode('tf:aws_api_gateway_method.post_order', 'resource', { resourceType: 'aws_api_gateway_method',
+      category: 'apigateway', endpoint: 'POST /orders' }),
+    synNode('tf:aws_api_gateway_resource.orders_path', 'resource', { resourceType: 'aws_api_gateway_resource',
+      category: 'apigateway' }),
+    synNode('tf:aws_api_gateway_rest_api.orders', 'resource', { resourceType: 'aws_api_gateway_rest_api',
+      category: 'apigateway' }),
+    synNode('member:OrderHandler.Handle', 'member'), synNode('member:Order.Create', 'member'),
+  ];
+  const defEdges = [
+    synEdge('references', 'tf:aws_api_gateway_method.post_order', 'tf:aws_api_gateway_resource.orders_path'),
+    synEdge('references', 'tf:aws_api_gateway_method.post_order', 'tf:aws_api_gateway_rest_api.orders'),
+    synEdge('exposed-by', 'member:OrderHandler.Handle', 'tf:aws_api_gateway_method.post_order', 'human'),
+    synEdge('calls', 'member:OrderHandler.Handle', 'member:Order.Create', 'static'),
+    synEdge('exposed-by', 'member:Order.Create', 'tf:aws_api_gateway_method.post_order', 'human'),
+  ];
+  const defIds = ['tf:aws_api_gateway_resource.orders_path', 'tf:aws_api_gateway_rest_api.orders'];
+  const defRuns = [['def-orig', defEdges], ['def-rev', [...defEdges].reverse()]].map(([name, edges]) =>
+    [name, runSyn(name, { nodes: defNodes, edges }, ['--api', 'POST /orders'], name)]);
+  const defRow = (out, id) => (out ? allRows(out.result).find((x) => x.id === id) : null);
+  check('実装から method へ折り返す一歩が 同じ API を定義する行の 向き を塗り替えない（向き in・hops 1 のまま）',
+    defRuns.every(([, out]) => !!out && defIds.every((id) => {
+      const hit = defRow(out, id);
+      return !!hit && hit.tier === 'wiring' && hit.direction === 'in' && hit.hops === 1
+        && hit.via === 'tf:aws_api_gateway_method.post_order'
+        && hit.path.length === 2 && hit.evidence.kind === 'references';
+    }))
+    && new Set(defRuns.map(([, out]) => JSON.stringify(shapeOf(out)))).size === 1,
+    defRuns.map(([name, out]) => `${name}: ` + (out
+      ? defIds.map((id) => {
+        const hit = defRow(out, id);
+        return `${id.split('.').pop()}=${hit ? `${hit.tier}/${hit.direction}/h${hit.hops}/via=${hit.via ? hit.via.split('.').pop() : '無し'}` : '無し'}`;
+      }).join(' ') : '実行失敗')).join(' | '));
+}
+
 rmSync(dir, { recursive: true, force: true });
 console.log(`\n${pass}/${pass + failures.length} 件成功`);
 if (failures.length) { console.log('失敗: ' + failures.join(' / ')); process.exit(1); }
