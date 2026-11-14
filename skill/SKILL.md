@@ -218,6 +218,8 @@ node $SKILL/scripts/verify.mjs --html out/graph/graph.html --browser "/Applicati
 - [reference/schema.md](reference/schema.md) — `graph.json` / ペイロード / ID 規則 / 注釈スキーマ
 - [examples/annotations.orders-api.json](examples/annotations.orders-api.json) — Lambda + Terraform プロジェクトに
   LLM が注釈を書いた実例（csproj→Lambda、メソッド→API Gateway / DynamoDB / SQS、外部 RDS ノード追加）
+- [examples/annotations.storage.json](examples/annotations.storage.json) — RDS を**テーブル → カラム**まで段階展開できる
+  形で後付けした実例。`--annotation` は繰り返し指定できるので、このように注釈を単位ごとに分けて足せる
 - ビューアの操作: クリック=展開 / ⇧クリック=出力エッジをたどる / ⌥⇧クリック=入力エッジ /
   ホイール=拡大縮小 / ドラッグ=スクロール / 「表示を共有」=現在の展開を URL にコピー
   （`#expand=<id,id>&select=<id>` のディープリンクで同じ画面を開ける）

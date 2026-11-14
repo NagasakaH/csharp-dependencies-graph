@@ -1,0 +1,99 @@
+{
+  "producer": "llm",
+  "source": "skill/examples/annotations.storage.json",
+  "metadata": [
+    {
+      "target": "ext:rds/orders-analytics",
+      "set": {
+        "engine": "PostgreSQL 15",
+        "owner": "analytics-team",
+        "writePath": "NotifyHandler.FunctionHandler → public.order_summary"
+      }
+    }
+  ],
+  "nodes": [
+    {
+      "id": "ext:rds-table/orders-analytics.public.order_summary",
+      "kind": "resource",
+      "name": "order_summary",
+      "parent": "ext:rds/orders-analytics",
+      "metadata": {
+        "resourceType": "rds-table",
+        "category": "storage",
+        "table": "public.order_summary",
+        "managedBy": "別スタック（このリポジトリに Terraform 定義なし）",
+        "notes": " fulfillment 完了時に更新される集計テーブル"
+      }
+    },
+    {
+      "id": "ext:rds-column/orders-analytics.public.order_summary.order_id",
+      "kind": "resource",
+      "name": "order_id",
+      "parent": "ext:rds-table/orders-analytics.public.order_summary",
+      "metadata": {
+        "resourceType": "rds-column",
+        "category": "storage",
+        "dataType": "uuid",
+        "nullable": false,
+        "notes": ""
+      }
+    },
+    {
+      "id": "ext:rds-column/orders-analytics.public.order_summary.status",
+      "kind": "resource",
+      "name": "status",
+      "parent": "ext:rds-table/orders-analytics.public.order_summary",
+      "metadata": {
+        "resourceType": "rds-column",
+        "category": "storage",
+        "dataType": "text",
+        "nullable": false,
+        "notes": ""
+      }
+    },
+    {
+      "id": "ext:rds-column/orders-analytics.public.order_summary.fulfilled_at",
+      "kind": "resource",
+      "name": "fulfilled_at",
+      "parent": "ext:rds-table/orders-analytics.public.order_summary",
+      "metadata": {
+        "resourceType": "rds-column",
+        "category": "storage",
+        "dataType": "timestamptz",
+        "nullable": true,
+        "notes": ""
+      }
+    }
+  ],
+  "edges": [
+    {
+      "source": "member:Orders.Infrastructure.NotifyHandler.FunctionHandler",
+      "target": "ext:rds-table/orders-analytics.public.order_summary",
+      "kind": "writes",
+      "provenance": "llm",
+      "detail": " fulfillment 完了後に集計行を upsert する。先が別スタックの DB なのでコードからは辿れない（注釈で補う）",
+      "confidence": 0.8
+    },
+    {
+      "source": "ext:rds-column/orders-analytics.public.order_summary.order_id",
+      "target": "member:Orders.Domain.Order.Id",
+      "kind": "references",
+      "provenance": "llm",
+      "detail": "列 order_id は ドメインの Order.Id に対応（upsert のキー）"
+    },
+    {
+      "source": "ext:rds-column/orders-analytics.public.order_summary.status",
+      "target": "member:Orders.Domain.Order.Status",
+      "kind": "references",
+      "provenance": "llm",
+      "detail": "列 status は Order.Status の文字列表現（MarkFulfilled 後は fulfilled）"
+    },
+    {
+      "source": "ext:rds-column/orders-analytics.public.order_summary.fulfilled_at",
+      "target": "member:Orders.Domain.Order.MarkFulfilled",
+      "kind": "references",
+      "provenance": "llm",
+      "detail": "MarkFulfilled が呼ばれた時点で書き込む列"
+    }
+  ]
+}

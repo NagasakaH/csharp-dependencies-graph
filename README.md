@@ -20,14 +20,14 @@ open out/graph/graph.html
 
 | 対象 | ノード / エッジ | 内容 |
 | --- | --- | --- |
-| [elsa-core](https://github.com/elsa-workflows/elsa-core) | 51,166 / 55,081（C# 解析 3 秒、HTML 20MB） | 336 csproj、6,754 ファイル、8,223 型、32,572 メンバ、calls 14,762 / accesses 13,514 / references 16,401、898 ファイルが AWS/DB シグナル |
-| `demo/orders-api-lambda` | 70 / 60（静的 27 / Terraform 25 / LLM 8） | C# Lambda 3 csproj + Terraform 16 リソース + LLM 注釈 8 エッジ |
+| [elsa-core](https://github.com/elsa-workflows/elsa-core) | 51,166 / 55,083（C# 解析 3 秒、HTML 20MB） | 336 csproj、6,754 ファイル、8,223 型、32,572 メンバ、calls 14,762 / accesses 13,516 / references 16,426、898 ファイルが AWS/DB シグナル |
+| `demo/orders-api-lambda` | 74 / 64（静的 27 / Terraform 25 / 注釈 12） | C# Lambda 3 csproj + Terraform 16 リソース + 注釈 12 エッジ（RDS をテーブル → カラムまで `parent` で入れ子にした例を含む） |
 
 検証は 2 系統あり、どちらも対象プロジェクト非依存で動く。
 
 ```sh
 node skill/scripts/test-analyzer.mjs                          # 静的解析の精度（43 項目、ブラウザ不要）
-node skill/scripts/verify.mjs --html out/graph/graph.html --shots out/shots   # ブラウザ実操作（24 項目）
+node skill/scripts/verify.mjs --html out/graph/graph.html --shots out/shots   # ブラウザ実操作（25 項目）
 ```
 
 `verify.mjs` は検査対象を `graph.json` から自動選択するので、どのプロジェクトにもそのまま使える
