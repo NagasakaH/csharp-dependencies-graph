@@ -1279,6 +1279,50 @@ check('--limit で一覧が切れてもカウンタの不変条件は保たれ�
       }).join(' ') : '実行失敗')).join(' | '));
 }
 
+// (13) 第 33 ラウンドの指摘（双人レビュー agy）: walk の循環境避で API の定義ノードへ戻る一歩を
+// `back` で止めたガードが、**まだ展開していない資格（`chain` 等）の再展開まで潰す**形。
+// 統合 `i` が注釈 `invokes` を 3 本持つ形だと、`i` への先着が `references`（`chain: false`）で、
+// `chain: true` の正規の連鎖は 統合 → C → Mid → a の **折り返し**でしか届かない。折り返しの一歩は
+// `back` が立つので、ガードがそこを閉じると `i` の先の `V` 組が再展開されず、
+// `ext:rds-table/orders` が縁の並び順だけで 定義上の関連 に落ちた（orig 6 行 / rev 7 行）。
+// ガードを外して `stateKey` を `back` 非依存にして直したので、次を固定する:
+//  - 並び順 2 通りで 行（id / 枠 / 向き / 段数）が完全に一致する
+//  - どちらでも `ext:rds-table/orders` が 本命・影響する先 として残る
+{
+  const gNodes = [
+    synNode('tf:aws_lambda_function.a', 'resource', { resourceType: 'aws_lambda_function' }),
+    synNode('tf:aws_api_gateway_integration.i', 'resource', { resourceType: 'aws_api_gateway_integration',
+      category: 'apigateway' }),
+    synNode('member:Mid', 'member'), synNode('member:C', 'member'), synNode('member:V', 'member'),
+    synNode('tf:aws_lambda_function.b', 'resource', { resourceType: 'aws_lambda_function' }),
+    synNode('member:B.Handle', 'member'),
+    synNode('ext:rds-table/orders', 'resource', { resourceType: 'aws_dynamodb_table' }),
+  ];
+  const gEdges = [
+    synEdge('references', 'tf:aws_api_gateway_integration.i', 'tf:aws_lambda_function.a'),
+    synEdge('invokes', 'member:Mid', 'tf:aws_lambda_function.a', 'human'),
+    synEdge('invokes', 'tf:aws_api_gateway_integration.i', 'member:C', 'human'),
+    synEdge('calls', 'member:Mid', 'member:C', 'static'),
+    synEdge('invokes', 'tf:aws_api_gateway_integration.i', 'member:V', 'human'),
+    synEdge('handler', 'tf:aws_lambda_function.b', 'member:V'),
+    synEdge('handler', 'tf:aws_lambda_function.b', 'member:B.Handle'),
+    synEdge('writes', 'member:B.Handle', 'ext:rds-table/orders', 'human'),
+  ];
+  const gRuns = [['r34-orig', gEdges], ['r34-rev', [...gEdges].reverse()],
+    // 辺の並びだけでなくノードの並びも変えて同じか（起点の作り替えは行わない）
+    ['r34-nodes-rev', gEdges]].map(([name, edges], i) => [name,
+      runSyn(name, { nodes: i === 2 ? [...gNodes].reverse() : gNodes, edges },
+        ['--from', 'tf:aws_lambda_function.a'], name)]);
+  const gShape = (out) => (out ? allRows(out.result).map((x) => `${x.id}=${x.tier}/${x.direction}/h${x.hops}`) : null);
+  const gTable = (out) => (out ? allRows(out.result).find((x) => x.id === 'ext:rds-table/orders') : null);
+  check('注釈 invokes を複数持つ統合で、定義ノードへ戻る折り返しが chain の再展開を止めない（第 33 ラウンド）',
+    gRuns.every(([, out]) => !!out && !!gTable(out)
+      && gTable(out).tier === 'primary' && gTable(out).direction === 'out')
+    && new Set(gRuns.map(([, out]) => JSON.stringify(gShape(out)))).size === 1,
+    gRuns.map(([name, out]) => `${name}: ${out ? `rows=${out.result.summary.rows} テーブル=`
+      + (gTable(out) ? `${gTable(out).tier}/${gTable(out).direction}` : '無し') : '実行失敗'}`).join(' | '));
+}
+
 rmSync(dir, { recursive: true, force: true });
 console.log(`\n${pass}/${pass + failures.length} 件成功`);
 if (failures.length) { console.log('失敗: ' + failures.join(' / ')); process.exit(1); }

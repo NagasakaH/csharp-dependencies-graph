@@ -220,6 +220,8 @@ const apiTailFrom = (node) => isIntegrationNode(node) || isRouteStart(node);
 // 統合を越えたところで、その Lambda の実装を起点の影には数えない
 // （双人レビュー第 31 ラウンド。`apiTail` を連鎖の資格なしで立てたまま再展開を認めると、
 // IAM ポリシー起点が 15 行 → 18 行に膨らんだ）
+// `!back` も実測して保つ（双人レビュー第 33 ラウンド agy の注記への回答）。外すと循環の縁を
+// 渡って旗が広がり、v1 基準の `demo-proj` で `get_order` の向きが in → out に動いた（差分 1 件）
 const crossesApiTail = (cur, back) => !back && !!cur.chain && apiTailFrom(byId.get(cur.id));
 
 // ---- 起点を作る ----
@@ -444,9 +446,26 @@ function walkWithSwitch(seedIds, first) {
   // の縁しか辿らないので旗を中継できず、枠に入れないと着地ごと消える。実測
   // （`out/tmp-r33/agy-repro2.py`）: `u` への 2 経路のうち旗を立てる側が定義側の先着に負けて
   // 再展開されず、`u -> invokes(注釈) -> V.Entry` の先 `ext:rds-table/orders` が縁の並び順だけで
-  // 消えた（`orig` 6 行 / `rev` 7 行）。枠に入れたことで生じる塗り替えは下の `back` ガードで塞ぐ
+  // 消えた（`orig` 6 行 / `rev` 7 行）。
+  // `apiTail` の項は **旗そのものではなく「連鎖に入ったまま API の定義ノードにいる」こと**でも
+  // 立てる（双人レビュー第 33 ラウンド agy 指摘の案）。`apiTailFrom` のノードに `chain: true` が
+  // あれば、その先の一歩は `crossesApiTail` で `apiTail: true` を受け事実に渡せるので、
+  // `WALK_API_TAIL` **だけ**を理由にそのノードを再展開する必要がない。言い換えると定義ノードでは
+  // `chain` を持った時点で旗の枠も埋まっており、`apiTail` だけを新たに立てる再展開は枠の上で
+  // 初めから存在しない。これで v1 基準の実測（`--from tf:aws_api_gateway_method.post_order` の
+  // `orders_path` / `rest_api.orders` が 向き in・hops 1・根拠 `references` のまま）は、実体 id
+  // でも段数でもなく**枠の同値関係**で守られる（実測: 起点の枠が 121 → 249 に広がり、
+  // `Order.Create --exposed-by--> post_order` の帰還の一歩は key 249 / hops 2 で支配される）。
+  // 循環境避の一歩を `back` で止める限定ガード（「`back` × API の定義ノード」で再展開しない）は
+  // 同じ条件を `back` で書き直したものだった。`back` は**先着経路の `via`** に依存するので、
+  // 定義ノードへ後から届いた `chain: true` の正規の連鎖の再展開まで潰し、注釈 `invokes` を複数
+  // 持つ統合の形で並び順依存が残った（`out/tmp-r34/agy-repro3.py` の `orig` 6 行 / `rev` 7 行）。
+  // ガードを別の形へ広げる打ち手も実測して落ちた（`out/tmp-r33/try-candidates.log`、
+  // `out/tmp-r33/try-edge-detail.py`）: `back` 全般は `demo-order` の `entryIn` 3 → 1、
+  // `resource` 全般は `real-api` の `aws_lambda_permission` の向き、段数で閉じる案は
+  // `out/tmp-r33/deep-tail.py` で着地が消える
   const stateKey = (r) => (r.chain ? WALK_CHAIN : 0)
-    | (r.apiTail ? WALK_API_TAIL : 0)
+    | ((r.apiTail || (r.chain && apiTailFrom(byId.get(r.id)))) ? WALK_API_TAIL : 0)
     | (r.down ? WALK_DOWN : 0)
     | (r.reachedByInvokes ? WALK_INVOKES : 0)
     | (r.wiring !== true ? WALK_PROMOTABLE : 0)
@@ -610,28 +629,6 @@ function walkWithSwitch(seedIds, first) {
               && !refCutsChain(e, cur.id, to),
           };
           const prevRec = found.get(to);
-          // 循環境避で **API の定義ノード（統合・method・route）へ戻る一歩**は、旗を先着の記録に
-          // 寄せるだけで再展開しない。`apiTail` を枠に入れたとき v1 基準を塗り替えたのは、まさに
-          // この一歩が開いた再展開だった（実測: `--from tf:aws_api_gateway_method.post_order` で
-          // `post_order --exposed-by(注釈)--> 実装` を折り返して `post_order` へ戻る一歩が `mdir` を
-          // `out` に反転させ、`hops: 3` の walk 経路が `orders_path` / `rest_api.orders` を
-          // 向き out・根拠は `detail` / `count` 無しで先着した）。同じノードの定義まわりの行は
-          // 閉包が `hops: 1`・完全な縁（`detail` / `count` 付き）で既に記録しているので、
-          // walk が深く塗り替える意味はない。
-          // 他の打ち手も実測して落ちた（`out/tmp-r33/try-candidates.log`、`out/tmp-r33/deep-tail.py`、
-          // `out/tmp-r33/try-edge-detail.py`）:
-          // (a) 段数の扱い（`apiTail` だけを新たに立てる再展開を、先着より深い段数で閉じる）は
-          //     v1 基準 0 件を通すが、旗を立てる一歩が 1 段深く届く fixture で `ext:rds-table/orders`
-          //     が再び消える（7 行 / 出ない）。直ったように見えるのが段数の一致に依存していて脆い
-          // (b) walk の `edge` に `detail` / `count` を残す手は根拠だけ戻り、向き の in → out 反転が
-          //     残る（v1 差分 2 件のまま）
-          // (c) ガードを `back` 全般（v1 差分: `demo-order` の `entryIn` 3 → 1）や `resource` 全般
-          //     （v1 差分: `real-api` の `aws_lambda_permission` の向き）へ広げると別の実測が壊れる
-          // だからガードは「循環境避 × API の定義ノード」の交わりにだけ絞る
-          if (back && apiTailFrom(byId.get(to))) {
-            found.set(to, prevRec ? mergeFlags(prevRec, rec) : rec);
-            continue;
-          }
           if (!prevRec) {
             found.set(to, rec);
             markExpanded(to, stateKey(rec), rec.hops);
