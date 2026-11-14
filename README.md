@@ -25,16 +25,18 @@ open out/graph/graph.html
 | [elsa-core](https://github.com/elsa-workflows/elsa-core) | 51,179 / 53,521（C# 解析 3 秒、HTML 20MB） | 336 csproj、6,754 個の `.cs`（ファイル計 7,207）、8,223 型、32,572 メンバ、calls 14,607 / accesses 13,788 / references 15,633、898 ファイルが AWS/DB シグナル、1,010 ファイル（1,260 名）が「張れなかった同名候補」の記録あり |
 | `demo/orders-api-lambda` | 74 / 66（静的 27 / Terraform 27 / 注釈 12） | C# Lambda 3 csproj + Terraform 15 リソース + Terraform の handler 解決 2 + 注釈 12 エッジ（RDS をテーブル → カラムまで `parent` で入れ子にした例を含む） |
 
-レポートの性能基準は **1 レポート 1.0 秒（5 回中央値）・最大 RSS 800 MB** で、4 とおりの入力の
-5 回中央値と最大・測定環境は [skill/SKILL.md](skill/SKILL.md) の「レポートの性能基準」に実測どおり
-置いてある（`elsa-folder` の最大 1.1055 秒は基準の超過として明記し、時間で切り捨てる対応は採らない）。
+レポートの性能基準は **1 レポートあたり固定した変更前版の 1.20 倍以内**（旧→新 / 新→旧 を交互に
+最低 5 組、組ごとの倍率の中央値で判定）**と 最大 RSS 800 MB（絶対上限）** で、**1.0 秒はゲートではなく
+UX 目標**、最大応答時間はゲートにしない。4 とおりの入力の倍率・最大 RSS・測定環境は
+[skill/SKILL.md](skill/SKILL.md) の「レポートの性能基準」に実測どおり置いてある
+（`elsa-folder` の倍率中央値 1.67 はゲートの超過として明記し、時間で切り捨てる対応は採らない）。
 
 検証は 2 系統あり、どちらも対象プロジェクト非依存で動く。
 
 ```sh
 node skill/scripts/test-analyzer.mjs                          # 静的解析の精度（96 項目、ブラウザ不要）
 node skill/scripts/test-report.mjs                            # 影響範囲レポート（96 項目）
-node skill/scripts/test-query.mjs                             # 逆引き・影響範囲の照会（21 項目、.NET 不要）
+node skill/scripts/test-query.mjs                             # 逆引き・影響範囲の照会（28 項目、.NET 不要）
 node skill/scripts/test-merge.mjs                             # Lambda handler の解決規則（12 項目、.NET 必要）
 node skill/scripts/test-terraform.mjs                         # API Gateway のパス組み立てと HTTP API (v2) の `target`（46 項目、.NET 不要）
 node skill/scripts/verify.mjs --html out/graph/graph.html --shots out/shots   # ブラウザ実操作（26 項目）

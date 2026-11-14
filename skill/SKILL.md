@@ -59,11 +59,18 @@ node $SKILL/scripts/build.mjs \
 | ビューア上で暫定的に紐づけた分を定着させる | 画面の「注釈 JSON」でダウンロード → リポジトリの `annotations.json` に追記 |
 | レビュー・設計で影響範囲や逆引きをする | `node $SKILL/scripts/query.mjs --graph out/graph/graph.json --from <id や名前>` → [reference/review-workflows.md](reference/review-workflows.md) |
 | この cs ファイルが実縁で繋がっているファイルは何本か | `query.mjs --from file:<パス> --dir both --via-parent --hops 3 --group-by file` |
+| 繋がった関係を csproj 単位で集計したい | `--group-by project` は選べない（実グラフでは `.cs` ファイルノードの `parent` が `folder` で、`project` が関わる縁も `.csproj` の `contains` / csproj 同士の `project-reference` / `deploys` だけ。コードから所属 csproj はたどれない）。`--from project:<csproj> --via-parent` で csproj 起点に切り替える |
 | 意図どおりに動くか確かめる | `node $SKILL/scripts/verify.mjs --html out/graph/graph.html --shots out/shots` |
 | ノード・エッジの型や ID が知りたい | [reference/schema.md](reference/schema.md) |
 
 `--help` を各スクリプトに付けるとオプションの一覧が出る。個別の断片だけ作り直して
 `merge.mjs` で組み直す運用（走査は速いので再生成より編集が速い）もできる。
+
+`query.mjs` の `--via-parent` には罠がある。実縁（`calls` / `references` など）は型・メンバー・
+リソースの側にしか付いていないので、`file:` / `project:` / `folder:` を起点にした照会は
+`--via-parent` を付けないと階層の 1 段で止まり到達 0 件になる（そのときだけ stderr に案内を出す）。
+逆に `--via-parent` を付けると到達範囲が階層ぶん膨らむので、`--dir in` の逆引きは型・メンバーを
+起点にするほうが速い（実測と手順は [reference/review-workflows.md](reference/review-workflows.md) の 5-2）。
 
 ## 静的解析が機械的に拾えるもの
 
@@ -257,22 +264,38 @@ node $SKILL/scripts/report.mjs --graph out/graph/graph.json --api "POST /orders"
 
 ## レポートの性能基準
 
-**基準は 1 レポート 1.0 秒（5 回中央値）と 最大 RSS 800 MB**。前の 0.6 秒 / 640 MB と
-「前値比 ×1.25」ゲートは、第 40 ラウンドの裁定（`out/loop/r40-astra.md`、2026-11-14）で
-引き直した。裁定は正しさを優先したので上限が上がり、**保証するのは 5 回中央値と 最大 RSS だけ**。
-ここでは最大応答時間の保証は書かない。
+**時間ゲートは 1 レポートあたり固定した変更前版の 1.20 倍以内**、**最大 RSS 800 MB は絶対上限**。
+測り方は 同じ入力・設定・ウォームアップ条件で **旧→新 / 新→旧 を交互に最低 5 組**、
+**組ごとの倍率の中央値**で合否を出す（`bash out/tmp-r42/paired-gate.sh`）。比較する旧版はコミットで
+固定し、比較対象を毎回更新して遅延を積み上げる運用はしない。
+**1.0 秒（5 回中央値）はゲートではなく UX 目標**として併記し、**最大応答時間はゲートにしない**
+（保証もしない）。裁定は `out/loop/r42-decision.md` §2（2026-11-14、運用は `out/loop/protocol.md` 4-2）。
+絶対値「1.0 秒 / 800 MB」をゲートとしていた第 40 ラウンドの裁定（`out/loop/r40-astra.md`）からは
+時間ゲートだけが置き換わり、RSS の絶対上限はそのまま残った。混雑時の新版と静かだった過去の旧版を
+直接比べて合否を出すこと、混雑を理由に倍率超過を免除することは裁定で却下されている。
 
-実測（`out/tmp-r26/perf-r40v.json`、2026-11-14 計測、commit `03d9c48`。4 とおりとも 失敗 0）:
+相対ゲートでの実測（`out/loop/r42-decision.md` §3、旧版は commit `a44b7c7`、23:00〜23:07、
+load average 3.40 / 3.45 / 3.31）:
 
-| 入力 | 5 回中央値 | 最大 | 最大 RSS | 基準との関係 |
+| 入力 | 旧 5 組中央値 | 新 5 組中央値 | 倍率の中央値 | 判定（1.20 以内） | 新 RSS |
+| --- | --- | --- | --- | --- | --- |
+| demo-api | 0.0380 秒 | 0.0384 秒 | 1.01 | 適合 | 53.0 MB |
+| elsa-50 | 0.2648 秒 | 0.2652 秒 | 1.00 | 適合 | 391.5 MB |
+| elsa-folder | 0.7845 秒 | 1.3251 秒 | **1.67（超過）** | **超過** | 662.4 MB |
+| v2-mix | 0.2317 秒 | 0.2354 秒 | 1.02 | 適合 | 187.0 MB |
+
+`elsa-folder`（`--from folder:. --limit 100000`）の倍率 1.67 はゲート超過。**超過はここに書いて隠さない**。
+RSS は 800 MB 内なので、この入力を「遅いから」と理由に打ち切ることはしない。
+
+参考（絶対値としての 5 回中央値。第 40 ラウンドの実測 `out/tmp-r26/perf-r40v.json`、commit `03d9c48`、
+2026-11-14 計測、4 とおりとも失敗 0）。**この 1.0 秒をゲートとして扱う運用は終わっている**:
+
+| 入力 | 5 回中央値 | 最大 | 最大 RSS | UX 目標 1.0 秒との関係 |
 | --- | --- | --- | --- | --- |
-| demo-api | 0.0363 秒 | 0.0387 秒 | 52.7 MB | どちらも基準内 |
-| elsa-50 | 0.255 秒 | 0.2626 秒 | 391.8 MB | どちらも基準内 |
-| elsa-folder | 0.7332 秒 | **1.1055 秒** | 601.8 MB | 中央値と RSS は基準内。**最大は 1.0 秒を超過** |
-| v2-mix | 0.2259 秒 | 0.2281 秒 | 184.1 MB | どちらも基準内 |
-
-`elsa-folder` の最大 1.1055 秒は基準の 1.0 秒を超えている。**超過はここに書いて隠さない**。
-中央値は基準内なので、この入力を「遅いから」と理由に打ち切ることはしない。
+| demo-api | 0.0363 秒 | 0.0387 秒 | 52.7 MB | どちらも内 |
+| elsa-50 | 0.255 秒 | 0.2626 秒 | 391.8 MB | どちらも内 |
+| elsa-folder | 0.7332 秒 | **1.1055 秒** | 601.8 MB | 中央値は内。**最大は UX 目標を超過** |
+| v2-mix | 0.2259 秒 | 0.2281 秒 | 184.1 MB | どちらも内 |
 
 4 とおりの入力とコマンド（`node $SKILL/scripts/report.mjs` の引数。JSON は破棄して実行した）:
 
@@ -337,7 +360,7 @@ demo と `BindingRegression/` でも同じ入力を 2 回走らせて、`rejecte
 ### 照会（逆引き・影響範囲）のテスト
 
 ```sh
-node $SKILL/scripts/test-query.mjs           # fixtures/query/graph.json を使う（.NET 不要、21 項目）
+node $SKILL/scripts/test-query.mjs           # fixtures/query/graph.json を使う（.NET 不要、28 項目）
 node $SKILL/scripts/test-merge.mjs           # Lambda handler の解決規則（.NET 必要、12 項目）
 node $SKILL/scripts/test-terraform.mjs       # API Gateway のパス組み立てと HTTP API (v2) の `target`（46 項目、.NET 不要）
 node $SKILL/scripts/test-report.mjs          # 差分 → 影響範囲レポート（96 項目、.NET 必要）

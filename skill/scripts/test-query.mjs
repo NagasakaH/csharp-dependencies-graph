@@ -145,24 +145,117 @@ check('階層で届いただけのグループは集計から外し、その件�
   (r.data?.groups || []).length === 0 && (r.data?.summary?.groupsSkippedHierarchy || 0) >= 1,
   JSON.stringify({ groups: r.data?.groups, skipped: r.data?.summary?.groupsSkippedHierarchy }));
 
-// 19) 縁の列挙順が変わっても集計の並び順と件数は変わらない
+// 19) 縁の列挙順が変わっても集計は変わらない（反転・id 順・source 順・交互の 4 とおり、
+//     --via-parent ありなしの両方で `groups` と summary の集計欄が完全一致すること）
 const runOn = (graph, ...argv) => {
   const proc = spawnSync('node', [QUERY, '--graph', graph, ...argv], { encoding: 'utf8' });
   try { return JSON.parse(proc.stdout); } catch { return { error: proc.stderr }; }
 };
-const reversed = JSON.parse(readFileSync(GRAPH, 'utf8'));
-reversed.edges = [...reversed.edges].reverse();
-const REV = join(tmp, 'reversed.json');
-writeFileSync(REV, JSON.stringify(reversed));
-const a19 = runOn(GRAPH, '--json', '--from', LAMBDA, '--dir', 'out', '--hops', '2', '--group-by', 'file');
-const b19 = runOn(REV, '--json', '--from', LAMBDA, '--dir', 'out', '--hops', '2', '--group-by', 'file');
-check('縁の列挙順を入れ替えても --group-by の並びと件数は同じ',
-  JSON.stringify(a19.groups) === JSON.stringify(b19.groups) && (a19.groups || []).length > 0,
-  JSON.stringify({ a: a19.groups, b: b19.groups }));
+const base = JSON.parse(readFileSync(GRAPH, 'utf8'));
+const perms = {
+  '反転': [...base.edges].reverse(),
+  'id 順': [...base.edges].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)),
+  'source 順': [...base.edges].sort((a, b) => (a.source < b.source ? -1 : a.source > b.source ? 1 : (a.id < b.id ? -1 : 1))),
+  '交互': base.edges.filter((_, i) => i % 2 === 0).concat(base.edges.filter((_, i) => i % 2 === 1)),
+};
+const permArgs = [['--from', LAMBDA, '--dir', 'out', '--hops', '2', '--group-by', 'file'],
+  ['--from', CHARGE, '--dir', 'both', '--via-parent', '--hops', '3', '--group-by', 'file'],
+  ['--from', 'file:src/Pay.cs', '--dir', 'both', '--via-parent', '--hops', '2', '--group-by', 'folder']];
+let permOk = true;
+const permBad = [];
+for (const [argsIdx, argv] of permArgs.entries()) {
+  for (const [name, edges] of Object.entries(perms)) {
+    const file = join(tmp, `perm-${argsIdx}-${name}.json`);
+    writeFileSync(file, JSON.stringify({ ...base, edges }));
+    const d = runOn(file, '--json', ...argv);
+    const ref = runOn(GRAPH, '--json', ...argv);
+    // 初到達の 1 経路（reached / byEdge）は到達木なので縁順で変わりうる。集計側だけ比べる
+    const key = (x) => JSON.stringify({
+      groups: x.groups,
+      s: Object.fromEntries(Object.entries(x.summary || {}).filter(([k]) => k.startsWith('groups') || k === 'reached')),
+    });
+    if (key(d) !== key(ref)) { permOk = false; permBad.push(`${argsIdx}/${name}: ${key(d)} != ${key(ref)}`); }
+  }
+}
+check('縁の列挙順 4 とおり × --via-parent ありなしで --group-by の JSON が完全一致', permOk, permBad.join(' | ').slice(0, 400));
 
-// 20) 不正な --group-by は終了コード 2 で拒否する
+// 19b) 報告された再現図式（実縁と階縁が同じノードへ同じ段で届く）を縁順の両順で確かめる
+const repro = {
+  schemaVersion: 1, producer: 'test', generatedAt: '2026-01-01T00:00:00+09:00', root: 'repro',
+  nodes: [
+    { id: 'folder:.', kind: 'folder', name: '.', parent: null },
+    { id: 'file:A.cs', kind: 'file', name: 'A.cs', parent: 'folder:.', path: 'A.cs' },
+    { id: 'type:A', kind: 'type', name: 'A', parent: 'file:A.cs', path: 'A.cs' },
+    { id: 'member:A.a', kind: 'member', name: 'a', parent: 'type:A', path: 'A.cs' },
+    { id: 'file:B.cs', kind: 'file', name: 'B.cs', parent: 'folder:.', path: 'B.cs' },
+    { id: 'type:B', kind: 'type', name: 'B', parent: 'file:B.cs', path: 'B.cs' },
+    { id: 'member:B.d', kind: 'member', name: 'd', parent: 'type:B', path: 'B.cs' },
+    { id: 'file:C.cs', kind: 'file', name: 'C.cs', parent: 'folder:.', path: 'C.cs' },
+    { id: 'type:C', kind: 'type', name: 'C', parent: 'file:C.cs', path: 'C.cs' },
+    { id: 'member:C.c', kind: 'member', name: 'c', parent: 'type:C', path: 'C.cs' },
+  ],
+  edges: [
+    { id: 'e1', source: 'member:A.a', target: 'type:B', kind: 'references', provenance: 'static' },
+    { id: 'e2', source: 'member:A.a', target: 'member:C.c', kind: 'calls', provenance: 'static' },
+    { id: 'e3', source: 'member:C.c', target: 'member:B.d', kind: 'calls', provenance: 'static' },
+  ],
+};
+const REPRO_ARGS = ['--from', 'member:A.a', '--dir', 'out', '--via-parent', '--hops', '3', '--group-by', 'type'];
+writeFileSync(join(tmp, 'repro-fwd.json'), JSON.stringify(repro));
+writeFileSync(join(tmp, 'repro-rev.json'), JSON.stringify({ ...repro, edges: [...repro.edges].reverse() }));
+const rf = runOn(join(tmp, 'repro-fwd.json'), '--json', ...REPRO_ARGS);
+const rr = runOn(join(tmp, 'repro-rev.json'), '--json', ...REPRO_ARGS);
+const bRepro = (rf.groups || []).find((g) => g.id === 'type:B');
+check('実縁と階縁が同じ段で届いたノードは実縁で数え、縁順で件数が変わらない',
+  JSON.stringify(rf.groups) === JSON.stringify(rr.groups) && (rf.groups || []).length > 0
+  && bRepro?.nodes === 2 && rf.summary?.groupsSkippedHierarchy === 0,
+  JSON.stringify({ fwd: rf.groups, rev: rr.groups, skipped: rf.summary?.groupsSkippedHierarchy }));
+
+// 20) 除外の内訳が JSON と標準出力の両方に出て、表の合計と説明がつく
+r = json('--from', LAMBDA, '--dir', 'both', '--hops', '3', '--group-by', 'file');
+const s20 = r.data?.summary || {};
+const sumNodes = (r.data?.groups || []).reduce((a, g) => a + g.nodes, 0);
+check('集計の除外内訳が JSON に出て表の合計と合う（巻き上げ対象 = 表 + 起点階層 + 祖先なし）',
+  (s20.groupsNodes || 0) === sumNodes
+  && s20.groupsReached === sumNodes + (s20.groupsSkippedStartHierarchy || 0) + (s20.groupsSkippedNoAncestor || 0)
+  && (s20.groupsReached || 0) + (s20.groupsSkippedHierarchy || 0) === s20.reached
+  && (s20.groupsSkippedNoAncestor || 0) > 0,
+  JSON.stringify(s20) + ' / 表合計 ' + sumNodes);
+const txt20 = run('--from', LAMBDA, '--dir', 'both', '--hops', '3', '--group-by', 'file').stdout;
+check('同じ内訳が標準出力の 1 行目にも出る（巻き上げ対象と除外の件数）',
+  txt20.includes(`実縁で届いた ${s20.groupsReached} 件を file に巻き上げ。表 ${sumNodes} 件`)
+  && txt20.includes(`起点自身の階層 ${s20.groupsSkippedStartHierarchy}`)
+  && txt20.includes(`file の祖先を持たない ${s20.groupsSkippedNoAncestor}`),
+  txt20.split('\n').find((l) => l.includes('単位の集計')) || '');
+
+// 21) member: 起点でも「起点自身の階層は数えません」が効く（起点を巻き上げた階層を除く）
+r = json('--from', CHARGE, '--dir', 'both', '--hops', '3', '--group-by', 'file');
+const g21 = r.data?.groups || [];
+check('member: 起点でも起点の所属ファイルを参照一覧から除く',
+  !g21.some((g) => g.id === 'file:src/Pay.cs') && (r.data?.summary?.groupsSkippedStartHierarchy || 0) >= 1,
+  JSON.stringify({ ids: g21.map((g) => g.id), skipped: r.data?.summary?.groupsSkippedStartHierarchy }));
+
+// 22) project は選べない（実グラフでコードの所属プロジェクトはたどれないため）
+const proj = run('--from', LAMBDA, '--group-by', 'project');
+check('--group-by project は「たどれない」と理由を出して終了コード 2',
+  proj.status === 2 && proj.stderr.includes('project') && proj.stderr.includes('たどれない'),
+  `${proj.status} / ${proj.stderr.trim()}`);
+const help22 = run('--help').stdout;
+check('help に集計階層が file / folder / type と project が選べない理由を書く',
+  help22.includes('file / folder / type') && help22.includes('project は選べない') && help22.includes('たどれない'),
+  help22.slice(0, 1600));
+
+// 23) 実縁を持たない階層起点を --via-parent 無しで投げたら stderr に案内を出す（結果は作らない）
+const noVia = run('--from', 'file:src/Pay.cs', '--dir', 'out', '--hops', '1');
+const withVia = json('--from', 'file:src/Pay.cs', '--dir', 'out', '--via-parent', '--hops', '1');
+check('階層起点で --via-parent 無くし到達 0 件のときだけ stderr に案内を出す',
+  noVia.status === 0 && noVia.stdout.includes('到達 0 ノード') && noVia.stderr.includes('--via-parent')
+  && noVia.stderr.includes('file:src/Pay.cs') && (withVia.data?.reached || []).length > 0
+  && !withVia.error, `${noVia.status} / ${noVia.stderr.trim()}`);
+
+// 24) 不正な --group-by は終了コード 2 で拒否する
 const bad = spawnSync('node', [QUERY, '--graph', GRAPH, '--from', LAMBDA, '--group-by', 'member'], { encoding: 'utf8' });
-check('--group-by は file / project / folder / type 以外なら終了コード 2',
+check('--group-by は file / folder / type 以外なら終了コード 2',
   bad.status === 2 && bad.stderr.includes('--group-by'), `${bad.status} / ${bad.stderr.trim()}`);
 
 rmSync(tmp, { recursive: true, force: true });

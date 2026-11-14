@@ -117,8 +117,10 @@ node skill/scripts/query.mjs --graph out/graph/graph.json --from tf:aws_lambda_f
 ```
 
 - `--dir out`: 実装メソッド → そこから `calls` / `accesses` で本体、`references` で DynamoDB や IAM ロール。
-- `--dir in`: 誰がこの Lambda を呼ぶか（API Gateway の `triggers`、Step Functions の `invokes`、
-  csproj の `deploys`）。**デプロイ単位とトリガ元を同時にレビュー**できる。
+- `--dir in`: 誰がこの Lambda を呼ぶか。demo の `orders_api` なら API Gateway の `triggers` 2 本と
+  csproj の `deploys` 1 本（+ 統合の `references`）が出て、**デプロイ単位とトリガ元を同時にレビュー**できる。
+  ただし `invokes` は State Machine から `notify` の側に張られているので `orders_api` では出ない
+  （`--from tf:aws_lambda_function.notify --dir in --hops 1` で見える）
 - 解決できなかった handler は警告に出る（`handler の解決失敗`）。**まず `handler` 文字列を
   実装プロジェクトのアセンブリ名へ直す**のが典型的な修正で、注釈で張るのは意図的に別アセンブリを
   指しているときだけ（[schema.md](schema.md) の注釈形式、実例は
@@ -133,30 +135,112 @@ node skill/scripts/query.mjs --graph out/graph/graph.json --from tf:aws_lambda_f
 ## 5-2. ファイル単位で「繋がっているファイルは何本か」を見る
 
 縁は型・メンバー単位でしか張っていないので、ファイル同士の接続本数は `--group-by file` で
-階層を登って集計する。**階層（`contains`）で届いただけのものは「繋がっている」と数えない**。
+階層を登って集計する。**実縁（`calls` / `references` など）が 1 本も届かなかったノードは
+「繋がっている」とは数えない**（階層の `contains` で並び順に並べただけの兄弟ファイルは除外）。
 
 ```sh
 node $SKILL/scripts/query.mjs --graph out/graph/graph.json \
   --from file:src/Orders.Domain/Order.cs --dir both --via-parent --hops 3 --group-by file
 ```
 
+`demo/orders-api-lambda` をビルドしたグラフ（`out/demo/graph.json`、74 ノード / 66 エッジ）で
+実行した実測:
+
 ```
-file 単位の集計: 4 件（実縁で届いた 14 件を階層で巻き上げ。階層で届いただけの 17 件と起点自身の階層は数えません）
-  file:IOrderRepository.cs        参照 2 件（references 2）最短 2 段
-  file:DynamoDbOrderRepository.cs 参照 2 件（references 2）最短 2 段
-  file:Functions.cs               参照 2 件（calls 2）最短 3 段
-  file:NotifyHandler.cs           参照 1 件（calls 1）最短 3 段
+file 単位の集計: 4 件（実縁で届いた 17 件を file に巻き上げ。表 7 件 = 17 − 起点自身の階層 4 − file の祖先を持たない 6。実縁の無い 14 件は階層で届いただけなので数えない）
+  file:Functions.cs                              参照   2 ノード（calls 3 / accesses 1 / 実縁 4 本）最短 3 段
+  file:IOrderRepository.cs                       参照   2 ノード（references 2）最短 2 段
+  file:DynamoDbOrderRepository.cs                参照   2 ノード（references 2）最短 2 段
+  file:NotifyHandler.cs                          参照   1 ノード（calls 3 / 実縁 3 本）最短 3 段
 ```
 
+- `参照 N ノード` はそのファイルに届いた到達ノード数、括弧内は届いた実縁の縁種
+  （`実縁 M 本`）。同じ内訳が JSON の `summary` にも出る（`groupsReached` / `groupsNodes` /
+  `groupsSkippedStartHierarchy` / `groupsSkippedNoAncestor` / `groupsSkippedHierarchy`）。
+  上の例は **到達 31 = 表 7 + 起点自身の階層 4 + `file` の祖先を持たない 6 + 実縁の無い 14**
+  で打ち合わせがつく（`--json` の `summary.reached` が 31。表示される「到達集合の内訳」は
+  起点を含むので合計は 1 多い）
+- 集計は「最初に届いた 1 経路」ではなく**そのノードに届いた実縁の全数**で決める。実縁と階縁が
+  同じ段で届いたノードは実縁として数えるので、縁の列挙順を入れ替えても JSON は変わらない
+  （`test-query.mjs` が反転・id 順・source 順・交互の 4 とおり × `--via-parent` ありなしで一致を固定し、
+  実グラフ side でも `out/tmp-r43-docs/check-edge-order.py` で不一致 0 件を確かめた）
 - `--dir both` にするのは、参照する側（`out`）と参照される側（`in`）を合わせて見たいから。
-  逆向きだけほしいときは `--dir in` にする（`in` だけだとファイル起点は階層にしか届かず 0 件になる）
-- `--via-parent` が無いとファイル起点は実縁に辿り着かない（階層の縁を辿らないため）
-- `--group-by project` にすると csproj 単位の接続数。ビルドし直し範囲の当たりをつけるのに使う
-- 並べ順は 参照件数の多さ → 最短段数 → ノード id。縁の列挙順を入れ替えても同じ並び
-  （`test-query.mjs` で固定）
-- elsa-core の `Elsa.Http/Activities/HttpEndpoint.cs` を同じ条件（`--hops 2`）で調べると 6 本
-  （`Trigger.cs` を `inherits`、`Activity.cs` と `Output.cs` を `attribute`、`RouteDataWorkflow.cs` と
-  `SimpleHttpApiWorkflow.cs` を `creates`、`HttpEndpointTriggerPayloadValidator.cs` を `references`）
+  **逆向きだけが見たいときは起点を型かメンバーにする**。ファイル起点の `--dir in` は
+  `--via-parent` を付けても階層を登るだけで実縁に届かず、2 段でも 3 段でも集計は 0 件のまま
+  （`--via-parent` を付けないと階層の 1 段で止まり、stderr に案内が出る）:
+
+```
+# 効かない: ファイル起点の逆引き（到達はするが全部階層で届いただけ）
+$ node $SKILL/scripts/query.mjs --graph out/demo/graph.json \
+    --from file:src/Orders.Api/Functions.cs --dir in --via-parent --hops 3 --group-by file
+file 単位の集計: 0 件（実縁で届いた 0 件を file に巻き上げ。表 0 件 = 0 − 起点自身の階層 0 − file の祖先を持たない 0。実縁の無い 3 件は階層で届いただけなので数えない）
+
+# 効く: 型を起点にする（--via-parent 不要）
+$ node $SKILL/scripts/query.mjs --graph out/demo/graph.json \
+    --from type:Orders.Domain.IOrderRepository --dir in --hops 2 --group-by file
+file 単位の集計: 3 件（実縁で届いた 5 件を file に巻き上げ。表 5 件 = 5 − 起点自身の階層 0 − file の祖先を持たない 0。実縁の無い 0 件は階層で届いただけなので数えない）
+  file:Functions.cs                              参照   2 ノード（references 2）最短 1 段
+  file:NotifyHandler.cs                          参照   2 ノード（references 2）最短 1 段
+  file:DynamoDbOrderRepository.cs                参照   1 ノード（implements 1）最短 1 段
+```
+
+- `--group-by` に選べるのは `file` / `folder` / `type`。**`project` は選べない** — 実グラフでは
+  `.cs` ファイルノードの `parent` が `folder` で、`project` が関わる縁も `.csproj` の `contains` /
+  csproj 同士の `project-reference` / `project` からリソースへの `deploys` だけ。**コードノードから
+  所属 csproj はたどれない**（`project:` を親に持つコードノードは demo でも elsa-core でも 0 件。
+  csproj 単位が見たいなら逆に csproj を起点にする）:
+
+```
+$ node $SKILL/scripts/query.mjs --graph out/demo/graph.json \
+    --from project:src/Orders.Domain/Orders.Domain.csproj --dir both --via-parent --hops 4 --group-by file
+file 単位の集計: 6 件（実縁で届いた 38 件を file に巻き上げ。表 20 件 = 38 − 起点自身の階層 0 − file の祖先を持たない 18。実縁の無い 24 件は階層で届いただけなので数えない）
+  file:Functions.cs                              参照   5 ノード（references 4 / calls 1 / handler 1 / 実縁 6 本）最短 3 段
+  file:Order.cs                                  参照   4 ノード（calls 2 / references 2 / accesses 1 / 実縁 5 本）最短 4 段
+  file:IOrderRepository.cs                       参照   3 ノード（calls 4 / references 2 / 実縁 6 本）最短 4 段
+  file:DynamoDbOrderRepository.cs                参照   3 ノード（references 2 / implements 1 / reads 1 / writes 1 / 実縁 5 本）最短 4 段  ※注釈 2
+  file:NotifyHandler.cs                          参照   3 ノード（references 2 / handler 1 / writes 1 / 実縁 4 本）最短 3 段  ※注釈 1
+  file:StepFunctionsOrderProcessLauncher.cs      参照   2 ノード（implements 1 / invokes 1）最短 4 段  ※注釈 1
+```
+
+  段数は csproj → folder → file → 型 → メンバーの順に広がるので、ファイル同士の接続を見るには
+  `--hops 4` が要る（`--hops 2` だと実縁 4 件がすべて `file` の祖先を持たない resource / project に
+  巻上がるだけで表は 0 件）
+
+  選べない理由を自分のグラフで確かめる 1 行（`project:` を親に持つコードノードと、`project` が
+  端点になっている縁の種類を出す）:
+
+```
+$ node -e 'const g=require("./out/elsa/graph.json");const byid=new Map(g.nodes.map(x=>[x.id,x]));
+const kids=g.nodes.filter(x=>(x.parent||"").startsWith("project:")).length;
+const pk={};for(const x of g.nodes){if(!["file","type","member"].includes(x.kind))continue;const p=byid.get(x.parent);const k=p?p.kind:"(親なし)";pk[k]=(pk[k]||0)+1;}
+const ek={};for(const e of g.edges){if(e.source.startsWith("project:")||e.target.startsWith("project:")){const k=e.kind+" "+e.source.split(":")[0]+"->"+e.target.split(":")[0];ek[k]=(ek[k]||0)+1;}}
+console.log(JSON.stringify({ノード数:g.nodes.length, projectを親に持つノード:kids, コードノードのparentのkind:pk, projectが端点の縁:ek}));'
+{"ノード数":51179,"projectを親に持つノード":0,"コードノードのparentのkind":{"folder":7207,"file":8223,"type":32572},"projectが端点の縁":{"contains file->project":309,"project-reference project->project":861}}
+```
+
+  demo（`out/demo/graph.json`）も `projectを親に持つノード: 0`、端点の縁は
+  `project-reference 3` と `deploys 2` だけだった
+- elsa-core でも同じ照会がそのまま使える（`out/elsa/graph.json` は 51,179 ノード / 53,521 エッジ、
+  下の照会は 0.23 秒）。`--find HttpEndpoint` は `type:Elsa.Http.HttpEndpoint` と
+  `member:Elsa.Http.HttpStimulusNames.HttpEndpoint` の 2 件を返し、ファイルノードは
+  `--find HttpEndpoint.cs` で出る（`file:core/src/modules/Elsa.Http/Activities/HttpEndpoint.cs`）。
+  そのファイルを `--dir both --via-parent --hops 2 --group-by file` すると **4 ファイル**
+  （`HttpEndpointTriggerPayloadValidator.cs` を `references`、`Activity.cs` と `Output.cs` を
+  `attribute`、`Trigger.cs` を `inherits`）。到達 75 ノードのうち 68 件は階縁で並べただけなので
+  数えず、起点自身のファイルへ巻上がる実縁 3 件も表には出さない:
+
+```
+$ node $SKILL/scripts/query.mjs --graph out/elsa/graph.json \
+    --from file:core/src/modules/Elsa.Http/Activities/HttpEndpoint.cs --dir both --via-parent --hops 2 --group-by file
+file 単位の集計: 4 件（実縁で届いた 7 件を file に巻き上げ。表 4 件 = 7 − 起点自身の階層 3 − file の祖先を持たない 0。実縁の無い 68 件は階層で届いただけなので数えない）
+  file:HttpEndpointTriggerPayloadValidator.cs    参照   1 ノード（references 1）最短 2 段
+  file:Activity.cs                               参照   1 ノード（attribute 1）最短 2 段
+  file:Trigger.cs                                参照   1 ノード（inherits 1）最短 2 段
+  file:Output.cs                                 参照   1 ノード（attribute 1）最短 2 段
+```
+
+- 同じ例で `--find RouteDataWorkflow` と `--find SimpleHttpApiWorkflow` はどちらも「該当なし」。
+  このグラフにノードも縁も無い（以前のこの文書が挙げていた `creates` 2 本は実在しなかった）
 
 ## 6. 設計レビュー: 結合ハブの棚卸し
 
@@ -181,7 +265,9 @@ file 単位の集計: 4 件（実縁で届いた 14 件を階層で巻き上げ�
 散っているのは 42 で、同一 csproj 内に濃く張っている。ファイル数の上位だけをみると、この違いが消える。
 
 集計はグラフ JSON に対して次の 1 行でできる（`contains` / `project-reference` は階層なので数えない。
-`attribute` は属性としての実参照なので入れている）。
+`attribute` は属性としての実参照なので入れている）。**csproj の判定は `path` の最長一致でやっている** —
+グラフの階層はコードを `folder` の下に置くだけで csproj とは結ばれていないので、`parent` を辿っても
+所属プロジェクトは決まらない（上の `--group-by project` が無いのと同じ理由）。
 
 ```sh
 node -e 'const g=require("./out/elsa/graph.json");const n=new Map(g.nodes.map(x=>[x.id,x]));
