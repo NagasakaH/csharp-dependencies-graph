@@ -1,0 +1,1 @@
+{"nodes":[{"id":"member:X.Handle","kind":"member","name":"X.Handle"},{"id":"tf:aws_sfn_state_machine.up","kind":"resource","name":"up","metadata":{"resourceType":"aws_sfn_state_machine","category":"stepfunctions"}}],"edges":[{"id":"inv","kind":"invokes","source":"tf:aws_sfn_state_machine.up","target":"member:X.Handle","provenance":"human"}]}

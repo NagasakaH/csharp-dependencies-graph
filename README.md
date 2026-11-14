@@ -95,9 +95,10 @@ node skill/scripts/report.mjs --graph out/demo/graph.json --api "POST /orders"
 ここを矢印だけで判断すると、起点のエンドポイント自身の実装 Lambda が「呼びにくる側」に並んだ（実測: demo の `--api "POST /orders"`）。
 
 各行は根拠経路 `path` と、その経路がどこから始まっているかの `pathRoot` を持つ。`start` は起点まで
-辿れた行、`definition-seed` は起点と同じ API を定義しているノードから始まる行、`second-stage` は
-根拠経路が循環しそうな所でそこを新しい出発点として切った行で、`broken`（`via` が宙を指す）は
-出てはいけない。`summary.pathsByRoot` と `summary.startIds` / `summary.seedRoots` で外から確かめられる。
+辿れた行、`second-stage` は根拠経路が循環しそうな所でそこを新しい出発点として切った行で、
+`broken`（`via` が宙を指す）は出てはいけない。`summary.pathsByRoot` と `summary.startIds`
+で外から確かめられる。行の `reachedByInvokes` は「`invokes` の縁を矢印どおりに辿って呼ばれる側へ
+着いた」ことを示す旗で、同じ実装を共有する兄弟エンドポイントと、実際に呼び出した先を区別に使う。
 
 「IAM ロールだけを共有する別の Lambda」経由で、その Lambda 専用の integration や handler まで本命に
 伝播することはない。`references` をまたいで伝播できる資格は **起点 / 本命として届いたノード / 起点と同じ API を定義する

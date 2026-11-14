@@ -312,11 +312,7 @@ const startApiGroups = new Set(starts.map((x) => apiGroupOf(byId.get(x.id))).fil
 const combined = new Map();
 const wiringMap = new Map();
 // 閉包の出発点として**根になったノード**（起点そのものではないが、起点の定義グループなので
-// 経路の先頭として出してよい）。行の `pathRoot` が `definition-seed` のとき、`path[0]` はここに入る。
-// **現在この枝は通らない**（閉包の出発点はすべて walk の記録を持つので `combined.get(id)` が常に
-// 当たる）。出発点の渡し方を変えたときに経路が宙ぶらりんになるのを防ぐためだけに残している。
-// 17 レポートの実測でも `pathsByRoot` の `definition-seed` は常に 0
-const seedRoots = new Set();
+// 経路の先頭として出してよい）。
 
 // 根拠経路の祖先 lookup。合并前の一時的な記録（`found` / `wiringMap`）も祖先として見る。
 // そこを見落とすと 1 回の閉包の中で互いを指す 2 件の記録ができて `via` が循環した
@@ -350,7 +346,7 @@ function walkWithSwitch(seedIds, first) {
     const prev = combined.get(id);
     const seed = prev || {
       id, dir: first, mdir: first, switches: 0, hops: 0, via: null, edge: null,
-      corr: false, down: false, calledOut: false,
+      corr: false, down: false, reachedByInvokes: false,
     };
     found.set(id, seed);
     frontier.push(seed);
@@ -404,11 +400,12 @@ function walkWithSwitch(seedIds, first) {
             // 「動きの根拠: `references`」付きで本命に昇格した）
             wiring: e.kind === 'references' && e.provenance === 'terraform',
             hops: cur.hops + 1, via: back ? null : cur.id, cut: back, corr,
-            // 「このノードは呼び出されて成立する」は**この一歩が `invokes` かどうか**だけ。
-            // 経路に `invokes` が含まれるという判定にすると、呼び出しの先で更に届いた
-            // 無関係な別エンドポイント（同じ Lambda を使う兄弟）まで「呼びに出した先」に
-            // 化けて兄弟欄から消えた
-            calledOut: e.kind === 'invokes',
+            // 「呼ばれて成立する」は**この一歩が `invokes` だった**こと。しかも矢印どおりに
+            // 辿った一歩（呼ばれる側へ着いた一歩）だけ。経路に `invokes` が含まれるという判定に
+            // すると、呼び出しの先で更に届いた無関係な別エンドポイント（同じ Lambda を使う
+            // 兄弟）まで「呼びに出した先」に化けて兄弟欄から消えた。逆にたどった一歩
+            // （呼び出し元へ着いた一歩）に立てるのも間違い
+            reachedByInvokes: e.kind === 'invokes' && arrowAt(e, to),
             edge: { id: e.id, kind: e.kind, provenance: e.provenance, source: e.source, target: e.target },
           };
           found.set(to, rec);
@@ -423,15 +420,15 @@ function walkWithSwitch(seedIds, first) {
 // 既に記録のあるノードの **`via` / `hops` / `dir` は書き換えない**（根拠経路が循環して
 // 「経路の先頭が起点でない」「`hops` と経路の長さが食い違う」壊れ方を二度と同じ場所に
 // 戻さないため）。書き換えずに済む情報だけ足す:
-//  - `calledOut`: 経路上に `invokes` を含む（兄弟エンドポイントと区別する判定に使う）
+//  - `reachedByInvokes`: 呼ばれる側へ着いた一歩で着いた（兄弟エンドポイントと区別する判定に使う）
 //  - `movementEvidence` / `wiring = false`: 別の経路に**動きの縁**があった = 定義上ではなく本命
 function promote(cur, rec) {
   // walk 側で分かった事実も同じ場所へ合流させる（行の本命判定と向きはここを見る）
   noteFacts(cur.id, {
     primary: rec.wiring !== true, elig: rec.wiring !== true,
-    down: rec.down, calledOut: rec.calledOut, edge: rec.edge,
+    down: rec.down, reachedByInvokes: rec.reachedByInvokes, edge: rec.edge,
   });
-  if (rec.calledOut) cur.calledOut = true;
+  if (rec.reachedByInvokes) cur.reachedByInvokes = true;
   // 「起点のエンドポイントの実装の中にある」という事実は一方通行（後から強い方の情報に
   // なるだけ）なので、先着の記録がまだ実装側に入る前のものでも反転させる。
   // `Step Functions → invokes → notify` のような**手前を向く縁**で先に着地すると
@@ -441,11 +438,9 @@ function promote(cur, rec) {
   // 定義を書いただけなので、それが別の経路で届いても本命にはしない
   // 循環境避のために切った経路より、ちゃんと根まで辿れる経路の方がマシ。後から来た方の
   // `via` を引き取って経路を伸ばす（表示する根拠の縁は最初のものまま）
-  if (cur.cut && (rec.via || rec.seedRoot)) {
+  if (cur.cut && rec.via) {
     cur.via = rec.via || null;
     cur.cut = false;
-    cur.seedRoot = !!rec.seedRoot;
-    if (cur.seedRoot) seedRoots.add(cur.id);
   }
   const kind = rec.edge ? rec.edge.kind : null;
   const prov = rec.edge ? rec.edge.provenance : null;
@@ -511,20 +506,25 @@ const inTouchedApiGroup = (id) => {
   const g = apiGroupOf(byId.get(id));
   return (g === null || g === undefined) ? false : touchedApiGroups.has(g);
 };
-const bestState = new Map();   // id -> { budget, primary, elig, down, calledOut, movementEvidence }
+const bestState = new Map();   // id -> { budget, primary, elig, down, reachedByInvokes, movementEvidence }
 // **受理した事実（本命か / 動きの根拠 / 旗）はここ、経路（`via` と表示する縁）は記録側**に置く。
 // 両方を記録に持たせていたため、経路を循環境避で切ったときに受理済みの本命情報まで捨てた
 // （双人レビュー P1: タグ参照が 1 本増えただけで実際の `invokes` が定義上の関連へ落ちた）
+// 閉包が「どの資格で展開したか」をここ別で持つ。事実（`bestState`）と同じ入れ物にすると、
+// walk が後から事実を強くしたとき、その資格での展開をまだしていないのに `offer()` が
+// 「改善なし」と判断して再展開を省いた（双人レビュー第 20 ラウンド P1: 定義参照が 1 本
+// 増えただけで上流の Step Functions が 定義上の関連 に落ちた）
+const expandedAt = new Map();   // id -> { primary, elig, down, budget }
 function noteFacts(id, f) {
   const prev = bestState.get(id)
-    || { primary: false, elig: false, down: false, calledOut: false, movementEvidence: null };
+    || { primary: false, elig: false, down: false, reachedByInvokes: false, movementEvidence: null };
   const kind = f.edge ? f.edge.kind : null;
   bestState.set(id, {
     ...prev,
     primary: prev.primary || !!f.primary,
     elig: prev.elig || !!f.elig,
     down: prev.down || !!f.down,
-    calledOut: prev.calledOut || !!f.calledOut,
+    reachedByInvokes: prev.reachedByInvokes || !!f.reachedByInvokes,
     movementEvidence: prev.movementEvidence
       || f.movementEvidence || (MOVEMENT.has(kind) ? f.edge : null) || null,
   });
@@ -543,21 +543,24 @@ function runClosure(seedIds) {
     // `via` が循環して `path[0]` が起点でなくなる行が出た（実測: 実プロジェクトの
     // `--api "POST /messages"` で 9 行中 5 行、`--from tf:aws_iam_role_policy.…` で全 15 行が
     // 2 ノードの循環）
-    const prev = bestState.get(state.id);
     // 事実は一度立ったら消えない。弱い方の状態が後から来ても旗を戻さないよう、ここで合流させる
     noteFacts(state.id, {
-      primary: state.primary, elig: state.elig, down: state.down, calledOut: state.calledOut,
+      primary: state.primary, elig: state.elig, down: state.down, reachedByInvokes: state.reachedByInvokes,
       edge: state.rec ? state.rec.edge : null,
     });
-    // 展開するのは「厳密に良くなったとき」だけ。`down` / `calledOut` は高々 1 回しか立たないので、
-    // それをきっかけにした再展開で無限ループにはならない
-    const better = !prev
-      || (state.primary && !prev.primary)
-      || (state.elig && !prev.elig)
-      || (state.down && !prev.down)
-      || (state.calledOut && !prev.calledOut)
-      || (state.primary === prev.primary && state.elig === prev.elig && state.budget < prev.budget);
+    // 展開するのは「展開に使った資格より厳密に良くなったとき」だけ。`primary` / `elig` / `down` は
+    // 高々 1 回しか立たず、`budget` は単調に減るので再展開は有限で止まる。`reachedByInvokes` は
+    // 展開条件から外した（閉包は子の旗を縁だけから決めるので不要。agy の指摘）
+    const done = expandedAt.get(state.id);
+    const better = !done
+      || (state.primary && !done.primary)
+      || (state.elig && !done.elig)
+      || (state.down && !done.down)
+      || (state.primary === done.primary && state.elig === done.elig && state.budget < done.budget);
     if (!better) return false;
+    expandedAt.set(state.id, {
+      primary: !!state.primary, elig: !!state.elig, down: !!state.down, budget: state.budget,
+    });
     bestState.set(state.id, { ...bestState.get(state.id), budget: state.budget });
     if (state.rec) {
       const old = wiringMap.get(state.id);
@@ -577,13 +580,17 @@ function runClosure(seedIds) {
     // `rec: null` のまま隣へ `via` だけを付けると、その `via` がどの記録も指さない宙ぶらりんになり、
     // 後から別の方向から到着した一歩がそこを親に選んで `via` が循環した
     // （実測: 注釈なし fixture の `POST /orders` で lambda ⇄ integration の 2 ノード循環）
-    const rec = combined.get(id) || {
-      id, edge: null, hops: 0, switches: 0, via: null, dir: 'out', wiring: false, seedRoot: true,
-    };
-    if (!combined.has(id)) seedRoots.add(id);
+    // 閉包の出発点は必ず walk の記録を持つ（`closureSeeds` は `combined` のキーから作る）。
+    // 持たないときは組み立ての間違いなので音をたてる。以前はここに「定義の種」という枝を
+    // 用意していたが、到達不能な上に説明コストだけかかった（双人レビュー第 20 ラウンド両名）
+    let rec = combined.get(id);
+    if (!rec) {
+      process.stderr.write(`[report] 警告: 閉包の出発点 ${id} に walk の記録がありません\n`);
+      rec = { id, edge: null, hops: 0, switches: 0, via: null, cut: true, dir: 'out', wiring: false };
+    }
     const state = {
       id, hops: rec.hops, budget: 0, down: !!rec.down,
-      calledOut: rec ? !!rec.calledOut : false,
+      reachedByInvokes: rec ? !!rec.reachedByInvokes : false,
       primary: !rec.wiring, elig: !rec.wiring || inTouchedApiGroup(id),
       via: null, rec,
     };
@@ -614,10 +621,10 @@ function runClosure(seedIds) {
         id: to, edge,
         hops: cur.hops + 1, switches: 0, via: back ? null : cur.id, cut: back, wiring: !primary,
         down: !!cur.down && !(movement && !arrowAt(edge, to)),
-        // `calledOut` は**この一歩が `invokes` だった**こと。しかも呼ぶ側（矢印の先へ進む一歩）だけ。
-        // 受け手側に立てると、上流の Step Functions に呼ばれているだけの Lambda に旗が立ち、
-        // 兄弟扱いと昇格の判定が壊れた（双人レビュー P1）
-        calledOut: edge.kind === 'invokes' && arrowAt(edge, to),
+        // `reachedByInvokes` は**この一歩が `invokes` だった**こと。しかも矢印どおりに辿った
+        // 一歩（呼ばれる側へ着いた一歩）だけ。逆にたどった一歩（呼び出し元へ着いた一歩）に
+        // 立てると「自分が呼んだ」と読める旗が上流に立った（双人レビュー第 20 ラウンド P2）
+        reachedByInvokes: edge.kind === 'invokes' && arrowAt(edge, to),
         // 向きは「縁の向き × その行が矢印のどちら側か」。動きの縁なら矢印の先が下流。
         // `references`（定義）は向きに意味無いので辿ってきたノードの向きを継ぐ
         // 動きの縁は矢印の先が下流。`SFN → invokes → この Lambda` は SFN が上流なので
@@ -628,7 +635,7 @@ function runClosure(seedIds) {
       };
       const state = {
         id: to, hops: rec.hops, budget, primary, elig, via: rec.via, rec,
-        down: rec.down, calledOut: rec.calledOut,
+        down: rec.down, reachedByInvokes: rec.reachedByInvokes,
       };
       // メンバ（`handler` の届く先）では展開しない。コード側の縁を辿るのは本命の walk だけにさせる
       if (offer(state) && (byId.get(to) || {}).kind === 'resource') queue.push(state);
@@ -659,10 +666,15 @@ for (let round = 0; round < MAX_ROUNDS; round++) {
   const codeSeeds = [...wiringMap.keys()].filter((id) => {
     const k = (byId.get(id) || {}).kind;
     const rec = combined.get(id);
-    return (k === 'member' || k === 'type') && rec && !rec.wiring && !walkedCode.has(id);
+    const st = bestState.get(id);
+    // 本命かどうかは受理事実で判断する（経路の記録は循環境避で `wiring` のまま残ることがある）
+    const primary = st ? st.primary : !!rec && rec.wiring !== true;
+    return (k === 'member' || k === 'type') && primary && !walkedCode.has(id);
   });
   // 本命として届いた endpoint が属する API を覚えておく（次の往復からその API の定義も伝播できる）
-  for (const [id, rec] of combined) if (!rec.wiring) {
+  for (const [id, rec] of combined) {
+    const st = bestState.get(id);
+    if (!(st ? st.primary : rec.wiring !== true)) continue;
     const g = apiGroupOf(byId.get(id));
     if (g !== null && g !== undefined) touchedApiGroups.add(g);
   }
@@ -685,7 +697,7 @@ const pathOf = (id) => {
   let cut = 'start';
   while (cur && cur.id && !guard.has(cur.id)) {
     acc.unshift(cur.id); guard.add(cur.id);
-    if (!cur.via) { cut = cur.seedRoot ? 'definition-seed' : (cur.cut ? 'second-stage' : 'start'); break; }
+    if (!cur.via) { cut = cur.cut ? 'second-stage' : 'start'; break; }
     const nxt = combined.get(cur.via);
     if (!nxt) { cut = 'broken'; break; }
     if (guard.has(nxt.id)) { cut = 'second-stage'; break; }
@@ -743,7 +755,7 @@ for (const [id, info] of combined) {
   const facts = {
     ...info,
     down: !!(st ? st.down : info.down),
-    calledOut: !!(st ? st.calledOut : info.calledOut),
+    reachedByInvokes: !!(st ? st.reachedByInvokes : info.reachedByInvokes),
     movementEvidence: (st && st.movementEvidence) || info.movementEvidence || null,
   };
   rows.push({
@@ -767,7 +779,7 @@ for (const [id, info] of combined) {
     // 起点が API エンドポイントのとき、method / resource / rest_api / integration / deployment は
     // **起点となる API 自身を定義している**ので「影響を受ける外部リソース」に数えない
     sameApi: startIsEndpoint && !endpointOf(byId.get(id)) && startApiGroups.has(apiGroupOf(byId.get(id))),
-    calledOut: facts.calledOut, evidence: info.edge, path: p,
+    reachedByInvokes: facts.reachedByInvokes, evidence: info.edge, path: p,
   });
 }
 rows.sort((a, b) => a.switches - b.switches || a.hops - b.hops || a.id.localeCompare(b.id));
@@ -783,7 +795,7 @@ const siblingRows = () => rows.filter(isSibling);
 // 兄弟 = **同じコードを共有しているだけ**の別エンドポイント。コード側から `invokes` で
 // 呼びに出しているエンドポイントは「呼び出している先」なので兄弟にしない（実測で
 // `Handler → invokes → 別 API` が兄弟に分類され、影響する先から消えた）
-const isSiblingEndpoint = (r) => startIsEndpoint && !!r.endpoint && !startSet.has(r.id) && !r.calledOut;
+const isSiblingEndpoint = (r) => startIsEndpoint && !!r.endpoint && !startSet.has(r.id) && !r.reachedByInvokes;
 // 兄弟エンドポイント**そのもの**だけでなく、その API を定義している resource / rest_api /
 // integration も同じ欄に出す。`external.in` に並べると「別 API から自分の API へ流入して
 // いる」と読めてしまう（同じ Lambda を共有しているだけの関係なので）
@@ -802,7 +814,7 @@ const siblingGroupOf = (r) => {
   if (!startIsEndpoint || !siblingGroups.size) return null;
   // コードから `invokes` したエンドポイントは兄弟ではなく 影響する先。同じ API に兄弟が
   // いるだけで兄弟欄へ引っ越すと、一番知りたい着地が消える
-  if (r.calledOut) return null;
+  if (r.reachedByInvokes) return null;
   const g = apiGroupOf(byId.get(r.id));
   return g !== null && g !== undefined && siblingGroups.has(g) ? g : null;
 };
@@ -888,11 +900,8 @@ const summary = {
   // 展開後の**起点の ID**。各行の `path[0]` がここに含まれることが不変条件
   // （`via` が循環すると起点でないノードから始まる行が出る。JSON だけを渡して確かめられるように出す）
   startIds: startIds.slice(0, 50), startIdsTruncated: startIds.length > 50,
-  // 閉包が出発点として根にしたノード（起点の定義グループ）。`pathRoot === 'definition-seed'` の
-  // 行の `path[0]` はここに含まれる
-  seedRoots: [...seedRoots].slice(0, 50), seedRootsTruncated: seedRoots.size > 50,
   pathsByRoot: (() => {
-    const c = { start: 0, 'definition-seed': 0, 'second-stage': 0, broken: 0 };
+    const c = { start: 0, 'second-stage': 0, broken: 0 };
     for (const r of rows) c[r.pathRoot] = (c[r.pathRoot] || 0) + 1;
     return c;
   })(),

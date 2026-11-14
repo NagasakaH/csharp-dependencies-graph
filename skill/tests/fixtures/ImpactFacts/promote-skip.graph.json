@@ -1,0 +1,98 @@
+{
+  "nodes": [
+    {
+      "id": "tf:aws_lambda_function.start",
+      "kind": "resource",
+      "name": "start",
+      "metadata": {
+        "resourceType": "aws_lambda_function",
+        "category": "lambda"
+      }
+    },
+    {
+      "id": "member:Start.Handle",
+      "kind": "member",
+      "name": "Start.Handle"
+    },
+    {
+      "id": "tf:aws_iam_role.r0",
+      "kind": "resource",
+      "name": "r0",
+      "metadata": {
+        "resourceType": "aws_iam_role",
+        "category": "iam"
+      }
+    },
+    {
+      "id": "tf:aws_lambda_function.r1",
+      "kind": "resource",
+      "name": "r1",
+      "metadata": {
+        "resourceType": "aws_lambda_function",
+        "category": "lambda"
+      }
+    },
+    {
+      "id": "tf:aws_api_gateway_integration.r2",
+      "kind": "resource",
+      "name": "r2",
+      "metadata": {
+        "resourceType": "aws_api_gateway_integration",
+        "category": "apigateway"
+      }
+    },
+    {
+      "id": "tf:aws_lambda_function.r3",
+      "kind": "resource",
+      "name": "r3",
+      "metadata": {
+        "resourceType": "aws_lambda_function",
+        "category": "lambda"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "ref0",
+      "kind": "references",
+      "source": "tf:aws_lambda_function.start",
+      "target": "tf:aws_iam_role.r0",
+      "provenance": "terraform"
+    },
+    {
+      "id": "trig01",
+      "kind": "triggers",
+      "source": "tf:aws_iam_role.r0",
+      "target": "tf:aws_lambda_function.r1",
+      "provenance": "terraform"
+    },
+    {
+      "id": "h_start",
+      "kind": "handler",
+      "source": "tf:aws_lambda_function.start",
+      "target": "member:Start.Handle",
+      "provenance": "terraform"
+    },
+    {
+      "id": "inv1",
+      "kind": "invokes",
+      "source": "member:Start.Handle",
+      "target": "tf:aws_lambda_function.r1",
+      "provenance": "human"
+    },
+    {
+      "id": "ref2",
+      "kind": "references",
+      "source": "tf:aws_api_gateway_integration.r2",
+      "target": "tf:aws_lambda_function.r1",
+      "provenance": "terraform"
+    },
+    {
+      "id": "trig23",
+      "kind": "triggers",
+      "source": "tf:aws_api_gateway_integration.r2",
+      "target": "tf:aws_lambda_function.r3",
+      "provenance": "terraform"
+    }
+  ]
+}

@@ -493,6 +493,40 @@ check('--limit で一覧が切れてもカウンタの不変条件は保たれ�
     r ? JSON.stringify(r.result.external.out.map((x) => [x.id, x.direction])) : '実行失敗');
 }
 
+// (3) walk が事実を強くしたとき、その資格での閉包の再展開を省かない
+{
+  const r = runOn('preempt.graph.json', ['--from', 'tf:aws_lambda_function.s'], 'facts-preempt');
+  const all = r ? [...r.result.external.in, ...r.result.external.out, ...r.result.wiring] : [];
+  const up = all.find((x) => x.id === 'tf:aws_sfn_state_machine.r');
+  check('定義参照が 1 本増えても、実際の呼び出し元は 定義上の関連 に落ちない',
+    !!up && up.tier === 'primary' && up.direction === 'in'
+    && !!up.movementEvidence && up.movementEvidence.kind === 'invokes' && r.result.summary.wiring === 0,
+    up ? JSON.stringify([up.tier, up.direction, up.movementEvidence && up.movementEvidence.kind, r.result.summary.wiring])
+      : (r ? 'external / wiring に出ていない' : '実行失敗'));
+  const r2 = runOn('promote-skip.graph.json', ['--from', 'tf:aws_lambda_function.start'], 'facts-promote');
+  const all2 = r2 ? [...r2.result.external.in, ...r2.result.external.out, ...r2.result.wiring] : [];
+  const r3 = all2.find((x) => x.id === 'tf:aws_lambda_function.r3');
+  check('walk が後から本命にしたノードから先も、閉包の 2 ラウンド目で本命まで育つ',
+    !!r3 && r3.tier === 'primary' && r3.direction === 'out' && r2.result.summary.wiring === 0,
+    r3 ? JSON.stringify([r3.tier, r3.direction, r2.result.summary.wiring]) : (r2 ? 'r3 が出ていない: ' + JSON.stringify(all2.map((x) => [x.id, x.tier])) : '実行失敗'));
+}
+// (4) 旗の名前どおりに立つ（呼ばれる側へ着いた一歩だけ。呼び出し元に立たない）
+{
+  const r = runOn('calledout-walk.graph.json', ['--from', 'member:X.Handle'], 'facts-calledout');
+  const up = r ? [...r.result.external.in, ...r.result.external.out].find((x) => x.id === 'tf:aws_sfn_state_machine.up') : null;
+  check('呼び出し元（`invokes` を逆向きに辿った先）に `reachedByInvokes` を立てない',
+    !!up && up.direction === 'in' && up.reachedByInvokes === false,
+    up ? JSON.stringify([up.direction, up.reachedByInvokes]) : (r ? '出ていない' : '実行失敗'));
+  // 起点が定義上のもので、動きの縁を跨いだ行も 定義上の関連 に残る（IAM ポリシー起点の実測どおり）
+  const defStart = runOn('calledout-walk.graph.json', ['--from', 'tf:aws_sfn_state_machine.up'], 'facts-defstart');
+  const rows = defStart ? Object.values(defStart.result).flatMap((b) =>
+    (Array.isArray(b) ? b : (b && typeof b === 'object' ? [...(b.in || []), ...(b.out || [])] : [])))
+    .filter((x) => x && typeof x === 'object' && typeof x.tier === 'string') : null;
+  check('注釈の `invokes` で呼んだ先（コードの入口）は本命のまま出す',
+    !!rows && rows.length > 0 && rows.every((x) => x.tier === 'primary'),
+    rows ? JSON.stringify(rows.map((x) => [x.id, x.tier])) : '実行失敗');
+}
+
 rmSync(dir, { recursive: true, force: true });
 console.log(`\n${pass}/${pass + failures.length} 件成功`);
 if (failures.length) { console.log('失敗: ' + failures.join(' / ')); process.exit(1); }

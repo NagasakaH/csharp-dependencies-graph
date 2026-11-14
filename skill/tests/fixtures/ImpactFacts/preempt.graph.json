@@ -1,0 +1,64 @@
+{
+  "nodes": [
+    {
+      "id": "tf:aws_lambda_function.s",
+      "kind": "resource",
+      "name": "tf:aws_lambda_function.s",
+      "metadata": {
+        "resourceType": "aws_lambda_function"
+      }
+    },
+    {
+      "id": "tf:aws_sfn_state_machine.r",
+      "kind": "resource",
+      "name": "tf:aws_sfn_state_machine.r",
+      "metadata": {
+        "resourceType": "aws_sfn_state_machine"
+      }
+    },
+    {
+      "id": "tf:aws_lambda_function.a",
+      "kind": "resource",
+      "name": "tf:aws_lambda_function.a",
+      "metadata": {
+        "resourceType": "aws_lambda_function"
+      }
+    },
+    {
+      "id": "member:S.Handle",
+      "kind": "member",
+      "name": "member:S.Handle",
+      "metadata": {}
+    }
+  ],
+  "edges": [
+    {
+      "id": "references:tf:aws_lambda_function.s->tf:aws_sfn_state_machine.r",
+      "source": "tf:aws_lambda_function.s",
+      "target": "tf:aws_sfn_state_machine.r",
+      "kind": "references",
+      "provenance": "terraform"
+    },
+    {
+      "id": "invokes:tf:aws_sfn_state_machine.r->tf:aws_lambda_function.a",
+      "source": "tf:aws_sfn_state_machine.r",
+      "target": "tf:aws_lambda_function.a",
+      "kind": "invokes",
+      "provenance": "terraform"
+    },
+    {
+      "id": "handler:tf:aws_lambda_function.s->member:S.Handle",
+      "source": "tf:aws_lambda_function.s",
+      "target": "member:S.Handle",
+      "kind": "handler",
+      "provenance": "terraform"
+    },
+    {
+      "id": "invokes:member:S.Handle->tf:aws_lambda_function.a",
+      "source": "member:S.Handle",
+      "target": "tf:aws_lambda_function.a",
+      "kind": "invokes",
+      "provenance": "human"
+    }
+  ]
+}
