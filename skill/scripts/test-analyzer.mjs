@@ -235,6 +235,70 @@ check('global using だけで届いている型も結ぶ', tHas('creates', 'Fixt
 check('同じ名前空間の非ジェネリック型は従来どおり結ぶ', tHas('creates', 'Fixtures.TypeResolution.Ui.PanelHost.Make', 'Fixtures.TypeResolution.Ui.Panel')
   || tHas('references', 'Fixtures.TypeResolution.Ui.PanelHost.Make', 'Fixtures.TypeResolution.Ui.Panel'));
 
+// ---- BindingRegression フィクスチャ: 前ラウンドレビューで出た過剰除去の再発防止 ----
+const b = analyze('BindingRegression');
+const bEdges = b.edges.filter((e) => e.kind !== 'contains');
+const bHas = (kind, sourceStart, target) => bEdges.some(
+  (e) => e.kind === kind && e.source.startsWith(sourceStart) && e.target === target);
+const bTo = (target) => bEdges.filter((e) => e.target === target);
+const bFile = (relPath) => b.nodes.find((n) => n.kind === 'file' && (n.path || '').endsWith(relPath));
+const bRejected = (relPath) => (bFile(relPath)?.metadata?.rejectedTypes) || [];
+
+// 同じノード ID に畳まれた別アリティ（`Activity` と `Activity<T>`）は受けつける
+check('同名で型パラメータ数の違う基底型を結ぶ（内側名前空間・using 無し）',
+  bHas('inherits', 'type:Fix.Regress.Core.Activities.Dispatch', 'type:Fix.Regress.Core.Activity')
+  && bHas('inherits', 'type:Fix.Regress.Core.Activities.If', 'type:Fix.Regress.Core.Activity'),
+  JSON.stringify(bTo('type:Fix.Regress.Core.Activity').map((e) => `${e.kind}:${e.source}`)));
+check('型引数付きの利用が同名非ジェネリック宣言へ化けない（確定解決の経路でも型引数を見る）',
+  bTo('type:Fix.Regress.Ui.Dictionary').length === 0 && bRejected('Ui.cs').includes('Dictionary'),
+  JSON.stringify({ edges: bTo('type:Fix.Regress.Ui.Dictionary').map((e) => e.source), rejected: bRejected('Ui.cs') }));
+
+// 戻り値型は「宣言元の using」で解決する（呼び出し元が import している必要はない）
+const itemId = 'member:Fix.Regress.Models.Item.Id';
+const moduleConfigure = 'member:Fix.Regress.Core.IModule.Configure';
+check('プロパティの戻り値を挟んだ多段アクセス（呼び出し側は using 無し）',
+  bHas('accesses', 'member:Fix.Regress.Handlers.Worker.FromParam', itemId),
+  JSON.stringify(bEdges.filter((e) => e.source.includes('FromParam')).map((e) => `${e.kind}:${e.target}`)));
+check('ローカル変数の連鎖も宣言元で解決', bHas('accesses', 'member:Fix.Regress.Handlers.Worker.FromLocal', itemId));
+check('メソッドの戻り値を挟んだ連鎖も宣言元で解決',
+  bHas('accesses', 'member:Fix.Regress.Handlers.Worker.FromCall', itemId)
+  && bHas('calls', 'member:Fix.Regress.Handlers.Worker.FromCall', 'member:Fix.Regress.Services.Runner.Make'));
+check('戻り値がインターフェースのメソッド呼び出し（IModule.Configure）',
+  bHas('calls', 'member:Fix.Regress.Handlers.Worker.Configure', moduleConfigure),
+  JSON.stringify(bEdges.filter((e) => e.source.includes('Configure')).map((e) => `${e.kind}:${e.target}`)));
+
+// グローバル名前空間の型とそのネスト型は、同じファイルから見える
+check('グローバル名前空間のネスト型を到達不能にしない',
+  bHas('creates', 'member:Entry.Run', 'type:Entry/Inner')
+  && bHas('calls', 'member:Entry.Run', 'member:Entry/Inner.Go')
+  && bHas('references', 'member:Entry.Run', 'type:Entry/BridgeRejectedException'),
+  JSON.stringify(bEdges.filter((e) => e.source === 'member:Entry.Run').map((e) => `${e.kind}:${e.target}`)));
+
+// 名前空間直下に型があれば単純名は単独決定する（同名のネスト型へ張り分けない）
+check('名前空間直下の型が単純名で決まったときは張り分けない',
+  bHas('creates', 'member:Fix.Regress.Ambiguous.ProbeUser.Make', 'type:Fix.Regress.Ambiguous.Probe')
+  && !bEdges.some((e) => e.source === 'member:Fix.Regress.Ambiguous.ProbeUser.Make'
+    && e.target !== 'type:Fix.Regress.Ambiguous.Probe'),
+  JSON.stringify(bEdges.filter((e) => e.source.includes('ProbeUser')).map((e) => `${e.kind}:${e.target}`)));
+
+// ---- 決定性: 同じ入力を 2 回走らせてもノード・エッジ・後付け候補が揺れない ----
+function runTwice(root) {
+  const outs = [1, 2].map((i) => {
+    const out = join(dir, `twice-${i}.json`);
+    const proc = spawnSync(cgd, ['--root', root, '--out', out, '--quiet'], { encoding: 'utf8' });
+    if (proc.status !== 0) { console.error(proc.stdout + proc.stderr); process.exit(1); }
+    const graph = JSON.parse(readFileSync(out, 'utf8'));
+    return JSON.stringify({
+      nodes: [...graph.nodes].sort((a, x) => a.id.localeCompare(x.id)),
+      edges: [...graph.edges].sort((a, x) => `${a.kind}${a.source}${a.target}`.localeCompare(`${x.kind}${x.source}${x.target}`)),
+    });
+  });
+  return outs[0] === outs[1];
+}
+check('同じ入力を 2 回実行して rejectedTypes を含む出力が揺れない',
+  runTwice(resolve(HERE, '..', '..', 'demo', 'orders-api-lambda'))
+  && runTwice(join(HERE, '..', 'tests', 'fixtures', 'BindingRegression')));
+
 rmSync(dir, { recursive: true, force: true });
 console.log(`\n${pass}/${pass + failures.length} 件成功`);
 if (failures.length) { console.log('失敗: ' + failures.join(' / ')); process.exit(1); }

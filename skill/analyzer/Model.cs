@@ -29,6 +29,10 @@ public sealed class TypeSymbol
     public bool IsGeneric;
     /// <summary>宣言中の型パラメータの数（`Dictionary<TKey, TValue>` なら 2）。使用側の型引数の数と突き合わせて誤バインドを止める。</summary>
     public int Arity;
+    /// <summary>このノード ID に畳まれた型パラメータ数の一覧。`Activity` と `Activity<T>` は同じ ID を共有する。</summary>
+    public List<int> Arities = new(1);
+    /// <summary>使用側に書かれた型引数の数を受けつけるか。</summary>
+    public bool MatchesArity(int usageArity) => Arities.Count == 0 || Arities.Contains(usageArity);
     public int DeclarationCount;
     public List<string> BaseRaw = new();
     public List<string> Modifiers = new();

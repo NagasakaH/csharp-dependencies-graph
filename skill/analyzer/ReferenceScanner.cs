@@ -83,11 +83,11 @@ public sealed class ReferenceScanner
             foreach (var baseType in decl.BaseList.Types)
             {
                 var raw = baseType.Type.ToString();
-                var candidates = _index.Resolve(raw, ts.Namespace, file);
+                var candidates = _index.Resolve(raw, ts.Namespace, file, out var reject);
                 if (candidates.Count == 0)
                 {
                     NoteUnresolvedType(file, raw);
-                    NoteRejectedType(file, raw);
+                    NoteRejectedType(file, raw, reject);
                     continue;
                 }
                 foreach (var candidate in candidates)
@@ -212,11 +212,11 @@ public sealed class ReferenceScanner
             return;
         }
 
-        var candidates = _index.Resolve(typeRaw, ns, file);
+        var candidates = _index.Resolve(typeRaw, exprType.OwnerNs ?? ns, exprType.OwnerFile ?? file, out var reject);
         if (candidates.Count == 0)
         {
             NoteUnresolvedType(file, TypeText.Normalize(typeRaw));
-            NoteRejectedType(file, typeRaw);
+            NoteRejectedType(file, typeRaw, reject);
             Unresolved(symbol, file, raw);
             return;
         }
@@ -234,11 +234,11 @@ public sealed class ReferenceScanner
         ObjectCreationExpressionSyntax creation)
     {
         var raw = Truncate(creation.Type.ToString());
-        var candidates = _index.Resolve(creation.Type.ToString(), ns, file);
+        var candidates = _index.Resolve(creation.Type.ToString(), ns, file, out var reject);
         if (candidates.Count == 0)
         {
             NoteUnresolvedType(file, TypeText.Normalize(creation.Type.ToString()));
-            NoteRejectedType(file, creation.Type.ToString());
+            NoteRejectedType(file, creation.Type.ToString(), reject);
             return;
         }
         foreach (var candidate in candidates)
@@ -260,7 +260,7 @@ public sealed class ReferenceScanner
         var typeRaw = exprType.TypeRaw ?? exprType.StaticTypeName;
         if (typeRaw is null) return;
 
-        var candidates = _index.Resolve(typeRaw, ns, file);
+        var candidates = _index.Resolve(typeRaw, exprType.OwnerNs ?? ns, exprType.OwnerFile ?? file);
         foreach (var candidate in candidates)
         {
             var target = _index.FindMember(candidate, name!);
@@ -299,11 +299,11 @@ public sealed class ReferenceScanner
     void EmitTypeRef(string sourceId, string raw, string kind, string ns, FileResult file, string detail, int line)
     {
         if (PredefinedTypes.Contains(TypeText.Normalize(raw))) return;
-        var candidates = _index.Resolve(raw, ns, file);
+        var candidates = _index.Resolve(raw, ns, file, out var reject);
         if (candidates.Count == 0)
         {
             NoteUnresolvedType(file, TypeText.Normalize(raw));
-            NoteRejectedType(file, raw);
+            NoteRejectedType(file, raw, reject);
             return;
         }
         foreach (var candidate in candidates)
@@ -333,11 +333,18 @@ public sealed class ReferenceScanner
 
         /// <summary>ジェネリック引数を畳む前の型表記。`List&lt;Worker&gt;` の要素型を取り出すときに使う。</summary>
         public readonly string? RawType;
-        public ExprType(string? typeRaw, string? staticTypeName, string? rawType = null)
+        /// <summary>この型表記が書かれていた名前空間とファイル。戻り値型は宣言元の `using` でしか
+        /// 解決できないので、使用側の文脈ではなく宣言元の文脈を運び回す。</summary>
+        public readonly string? OwnerNs;
+        public readonly FileResult? OwnerFile;
+        public ExprType(string? typeRaw, string? staticTypeName, string? rawType = null,
+                        string? ownerNs = null, FileResult? ownerFile = null)
         {
             TypeRaw = typeRaw;
             StaticTypeName = staticTypeName;
             RawType = rawType;
+            OwnerNs = ownerNs;
+            OwnerFile = ownerFile;
         }
         public static readonly ExprType Unknown = new(null, null);
     }
@@ -355,7 +362,7 @@ public sealed class ReferenceScanner
             {
                 var inner = ResolveExpr(awaitExpr.Expression, ts, ns, file, scope, depth + 1);
                 // Task<List<A>> を畳む前に剥がさないと内側のジェネリックが消える
-                return FromType(TypeText.UnwrapTask(inner.RawType ?? inner.TypeRaw));
+                return FromType(TypeText.UnwrapTask(inner.RawType ?? inner.TypeRaw), inner);
             }
             // `new Holder().Items` のように new の結果をそのまま使う式
             case ObjectCreationExpressionSyntax creation:
@@ -432,7 +439,7 @@ public sealed class ReferenceScanner
         var member = _index.FindMember(ts, id);
         if (member is not null && member.Kind is "field" or "property" or "event")
         {
-            return member.ReturnType is null ? ExprType.Unknown : FromType(member.ReturnType);
+            return member.ReturnType is null ? ExprType.Unknown : FromType(member.ReturnType, member.Owner);
         }
         return new ExprType(null, id);
     }
@@ -446,7 +453,7 @@ public sealed class ReferenceScanner
 
         if (inner.StaticTypeName is not null)
         {
-            foreach (var candidate in _index.Resolve(inner.StaticTypeName, ns, file))
+            foreach (var candidate in _index.Resolve(inner.StaticTypeName, inner.OwnerNs ?? ns, inner.OwnerFile ?? file))
             {
                 if (_index.TryGetNested(candidate, name!, out var nested)) return FromType(nested.Qualified);
                 var member = _index.FindMember(candidate, name!);
@@ -454,11 +461,11 @@ public sealed class ReferenceScanner
                 {
                     if (member.Kind is "field" or "property" or "event")
                     {
-                        return member.ReturnType is null ? ExprType.Unknown : FromType(member.ReturnType);
+                        return member.ReturnType is null ? ExprType.Unknown : FromType(member.ReturnType, member.Owner);
                     }
                     if (member.Kind is "method")
                     {
-                        return member.ReturnType is null ? ExprType.Unknown : FromType(TypeText.UnwrapTask(member.ReturnType));
+                        return member.ReturnType is null ? ExprType.Unknown : FromType(TypeText.UnwrapTask(member.ReturnType), member.Owner);
                     }
                 }
             }
@@ -467,18 +474,18 @@ public sealed class ReferenceScanner
         }
 
         if (inner.TypeRaw is null) return ExprType.Unknown;
-        foreach (var candidate in _index.Resolve(inner.TypeRaw, ns, file))
+        foreach (var candidate in _index.Resolve(inner.TypeRaw, inner.OwnerNs ?? ns, inner.OwnerFile ?? file))
         {
             if (_index.TryGetNested(candidate, name!, out var nested)) return FromType(nested.Qualified);
             var member = _index.FindMember(candidate, name!);
             if (member is null) continue;
             if (member.Kind is "field" or "property" or "event")
             {
-                return member.ReturnType is null ? ExprType.Unknown : FromType(member.ReturnType);
+                return member.ReturnType is null ? ExprType.Unknown : FromType(member.ReturnType, member.Owner);
             }
             if (member.Kind is "method" && member.ReturnType is not null)
             {
-                return FromType(TypeText.UnwrapTask(member.ReturnType));
+                return FromType(TypeText.UnwrapTask(member.ReturnType), member.Owner);
             }
         }
         return ExprType.Unknown;
@@ -510,7 +517,7 @@ public sealed class ReferenceScanner
             if (scope.IsShadowed(name!, inv) || IsNonInvocableMember(ts, name!)) return ExprType.Unknown;
 
             var own = _index.FindMember(ts, name!);
-            if (own?.ReturnType is not null) return FromType(TypeText.UnwrapTask(own.ReturnType));
+            if (own?.ReturnType is not null) return FromType(TypeText.UnwrapTask(own.ReturnType), own.Owner);
             return ExprType.Unknown;
         }
 
@@ -518,10 +525,10 @@ public sealed class ReferenceScanner
         var typeRaw = exprType.TypeRaw ?? exprType.StaticTypeName;
         if (typeRaw is null) return ExprType.Unknown;
 
-        foreach (var candidate in _index.Resolve(typeRaw, ns, file))
+        foreach (var candidate in _index.Resolve(typeRaw, exprType.OwnerNs ?? ns, exprType.OwnerFile ?? file))
         {
             var member = _index.FindMember(candidate, name!);
-            if (member?.ReturnType is not null) return FromType(TypeText.UnwrapTask(member.ReturnType));
+            if (member?.ReturnType is not null) return FromType(TypeText.UnwrapTask(member.ReturnType), member.Owner);
         }
         return ExprType.Unknown;
     }
@@ -543,6 +550,22 @@ public sealed class ReferenceScanner
         if (string.IsNullOrWhiteSpace(raw)) return ExprType.Unknown;
         var normalized = TypeText.Normalize(raw!);
         return normalized.Length == 0 ? ExprType.Unknown : new ExprType(normalized, null, raw);
+    }
+
+    /// <summary>メンバーの戻り値など「宣言元に書かれた型表記」。解決には宣言元の `using` が必要。</summary>
+    static ExprType FromType(string? raw, TypeSymbol? owner)
+    {
+        var result = FromType(raw);
+        if (owner is null || result.TypeRaw is null) return result;
+        return new ExprType(result.TypeRaw, result.StaticTypeName, result.RawType, owner.Namespace, owner.DeclaringFile);
+    }
+
+    /// <summary>内側の式から文脈だけを継ぐ（`await x.Make()` など）。</summary>
+    static ExprType FromType(string? raw, ExprType inherit)
+    {
+        var result = FromType(raw);
+        if (result.TypeRaw is null || inherit.OwnerFile is null) return result;
+        return new ExprType(result.TypeRaw, result.StaticTypeName, result.RawType, inherit.OwnerNs, inherit.OwnerFile);
     }
 
     static string LiteralType(LiteralExpressionSyntax literal) => literal.Kind() switch
@@ -965,9 +988,9 @@ public sealed class ReferenceScanner
     }
 
     /// <summary>候補があったのに張らなかったバインドを、後で注釈を付けられるようファイル単位で残す。</summary>
-    void NoteRejectedType(FileResult file, string raw)
+    void NoteRejectedType(FileResult file, string raw, TypeIndex.RejectReason reject)
     {
-        if (_index.LastReject == TypeIndex.RejectReason.None) return;
+        if (reject == TypeIndex.RejectReason.None) return;
         var name = TypeText.Normalize(raw);
         if (name.Length == 0) return;
         file.RejectedTypes.TryGetValue(name, out var count);

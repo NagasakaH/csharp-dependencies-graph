@@ -132,9 +132,11 @@ public static class DeclarationScanner
 
     public static TypeSymbol GetOrAddType(string qualified, MemberDeclarationSyntax decl, string ns, FileResult file)
     {
+        var arity = ArityOf(decl);
         foreach (var existing in file.Types)
         {
-            if (string.Equals(existing.Qualified, qualified, StringComparison.Ordinal))
+            // 同じファイルの `Activity` と `Activity<T>` は別宣言。型パラメータ数も合わないと同一扱いにしない
+            if (string.Equals(existing.Qualified, qualified, StringComparison.Ordinal) && existing.Arity == arity)
             {
                 existing.DeclarationCount++;
                 return existing;
@@ -150,7 +152,7 @@ public static class DeclarationScanner
             Kind = KindOf(decl),
             Line = decl.GetLocation().GetLineSpan().StartLinePosition.Line + 1,
             IsGeneric = (decl as TypeDeclarationSyntax)?.TypeParameterList?.Parameters.Count > 0,
-            Arity = ArityOf(decl),
+            Arity = arity,
             DeclarationCount = 1,
         };
         var modifiers = decl switch

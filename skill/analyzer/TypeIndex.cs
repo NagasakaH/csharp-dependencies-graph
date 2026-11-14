@@ -7,14 +7,13 @@ public sealed class TypeIndex
     public readonly Dictionary<string, TypeSymbol> ByQualified = new(StringComparer.Ordinal);
     public readonly Dictionary<string, List<TypeSymbol>> BySimple = new(StringComparer.Ordinal);
     public int MergedPartials;
+    /// <summary>`Activity` と `Activity<T>` のように、型パラメータ数が違い同じ ID に畳まれた件数。</summary>
+    public int ArityMerges;
     /// <summary>`global using` した名前空間を、宣言したディレクトリの子孫から見える形にしたもの。</summary>
     readonly Dictionary<string, List<string>> _globalUsings = new(StringComparer.Ordinal);
 
     /// <summary>候補があったのにエッジを張らなかった理由。</summary>
     public enum RejectReason { None, ArityMismatch, Unreachable }
-
-    /// <summary>直近の Resolve が候補を断った理由。呼び出し側が未解決ログへ残すために読む。</summary>
-    public RejectReason LastReject;
 
     public TypeIndex(int maxAmbiguous = 2) => _maxAmbiguous = Math.Max(1, maxAmbiguous);
 
@@ -58,11 +57,23 @@ public sealed class TypeIndex
         foreach (var type in file.Types)
         {
             type.DeclaringFile = file;
+            if (type.Arities.Count == 0) type.Arities.Add(type.Arity);
             if (ByQualified.TryGetValue(type.Qualified, out var canonical))
             {
                 if (ReferenceEquals(canonical, type)) continue;
                 // partial クラスの別ファイルを正規ノードに束ねる
                 canonical.DeclarationCount += type.DeclarationCount;
+                if (!canonical.Arities.Contains(type.Arity))
+                {
+                    // 同一名前空間の `Activity` と `Activity<T>` は別宣言でも同じノード ID を使う。
+                    // 片方に寄せるのではなく両方の型パラメータ数を覚えて、型引数のゲートで受けつける
+                    canonical.Arities.Add(type.Arity);
+                    ArityMerges++;
+                }
+                else
+                {
+                    MergedPartials++;
+                }
                 if (type.RelPath != canonical.RelPath && !canonical.OtherFiles.Contains(type.RelPath))
                 {
                     canonical.OtherFiles.Add(type.RelPath);
@@ -71,7 +82,6 @@ public sealed class TypeIndex
                 {
                     if (!canonical.MembersByName.ContainsKey(kv.Key)) canonical.MembersByName[kv.Key] = kv.Value;
                 }
-                MergedPartials++;
                 continue;
             }
             ByQualified[type.Qualified] = type;
@@ -89,9 +99,15 @@ public sealed class TypeIndex
     /// <summary>候補の名前空間が使用側から届いているかの変換（点けられないなら 0）。</summary>
     int ScoreReach(TypeSymbol candidate, string ns, FileResult? file)
     {
-        if (candidate.Namespace.Length == 0) return 0;
         var score = 0;
-        if (string.Equals(candidate.Namespace, ns, StringComparison.Ordinal)) score += 6;
+        // 宣言と同じファイルから使う型が最も強い手掛かり。
+        // グローバル名前空間の型（`Program` とそのネスト型）は名前空間が空なので、これがないと届かない
+        if (file is not null && ReferenceEquals(candidate.DeclaringFile, file)) score += 6;
+        if (candidate.Namespace.Length == 0)
+        {
+            if (ns.Length == 0) score += 6;
+        }
+        else if (string.Equals(candidate.Namespace, ns, StringComparison.Ordinal)) score += 6;
         else if (ns.StartsWith(candidate.Namespace + ".", StringComparison.Ordinal)) score += 3;
         if (file is not null)
         {
@@ -108,7 +124,7 @@ public sealed class TypeIndex
         return score;
     }
 
-    /// <summary>使用側に書かれた型引数の数。閉じないなど判定不能なら 0（ゲート不发動）。</summary>
+    /// <summary>使用側に書かれた型引数の数。閉じないなど判定不能なら 0（ゲートは発動しない）。</summary>
     static int UsageArity(string raw)
     {
         var lt = raw.IndexOf('<');
@@ -131,8 +147,38 @@ public sealed class TypeIndex
 
     /// <summary>宣言中に現れた型名テキストを、インデックス中の型に解決する。</summary>
     public IReadOnlyList<TypeSymbol> Resolve(string raw, string ns, FileResult? file)
+        => Resolve(raw, ns, file, out _);
+
+    /// <summary>解決しなかったとき `reject` に断った理由が入る（候補すらない場合は None）。
+    /// 理由は呼び出し単位のローカルで受け取る（解析はファイルを並列に回すので、共有フィールドに書くと競合する）。</summary>
+    public IReadOnlyList<TypeSymbol> Resolve(string raw, string ns, FileResult? file, out RejectReason reject)
     {
-        LastReject = RejectReason.None;
+        var box = new RejectBox();
+        var result = ResolveCore(raw, ns, file, box, UsageArity(raw));
+        reject = box.Reason;
+        return result;
+    }
+
+    sealed class RejectBox
+    {
+        public RejectReason Reason;
+    }
+
+    IReadOnlyList<TypeSymbol> ResolveCore(string raw, string ns, FileResult? file, RejectBox box, int usageArity)
+    {
+        // ゲート 1: 使用側が型引数を書いているなら、宣言の型パラメータ数が違う候補には張らない
+        //   （`Dictionary<string, object>` を Blazor の非ジェネリック `Dictionary` に化かさない）。
+        //   名前解決の形を絞らず、確定解決の経路でも必ず通す。
+        TypeSymbol[] Accept(TypeSymbol candidate)
+        {
+            if (usageArity > 0 && !candidate.MatchesArity(usageArity))
+            {
+                box.Reason = RejectReason.ArityMismatch;
+                return EmptyTypes;
+            }
+            return new[] { candidate };
+        }
+
         var name = TypeText.Normalize(raw);
         if (name.Length == 0 || name[0] == '<') return EmptyTypes;
 
@@ -142,26 +188,26 @@ public sealed class TypeIndex
             if (name.Length == 0) return EmptyTypes;
         }
 
-        if (ByQualified.TryGetValue(name, out var exact)) return new[] { exact };
+        if (ByQualified.TryGetValue(name, out var exact)) return Accept(exact);
         if (name.Contains('.') && ByQualified.TryGetValue(name.Replace('.', '/'), out var flatNested))
         {
-            return new[] { flatNested };
+            return Accept(flatNested);
         }
-        if (ns.Length > 0 && ByQualified.TryGetValue(ns + "." + name, out var inNamespace)) return new[] { inNamespace };
+        if (ns.Length > 0 && ByQualified.TryGetValue(ns + "." + name, out var inNamespace)) return Accept(inNamespace);
         if (ns.Length > 0 && name.Contains('.') &&
             ByQualified.TryGetValue(ns + "." + name.Replace('.', '/'), out var nestedInNamespace))
         {
-            return new[] { nestedInNamespace };
+            return Accept(nestedInNamespace);
         }
 
         if (file is not null)
         {
             foreach (var usingNs in VisibleUsings(file))
             {
-                if (ByQualified.TryGetValue(usingNs + "." + name, out var byUsing)) return new[] { byUsing };
+                if (ByQualified.TryGetValue(usingNs + "." + name, out var byUsing)) return Accept(byUsing);
                 if (name.Contains('.') && ByQualified.TryGetValue(usingNs + "." + name.Replace('.', '/'), out var byUsingNested))
                 {
-                    return new[] { byUsingNested };
+                    return Accept(byUsingNested);
                 }
             }
 
@@ -177,7 +223,7 @@ public sealed class TypeIndex
                     {
                         if (ByQualified.TryGetValue(candidate.Qualified + "/" + rest, out var inner))
                         {
-                            return new[] { inner };
+                            return Accept(inner);
                         }
                     }
                 }
@@ -186,20 +232,17 @@ public sealed class TypeIndex
 
         if (BySimple.TryGetValue(name, out var bySimple))
         {
-            // ゲート 1: 使用側が型引数を書いているなら、宣言側の型パラメータ数が合わ候補は張らない
-            //   （`Dictionary<string, object>` を Blazor の非ジェネリック `Dictionary` に化かさない）
-            var usageArity = UsageArity(raw);
             var candidates = bySimple;
             if (usageArity > 0)
             {
                 var typed = new List<TypeSymbol>(bySimple.Count);
                 foreach (var candidate in bySimple)
                 {
-                    if (candidate.Arity == usageArity) typed.Add(candidate);
+                    if (candidate.MatchesArity(usageArity)) typed.Add(candidate);
                 }
                 if (typed.Count == 0)
                 {
-                    LastReject = RejectReason.ArityMismatch;
+                    box.Reason = RejectReason.ArityMismatch;
                     return EmptyTypes;
                 }
                 candidates = typed;
@@ -217,10 +260,10 @@ public sealed class TypeIndex
             //   届かないなら張らない。BCL 型は索引に無いので「解 1 件」は到達性の証拠にならない。
             if (scored[0].Score == 0)
             {
-                LastReject = RejectReason.Unreachable;
+                box.Reason = RejectReason.Unreachable;
                 return EmptyTypes;                              // 届かない／判別できない曖昧さは張らない
             }
-            if (scored.Count == 1 || scored[0].Score > scored[1].Score) return new[] { scored[0].Type };
+            if (scored.Count == 1 || scored[0].Score > scored[1].Score) return Accept(scored[0].Type);
 
             var top = scored[0].Score;
             var picked = new List<TypeSymbol>();

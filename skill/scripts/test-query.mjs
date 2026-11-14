@@ -105,6 +105,32 @@ check('変更ファイルが無くても近い親フォルダを起点にする'
 r = run('--hops', '1');
 check('起点が無ければ終了', r.status === 2 && r.stderr.includes('起点'), r.stderr);
 
+// 13) ルートに置かれた新規ファイルは `folder:.` へフォールバックする
+writeFileSync(list, 'NewFile.cs\n');
+r = json('--changed', list, '--hops', '1');
+check('親が無くてもルートの folder:. を起点にする', r.data?.starts?.[0] === 'folder:.',
+  JSON.stringify(r.data?.starts || r.error?.stderr || ''));
+check('フォールバックは元パスと理由を JSON と stderr に残す',
+  r.data?.fallbacks?.[0]?.path === 'NewFile.cs' && r.data?.fallbacks?.[0]?.start === 'folder:.'
+  && r.error === undefined && run('--changed', list, '--hops', '1').stderr.includes('NewFile.cs'),
+  JSON.stringify(r.data?.fallbacks || '') + ' / ' + run('--changed', list, '--hops', '1').stderr.trim());
+
+// 14) 同じ起点を繰り返しても到達数が負にならない
+r = json('--from', CHARGE, '--from', CHARGE, '--kind', 'nonexistent');
+check('起点の重複は 1 件にまとめ、到達 0 になる',
+  r.data?.starts?.length === 1 && r.data?.summary?.reached === 0,
+  JSON.stringify({ starts: r.data?.starts, reached: r.data?.summary?.reached }));
+
+// 15) フィルタをかけたときはサマリー行に何で絞ったかを出す
+r = run('--from', CHARGE, '--dir', 'out', '--kind', 'accesses', '--provenance', 'static');
+check('サマリー行に kind と provenance の指定が出る',
+  r.stdout.includes('kind accesses') && r.stdout.includes('provenance static'), r.stdout.split('\n')[0]);
+
+// 16) 読み方の注記が help に入っている（初到達 1 経路 / 到達数は到達木）
+r = run('--help');
+check('help に到達木の読み方とフォールバックの注意を書く',
+  r.stdout.includes('最初に到達した 1 経路') && r.stdout.includes('依存エッジの証拠ではない'), r.stdout.slice(-400));
+
 rmSync(tmp, { recursive: true, force: true });
 console.log(`\n${pass}/${pass + failures.length} 件成功`);
 if (failures.length) { console.log('失敗: ' + failures.join(' / ')); process.exit(1); }

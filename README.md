@@ -21,14 +21,15 @@ open out/graph/graph.html
 
 | 対象 | ノード / エッジ | 内容 |
 | --- | --- | --- |
-| [elsa-core](https://github.com/elsa-workflows/elsa-core) | 51,179 / 53,362（C# 解析 3 秒、HTML 20MB） | 336 csproj、6,754 ファイル、8,223 型、32,572 メンバ、calls 14,525 / accesses 13,527 / references 15,739、898 ファイルが AWS/DB シグナル、1,252 ファイルが「張れなかった同名候補」の記録あり |
-| `demo/orders-api-lambda` | 74 / 66（静的 27 / Terraform 27 / 注釈 12） | C# Lambda 3 csproj + Terraform 16 リソース + Terraform の handler 解決 2 + 注釈 12 エッジ（RDS をテーブル → カラムまで `parent` で入れ子にした例を含む） |
+| [elsa-core](https://github.com/elsa-workflows/elsa-core) | 51,179 / 53,344（C# 解析 3 秒、HTML 20MB） | 336 csproj、6,754 個の `.cs`（ファイル計 7,207）、8,223 型、32,572 メンバ、calls 14,589 / accesses 13,550 / references 15,712、898 ファイルが AWS/DB シグナル、1,018 ファイル（1,268 名）が「張れなかった同名候補」の記録あり |
+| `demo/orders-api-lambda` | 74 / 66（静的 27 / Terraform 27 / 注釈 12） | C# Lambda 3 csproj + Terraform 15 リソース + Terraform の handler 解決 2 + 注釈 12 エッジ（RDS をテーブル → カラムまで `parent` で入れ子にした例を含む） |
 
 検証は 2 系統あり、どちらも対象プロジェクト非依存で動く。
 
 ```sh
-node skill/scripts/test-analyzer.mjs                          # 静的解析の精度（49 項目、ブラウザ不要）
-node skill/scripts/test-query.mjs                             # 逆引き・影響範囲の照会（12 項目、.NET 不要）
+node skill/scripts/test-analyzer.mjs                          # 静的解析の精度（58 項目、ブラウザ不要）
+node skill/scripts/test-query.mjs                             # 逆引き・影響範囲の照会（17 項目、.NET 不要）
+node skill/scripts/test-merge.mjs                             # Lambda handler の解決規則（9 項目、.NET 必要）
 node skill/scripts/verify.mjs --html out/graph/graph.html --shots out/shots   # ブラウザ実操作（25 項目）
 ```
 
@@ -36,7 +37,8 @@ node skill/scripts/verify.mjs --html out/graph/graph.html --shots out/shots   # 
 （今の実測: demo 25/25、elsa-core 23/23。Terraform ノードが無い対象は該当 2 項目を省略する）。
 静的解析テストは「出てはいけないエッジ」と「消えてはいけないエッジ」の両方を見る。
 名前が型メンバを隠す構文（ラムダ引数・ローカル関数・兄弟ブロックの同名 var）と、
-`var` / `foreach` の型推論の回帰、型解決（型引数の数、`using` / `global using` による到達性）の回帰に効く。
+`var` / `foreach` の型推論の回帰、型解決（型引数の数、`using` / `global using` による到達性、戻り値型を
+宣言元で解決する）の回帰、同じ入力を 2 回走らせて出力が揺れないこと（決定性）に効く。
 
 ## レビュー・設計での使い方
 
@@ -63,7 +65,7 @@ node skill/scripts/query.mjs --graph out/demo/graph.json \
 skill/
   analyzer/            Roslyn 構文解析（net9.0, cgd）。ビルドは build.mjs がやる
   scripts/             build / scan / scan-terraform / merge / render / query / verify
-                       + test-analyzer / test-query（回帰テスト）
+                       + test-analyzer / test-query / test-merge（回帰テスト）
   tests/fixtures/      静的解析と照会のテスト用データ（C# と graph.json）
   viewer/template.html 単一ファイルのビューア（データ埋め込み）
   reference/schema.md  データ契約

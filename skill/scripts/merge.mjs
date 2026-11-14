@@ -106,19 +106,67 @@ for (const path of opts.fragments) {
 // AWS の .NET handler は `Assembly::NS.Type::Method` / `NS.Type::Method` / `NS.Outer+Inner::Method` の形。
 // 実在する member ノードに当たったときだけ張り、外れたらは警告に出す（推測で張らない）。
 let handlerEdges = 0;
+// プロジェクトのアセンブリ名。csproj に AssemblyName が無ければファイル名がそのままアセンブリ名になる
+function assemblyNamesOf(project) {
+  const names = [];
+  if (project.metadata?.assemblyName) names.push(String(project.metadata.assemblyName));
+  const file = String(project.name || '').replace(/\.csproj$/i, '');
+  if (file) names.push(file);
+  return names;
+}
+// ノードの所属プロジェクトをパスの最長一致で求める（csproj と同じディレクトリ配下がそのプロジェクトのファイル）。
+// ファイルノードはフォルダの下にぶら下がり、プロジェクトノードは兄弟なので parent 辿りでは決まらない
+const projectNodes = [...nodes.values()].filter((n) => n.kind === 'project' && n.path);
+function ownerProject(start) {
+  const seen = new Set();
+  let cur = start;
+  let filePath = '';
+  while (cur && !seen.has(cur.id)) {
+    seen.add(cur.id);
+    if (cur.path) { filePath = cur.path; break; }
+    cur = cur.parent ? nodes.get(cur.parent) : null;
+  }
+  if (!filePath) return null;
+  let best = null;
+  for (const project of projectNodes) {
+    const cut = project.path.lastIndexOf('/');
+    const dir = cut < 0 ? '' : project.path.slice(0, cut + 1);
+    if (filePath.startsWith(dir) && (!best || dir.length > best.dir.length)) best = { project, dir };
+  }
+  return best ? best.project : null;
+}
 for (const node of [...nodes.values()]) {
   const raw = typeof node.metadata?.handler === 'string' ? node.metadata.handler.trim() : '';
   const handler = raw.replace(/^["']|["']$/g, '');
   if (!handler.includes('::')) continue;
+  // data ソースは実行体ではないので結ばない（`data.aws_lambda_function` 等に handler が現れることがある）
+  if (node.metadata?.dataSource === true) continue;
   const parts = handler.split('::').map((p) => p.trim()).filter(Boolean);
+  // AWS の .NET handler は `Assembly::NS.Type::Method`（または Assembly を省く）。4 要素以上は指定ミス
+  if (parts.length < 2 || parts.length > 3) {
+    warnings.push(`handler の形が不正（要素数 ${parts.length}）: ${node.id} → ${handler}`);
+    continue;
+  }
   const method = parts.pop();
   const rawType = parts.pop();
+  const assembly = parts.pop() || '';
   if (!method || !rawType) continue;
   const qualified = rawType.replace(/\+/g, '/');
   const memberId = `member:${qualified}.${method}`;
-  if (!nodes.has(memberId)) {
+  const member = nodes.get(memberId);
+  if (!member) {
     warnings.push(`handler の解決失敗: ${node.id} → ${handler}（このリポジトリに対応するメソッドが見つからないため注釈で紐づけてください）`);
     continue;
+  }
+  // アセンブリ名を省かない形では、実装が属するプロジェクトのアセンブリ名と突き合わせる
+  //   （同名の型・メソッドが別アセンブリにあっても張らない）
+  if (assembly) {
+    const project = ownerProject(member);
+    const names = project ? assemblyNamesOf(project) : [];
+    if (!names.includes(assembly)) {
+      warnings.push(`handler のアセンブリ名が実装プロジェクトと一致しない: ${node.id} → ${handler}（${project ? project.id : '所属プロジェクト不明'}）`);
+      continue;
+    }
   }
   mergeEdge({ source: node.id, target: memberId, kind: 'handler', provenance: 'terraform', detail: `handler = ${handler}` });
   handlerEdges++;

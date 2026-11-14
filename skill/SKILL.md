@@ -79,11 +79,17 @@ node $SKILL/scripts/build.mjs \
   （意味は構文だけからは決められないので、ここを LLM が注釈で埋める）
 - **張れない同名候補は黙って張らず**、`.cs` ノードの `metadata.rejectedTypes` に型名として残す
   （型引数の数が宣言と違う／`using` も `global using` も無いので到達不能）。実測 elsa-core
-  53,913 → 52,192 本（誤バインド 2,005 本を除去、うち `Dictionary` 796 本）、1,252 ファイルに
-  `rejectedTypes` が付く。ここが「注釈で正しく張るべき候補」のリストになる
+  53,913 → 52,174 本（誤バインド 2,074 本を除去、正しい縁 335 本を追加、除去の筆頭が
+  `Dictionary` 798 本）、1,018 ファイル（1,268 名）に `rejectedTypes` が付く。
+  ここが「注釈で正しく張るべき候補」のリストになる
+- **メソッド・プロパティの戻り値型は「宣言元の `using`」で解決する**（呼び出し元がその名前空間を
+  import している必要は C# にはない）。`r.Current.Id` のように戻り値を挟んだ多段アクセスで
+  真ん中が切れるのを防ぐ。実測で `IModule.Configure` 128 本、`ActivityExecutionContext` の
+  `Get` / `Set` が復旧した
 - 型の単純名が複数の名前空間にあり、宣言元の名前空間と `using` でも判別できないときは、
-  得点が並んだ候補すべてにエッジを張り `detail` に `ambiguous` を残す（実測 elsa-core
-  429 本＝静的エッジの 0.8%、エッジにマウスを乗せると見える）。得点 0 の曖昧さは張らない
+  得点が並んだ候補に最大 2 本張って `detail` に `ambiguous` を残す。同一ファイル・名前空間直下と
+  いう手掛かりで単独決定できることが多く、実測 elsa-core では **0 本**（導入当初 429 → 301 → 0）。
+  得点 0 の曖昧さは張らない
 - 型がソースコードに書かれていない名前（`out var`、`is var x` / `case var x`、タプル分割、
   `foreach ((var a, b) in ...)`、LINQ の `join` の範囲変数、`dynamic`、外部型）は
   名前だけ塞いで未解決にする。外側の同名フィールドに化けるより未解決のほうが正しい
@@ -142,7 +148,9 @@ LLM が書くときの決まりごと（これをやらないとグラフが嘘�
 4. **csproj と Lambda の紐づけは handler 文字列から決める。** `.tf` の
    `handler = "Orders.Api::Orders.Api.Functions::CreateOrder"` は
    `アセンブリ名::型名::メソッド名`。`assemblyName` と `type:`/`member:` の ID を突き合わせれば
-   機械的に決められるので、推測で書かない。
+   機械的に決められるので、推測で書かない。突き合わせが外れたときは張らずに警告を出す
+   （アセンブリ名が実装プロジェクトと違う／要素数が 2〜3 に収まらない／型やメソッドが実在しない）。
+   `data "aws_lambda_function"` の `handler` は既存 Lambda の読み取りなので結ばない。
 5. **外部ストレージはノードを追加する。** RDS・Redshift・S3 バケットなど、このリポジトリに
    定義がないものは `ext:<種別>/<名前>` のノードを作り、`parent` は `folder:.` か
    該当ディレクトリの `folder:` を指定する。
@@ -167,7 +175,7 @@ LLM が書くときの決まりごと（これをやらないとグラフが嘘�
 ### 静的解析の精度（ブラウザ不要）
 
 ```sh
-node $SKILL/scripts/test-analyzer.mjs        # cgd がビルド済みなら即実行（49 項目）
+node $SKILL/scripts/test-analyzer.mjs        # cgd がビルド済みなら即実行（58 項目）
 ```
 
 `skill/tests/fixtures/` の C# を `cgd` にかけて、期待するエッジと「出してはいけない
@@ -178,12 +186,20 @@ node $SKILL/scripts/test-analyzer.mjs        # cgd がビルド済みなら即�
 `fixtures/TypeResolution/` では型解決側の回帰を見る（型引数の数が合わない同名クラスに張らない、
 `using` も `global using` も無い同名候補に張らない、逆に `using` / `global using` / 同一名前空間で
 届くものは張る、拒否した型名が `.cs` ノードに残る）。
+`fixtures/BindingRegression/` ではレビューで出た過剰除去の再発を見る（`Activity` と `Activity<T>` が
+同居する基底型、戻り値型を宣言元で解決する多段アクセス、グローバル名前空間のネスト型）。
+最後に同じ入力を 2 回走らせて、`rejectedTypes` を含む出力が揺れないこと（決定性）も検査する。
 
 ### 照会（逆引き・影響範囲）のテスト
 
 ```sh
-node $SKILL/scripts/test-query.mjs           # fixtures/query/graph.json を使う（.NET 不要、12 項目）
+node $SKILL/scripts/test-query.mjs           # fixtures/query/graph.json を使う（.NET 不要、17 項目）
+node $SKILL/scripts/test-merge.mjs           # Lambda handler の解決規則（.NET 必要、9 項目）
 ```
+
+`test-merge.mjs` は `fixtures/HandlerLambda/`（`AssemblyName` を置いた csproj と `main.tf`）を
+`build.mjs` まで通し、張る 4 とお（一致／アセンブリ名省略／`Outer+Inner`／別型）と
+張らない 3 とお（アセンブリ名違い／4 要素以上／型が実在しない）を照合する。
 
 ### ブラウザ実操作
 

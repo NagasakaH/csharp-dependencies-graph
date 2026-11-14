@@ -14,10 +14,10 @@
   "rootPath": "/abs/path/to/repo",
   "producers": [                      // どの断片がこのグラフを作ったかの監査情報
     { "producer": "directory-scanner", "fragment": "graph.scan.json", "role": "fragment", "nodes": 10371, "edges": 1344 },
-    { "producer": "csharp-analyzer", "fragment": "graph.csharp.json", "role": "fragment", "nodes": 40795, "edges": 51051 },
+    { "producer": "csharp-analyzer", "fragment": "graph.csharp.json", "role": "fragment", "nodes": 41813, "edges": 52174 },
     { "producer": "annotation", "fragment": "annotations.orders-api.json", "role": "annotation", "nodes": 1, "edges": 8, "metadata": 3 }
   ],
-  "stats": { "nodes": 51179, "edges": 53362, "orphans": 0, "warnings": 97, "folders": 2826, "files": 7207, "projects": 336, "solutions": 2, "signalFiles": 898, "csharpFiles": 6754, "csharpParseFailures": 0, "csharpTypes": 8223, "csharpMembers": 32572, "csharpEdges": 51051, "csharpUnresolvedCalls": 96772, "csharpEdge_calls": 14128, "directory-scannerNodes": 10371, "csharp-analyzerNodes": 40795 },
+  "stats": { "nodes": 51179, "edges": 53344, "orphans": 0, "warnings": 97, "folders": 2839, "files": 7207, "projects": 336, "solutions": 2, "signalFiles": 898, "csharpFiles": 6754, "csharpParseFailures": 0, "csharpTypes": 8223, "csharpMembers": 32572, "csharpEdges": 52174, "csharpUnresolvedCalls": 96592, "csharpRejectedTypeFiles": 1018, "csharpRejectedTypes": 1268, "csharpEdge_calls": 14589, "handlerEdges": 0, "directory-scannerNodes": 10384, "csharp-analyzerNodes": 41813 },
   "nodes": [ /* Node */ ],
   "edges": [ /* Edge  */ ]
 }

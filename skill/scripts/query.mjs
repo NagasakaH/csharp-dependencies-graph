@@ -40,7 +40,15 @@ for (let i = 0; i < args.length; i++) {
   --dir         in = 使用元・呼び出し元へ逆方向 / out = 依存する側へ正方向 / both = 双方向
   --via-parent  階層も辿る（out で配下へ降りる、in で所属へ登る）。csproj 止まりの注釈をコードまで伸ばすときに使う
   --changed     変更したファイルパスを 1 行 1 件並べたテキスト。先頭が '#' の行は無視
-  --find        ノードを検索して ID を出すだけ（起点を選ぶため）`);
+  --find        ノードを検索して ID を出すだけ（起点を選ぶため）
+
+読み方（誤解しやすい点）:
+  - 各ノードは最初に到達した 1 経路だけ出す（別経路を重ねて数えない）。「到達 N」も
+    エッジ総数ではなく到達木のノード数です。
+  - --via-parent は --kind / --drop-kind / --provenance で絞った後のエッジに階層の疑似縁を
+    足す。--dir both と併用すると祖先へ登ってから兄弟配下へ広がるので到達が膨らむ。
+  - --changed でグラフに無いファイルは最も近い親フォルダを起点にする（警告を stderr へ出し、
+    JSON の fallbacks に元パスを残す）。階層で届いただけなので依存エッジの証拠ではない。`);
       process.exit(0);
     default:
       console.error(`[query] 知らない引数: ${a}（--help を見てください）`);
@@ -85,10 +93,17 @@ if (opts.find) {
 // ---- 起点の解決
 const starts = [];
 const startNotes = [];
+const fallbacks = [];
+// 同じ起点を複数渡されたら 1 回にまとめる（到達数の集計が負にならないようにする）
+function pushStart(id, note) {
+  if (starts.includes(id)) return;
+  starts.push(id);
+  startNotes.push(`${id}${note ? ` (${note})` : ''}`);
+}
 function addStart(spec, note) {
-  if (nodes.has(spec)) { starts.push(spec); startNotes.push(`${spec}${note ? ` (${note})` : ''}`); return true; }
+  if (nodes.has(spec)) { pushStart(spec, note); return true; }
   const hits = find(spec);
-  if (hits.length === 1) { starts.push(hits[0].id); startNotes.push(`${hits[0].id}${note ? ` (${note})` : ''}`); return true; }
+  if (hits.length === 1) { pushStart(hits[0].id, note); return true; }
   if (hits.length > 1) {
     console.error(`[query] 起点が曖昧です（${hits.length} 件）: ${spec}`);
     for (const n of hits.slice(0, 12)) console.error(`  ${n.id}`);
@@ -103,17 +118,23 @@ if (opts.changed) {
     if (!path || path.startsWith('#')) continue;
     const rel = path.replace(/^\.\//, '');
     const direct = `file:${rel}`;
-    if (nodes.has(direct)) { starts.push(direct); startNotes.push(`${direct} (変更ファイル)`); continue; }
-    // 変更ファイルがグラフに出ていない（除外された等）ときは、存在する一番近い親フォルダを起点にする
+    if (nodes.has(direct)) { pushStart(direct, '変更ファイル'); continue; }
+    // 変更ファイルがグラフに出ていない（除外された等）ときは、存在する一番近い親フォルダを起点にする。
+    // ルートのフォルダノードの ID は `folder:.` なので、親がなくなるまで下りたらそれを狙う
     let dir = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : '';
     let found = null;
     for (;;) {
-      const candidate = `folder:${dir}`;
+      const candidate = dir ? `folder:${dir}` : 'folder:.';
       if (nodes.has(candidate)) { found = candidate; break; }
       if (!dir) break;
       dir = dir.includes('/') ? dir.slice(0, dir.lastIndexOf('/')) : '';
     }
-    if (found) { starts.push(found); startNotes.push(`${found} (変更ファイル ${rel} の最も近い親)`); continue; }
+    if (found) {
+      pushStart(found, `変更ファイル ${rel} の最も近い親`);
+      fallbacks.push({ path: rel, start: found, reason: 'グラフにファイルノードが無いので最も近い親フォルダを起点にした' });
+      console.error(`[query] 変更ファイルがグラフに見当たりません: ${rel} → ${found} を起点にします（階層で届いただけで依存の証拠ではありません）`);
+      continue;
+    }
     console.error(`[query] 変更ファイルがグラフに見当たりません: ${rel}`);
   }
 }
@@ -180,12 +201,17 @@ if (opts.json) {
     graph: opts.graph, starts, dir: opts.dir, hops: opts.hops, viaParent: opts.viaParent,
     reached: reached.map((r) => ({ ...r, name: nodes.get(r.id).name, nodeKind: nodes.get(r.id).kind, path: nodes.get(r.id).path || null })),
     matched: filtered.map((r) => ({ ...r, name: nodes.get(r.id).name, nodeKind: nodes.get(r.id).kind, path: nodes.get(r.id).path || null })),
+    startNotes, fallbacks,
     summary: { reached: seen.size - starts.length, byEdge: kinds, byNodeKind, annotatedEdges: annotated.length, graphEdgesUsed: usedEdges },
   }, null, 2));
   process.exit(0);
 }
 
-console.log(`起点 ${startNotes.length} 件 / 方向 ${opts.dir} / ${opts.hops} ホップ / 辿ったエッジ種別 ${opts.kinds ? [...opts.kinds].join(',') : 'すべて'}${opts.viaParent ? ' / 階層も含む' : ''}`);
+const filterParts = [];
+if (opts.kinds) filterParts.push(`kind ${[...opts.kinds].join(',')}`);
+if (opts.drop) filterParts.push(`kind 除外 ${[...opts.drop].join(',')}`);
+if (opts.prov) filterParts.push(`provenance ${[...opts.prov].join(',')}`);
+console.log(`起点 ${starts.length} 件 / 方向 ${opts.dir} / ${opts.hops} ホップ / 辿ったエッジ ${filterParts.length ? filterParts.join(' / ') : 'すべて'}${opts.viaParent ? ' / 階層も含む' : ''}`);
 for (const note of startNotes) console.log(`  ${note}`);
 console.log(`到達 ${seen.size - starts.length} ノード（到達集合の内訳: ${Object.entries(byNodeKind).map(([k, v]) => `${k} ${v}`).join(' / ')}）`);
 console.log('');
