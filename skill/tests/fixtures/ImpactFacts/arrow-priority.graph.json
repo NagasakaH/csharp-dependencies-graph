@@ -1,0 +1,113 @@
+{
+  "nodes": [
+    {
+      "id": "tf:aws_api_gateway_method.post_x",
+      "kind": "resource",
+      "name": "aws_api_gateway_method.post_x",
+      "metadata": {
+        "resourceType": "aws_api_gateway_method",
+        "category": "apigateway",
+        "rest_api_id": "tf:aws_api_gateway_rest_api.g",
+        "endpoint": "POST /orders"
+      }
+    },
+    {
+      "id": "tf:aws_api_gateway_integration.post_x",
+      "kind": "resource",
+      "name": "aws_api_gateway_integration.post_x",
+      "metadata": {
+        "resourceType": "aws_api_gateway_integration",
+        "category": "apigateway",
+        "rest_api_id": "tf:aws_api_gateway_rest_api.g"
+      }
+    },
+    {
+      "id": "tf:aws_lambda_function.x",
+      "kind": "resource",
+      "name": "aws_lambda_function.x",
+      "metadata": {
+        "resourceType": "aws_lambda_function",
+        "category": "lambda"
+      }
+    },
+    {
+      "id": "tf:aws_lambda_function.y",
+      "kind": "resource",
+      "name": "aws_lambda_function.y",
+      "metadata": {
+        "resourceType": "aws_lambda_function",
+        "category": "lambda"
+      }
+    },
+    {
+      "id": "tf:aws_sfn_state_machine.up",
+      "kind": "resource",
+      "name": "aws_sfn_state_machine.up",
+      "metadata": {
+        "resourceType": "aws_sfn_state_machine",
+        "category": "stepfunctions"
+      }
+    },
+    {
+      "id": "member:X.Handle",
+      "kind": "member",
+      "name": "X.Handle"
+    },
+    {
+      "id": "member:Y.Handle",
+      "kind": "member",
+      "name": "Y.Handle"
+    }
+  ],
+  "edges": [
+    {
+      "id": "exposed-by:member:X.Handle->tf:aws_api_gateway_method.post_x",
+      "kind": "exposed-by",
+      "source": "member:X.Handle",
+      "target": "tf:aws_api_gateway_method.post_x",
+      "provenance": "llm"
+    },
+    {
+      "id": "handler:tf:aws_lambda_function.x->member:X.Handle",
+      "kind": "handler",
+      "source": "tf:aws_lambda_function.x",
+      "target": "member:X.Handle",
+      "provenance": "terraform"
+    },
+    {
+      "id": "references:tf:aws_sfn_state_machine.up->tf:aws_lambda_function.x",
+      "kind": "references",
+      "source": "tf:aws_sfn_state_machine.up",
+      "target": "tf:aws_lambda_function.x",
+      "provenance": "terraform"
+    },
+    {
+      "id": "references:tf:aws_api_gateway_integration.post_x->tf:aws_api_gateway_method.post_x",
+      "kind": "references",
+      "source": "tf:aws_api_gateway_integration.post_x",
+      "target": "tf:aws_api_gateway_method.post_x",
+      "provenance": "terraform"
+    },
+    {
+      "id": "triggers:tf:aws_api_gateway_integration.post_x->tf:aws_lambda_function.y",
+      "kind": "triggers",
+      "source": "tf:aws_api_gateway_integration.post_x",
+      "target": "tf:aws_lambda_function.y",
+      "provenance": "terraform"
+    },
+    {
+      "id": "handler:tf:aws_lambda_function.y->member:Y.Handle",
+      "kind": "handler",
+      "source": "tf:aws_lambda_function.y",
+      "target": "member:Y.Handle",
+      "provenance": "terraform"
+    },
+    {
+      "id": "invokes:tf:aws_sfn_state_machine.up->member:Y.Handle",
+      "kind": "invokes",
+      "source": "tf:aws_sfn_state_machine.up",
+      "target": "member:Y.Handle",
+      "provenance": "human"
+    }
+  ]
+}

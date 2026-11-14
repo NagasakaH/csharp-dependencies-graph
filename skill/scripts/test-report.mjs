@@ -70,6 +70,16 @@ function run2(args, label) {
   if (proc.status !== 0) { console.error((proc.stdout || '') + (proc.stderr || '')); return null; }
   return { result: JSON.parse(readFileSync(json, 'utf8')), stdout: proc.stdout, stderr: proc.stderr };
 }
+// 手作りのグラフをそのまま渡す実行（双人レビューの最小反例を回帰テストとして固定する）
+const FACTS = join(HERE, '..', 'tests', 'fixtures', 'ImpactFacts');
+function runOn(graphFile, args, label) {
+  const json = join(dir, `${label}.json`);
+  const proc = spawnSync(process.execPath, [join(HERE, 'report.mjs'), '--graph', join(FACTS, graphFile),
+    ...args, '--json', json], { cwd: root, encoding: 'utf8' });
+  if (proc.status !== 0) { console.error((proc.stdout || '') + (proc.stderr || '')); return null; }
+  return { result: JSON.parse(readFileSync(json, 'utf8')), stdout: proc.stdout, stderr: proc.stderr };
+}
+
 // すべての行がどれかの欄に入っているか（欄の合計 == 総行数）
 // summary のカウンタ（切り詰前）の合計。一覧は --limit で切れるので不変条件はこっちで見る
 const counterTotal = (s) => s.primaryOut + s.primaryIn + s.entryOut + s.entryIn
@@ -452,6 +462,36 @@ check('--limit で一覧が切れてもカウンタの不変条件は保たれ�
   && lim.result.external.out.length <= 1,
   lim ? JSON.stringify([lim.result.summary.rows, lim.result.summary.listTruncated,
     lim.result.external.out.length, counterTotal(lim.result.summary)]) : '実行失敗');
+
+// ---- 双人レビュー第 19 ラウンドの最小反例を回帰テストにする ----
+// (1) 循環境避で経路を切ったとき、受理済みの本命情報まで捨てない
+{
+  const r = runOn('cut-primary.graph.json', ['--from', 'tf:aws_sfn_state_machine.a'], 'facts-cut');
+  const byId = new Map();
+  if (r) for (const x of [...r.result.external.in, ...r.result.external.out, ...r.result.wiring]) byId.set(x.id, x);
+  const g = (id) => byId.get(id.startsWith('aws_') ? `tf:${id}` : `tf:aws_${id}`);
+  check('経路を循環境避で切っても、動きの縁で受理した本命は定義上の関連へ落とさない',
+    !!r && ['c', 'b'].every((n) => { const x = g(`sfn_state_machine.${n}`); return x && x.tier === 'primary'
+      && x.direction === 'in' && x.movementEvidence && x.movementEvidence.kind === 'invokes'; })
+    && ['d', 'e'].every((n) => { const x = g(`aws_lambda_function.${n}`); return x && x.tier === 'primary' && x.direction === 'out'; })
+    && r.result.summary.wiring === 0,
+    r ? JSON.stringify([...byId.values()].map((x) => [x.id, x.tier, x.direction])) : '実行失敗');
+}
+// (2) 向きの判定は「動きの縁の矢印」を先に読む。実装側に入った旗より優先する
+{
+  const r = runOn('arrow-priority.graph.json', ['--api', 'POST /orders'], 'facts-arrow');
+  const sfnId = 'tf:aws_sfn_state_machine.up';
+  const hit = r ? [...r.result.external.in, ...r.result.external.out].find((x) => x.id === sfnId) : null;
+  check('この Lambda を呼びにくる側は、実装側に入った旗よりも動きの縁の矢印で 影響を受ける入口 に出す',
+    !!hit && hit.direction === 'in' && !!hit.movementEvidence
+    && hit.movementEvidence.kind === 'invokes' && hit.tier === 'primary',
+    hit ? JSON.stringify([hit.direction, hit.tier, hit.movementEvidence && hit.movementEvidence.kind])
+      : (r ? 'external に出ていない: ' + JSON.stringify([...r.result.external.in, ...r.result.external.out].map((x) => x.id)) : '実行失敗'));
+  // 起点のエンドポイント自身の実装を載せた Lambda は下流側のまま（矢印だけで上流にしない）
+  check('起点のエンドポイントの実装を載せた Lambda は 影響する先に残す',
+    !!r && r.result.external.out.some((x) => x.id === 'tf:aws_lambda_function.x'),
+    r ? JSON.stringify(r.result.external.out.map((x) => [x.id, x.direction])) : '実行失敗');
+}
 
 rmSync(dir, { recursive: true, force: true });
 console.log(`\n${pass}/${pass + failures.length} 件成功`);

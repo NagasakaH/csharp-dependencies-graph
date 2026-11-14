@@ -90,6 +90,10 @@ node skill/scripts/report.mjs --graph out/demo/graph.json --api "POST /orders"
 呼びにくる側）として出る。コードを変更したときはそのコードが公開しているエンドポイントも
 影響を受ける入口に出る（`exposed-by` の矢印はコード側を向く）。
 
+ただし `handler` / `exposed-by` は**実装の対応**を示す縁で、呼び出し元を示さない。起点が API
+エンドポイントのときは、その対応縁で繋がる側（実装を載せた Lambda など）も 影響する先 のまです。
+ここを矢印だけで判断すると、起点のエンドポイント自身の実装 Lambda が「呼びにくる側」に並んだ（実測: demo の `--api "POST /orders"`）。
+
 各行は根拠経路 `path` と、その経路がどこから始まっているかの `pathRoot` を持つ。`start` は起点まで
 辿れた行、`definition-seed` は起点と同じ API を定義しているノードから始まる行、`second-stage` は
 根拠経路が循環しそうな所でそこを新しい出発点として切った行で、`broken`（`via` が宙を指す）は

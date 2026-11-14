@@ -312,7 +312,10 @@ const startApiGroups = new Set(starts.map((x) => apiGroupOf(byId.get(x.id))).fil
 const combined = new Map();
 const wiringMap = new Map();
 // 閉包の出発点として**根になったノード**（起点そのものではないが、起点の定義グループなので
-// 経路の先頭として出してよい）。行の `pathRoot` が `definition-seed` のとき、`path[0]` はここに入る
+// 経路の先頭として出してよい）。行の `pathRoot` が `definition-seed` のとき、`path[0]` はここに入る。
+// **現在この枝は通らない**（閉包の出発点はすべて walk の記録を持つので `combined.get(id)` が常に
+// 当たる）。出発点の渡し方を変えたときに経路が宙ぶらりんになるのを防ぐためだけに残している。
+// 17 レポートの実測でも `pathsByRoot` の `definition-seed` は常に 0
 const seedRoots = new Set();
 
 // 根拠経路の祖先 lookup。合并前の一時的な記録（`found` / `wiringMap`）も祖先として見る。
@@ -423,6 +426,11 @@ function walkWithSwitch(seedIds, first) {
 //  - `calledOut`: 経路上に `invokes` を含む（兄弟エンドポイントと区別する判定に使う）
 //  - `movementEvidence` / `wiring = false`: 別の経路に**動きの縁**があった = 定義上ではなく本命
 function promote(cur, rec) {
+  // walk 側で分かった事実も同じ場所へ合流させる（行の本命判定と向きはここを見る）
+  noteFacts(cur.id, {
+    primary: rec.wiring !== true, elig: rec.wiring !== true,
+    down: rec.down, calledOut: rec.calledOut, edge: rec.edge,
+  });
   if (rec.calledOut) cur.calledOut = true;
   // 「起点のエンドポイントの実装の中にある」という事実は一方通行（後から強い方の情報に
   // なるだけ）なので、先着の記録がまだ実装側に入る前のものでも反転させる。
@@ -503,7 +511,24 @@ const inTouchedApiGroup = (id) => {
   const g = apiGroupOf(byId.get(id));
   return (g === null || g === undefined) ? false : touchedApiGroups.has(g);
 };
-const bestState = new Map();   // id -> { budget, primary, elig }（より良い状態で再び着いたら expand し直す）
+const bestState = new Map();   // id -> { budget, primary, elig, down, calledOut, movementEvidence }
+// **受理した事実（本命か / 動きの根拠 / 旗）はここ、経路（`via` と表示する縁）は記録側**に置く。
+// 両方を記録に持たせていたため、経路を循環境避で切ったときに受理済みの本命情報まで捨てた
+// （双人レビュー P1: タグ参照が 1 本増えただけで実際の `invokes` が定義上の関連へ落ちた）
+function noteFacts(id, f) {
+  const prev = bestState.get(id)
+    || { primary: false, elig: false, down: false, calledOut: false, movementEvidence: null };
+  const kind = f.edge ? f.edge.kind : null;
+  bestState.set(id, {
+    ...prev,
+    primary: prev.primary || !!f.primary,
+    elig: prev.elig || !!f.elig,
+    down: prev.down || !!f.down,
+    calledOut: prev.calledOut || !!f.calledOut,
+    movementEvidence: prev.movementEvidence
+      || f.movementEvidence || (MOVEMENT.has(kind) ? f.edge : null) || null,
+  });
+}
 // closure の状態は (段数, 定義の縁の残り予算, 本命か, 動きを伝播してよいか)。
 // **訪問済み をノード id だけで決めると**、予算を多く使った経路が先着した瞬間に
 // 同じノードへの少ない予算の経路が捨てられ、辺の並び順だけで着地が変わる（実測: 53 ノードの
@@ -519,8 +544,13 @@ function runClosure(seedIds) {
     // `--api "POST /messages"` で 9 行中 5 行、`--from tf:aws_iam_role_policy.…` で全 15 行が
     // 2 ノードの循環）
     const prev = bestState.get(state.id);
-    // 受理の基準は「厳密に良くなる」だけ。`down` / `calledOut` は一度ついたら消えない事実なので、
-    // それが付いた状態も受理する（それぞれのフラグは高々 1 回だけ立つので無限にはならない）
+    // 事実は一度立ったら消えない。弱い方の状態が後から来ても旗を戻さないよう、ここで合流させる
+    noteFacts(state.id, {
+      primary: state.primary, elig: state.elig, down: state.down, calledOut: state.calledOut,
+      edge: state.rec ? state.rec.edge : null,
+    });
+    // 展開するのは「厳密に良くなったとき」だけ。`down` / `calledOut` は高々 1 回しか立たないので、
+    // それをきっかけにした再展開で無限ループにはならない
     const better = !prev
       || (state.primary && !prev.primary)
       || (state.elig && !prev.elig)
@@ -528,18 +558,19 @@ function runClosure(seedIds) {
       || (state.calledOut && !prev.calledOut)
       || (state.primary === prev.primary && state.elig === prev.elig && state.budget < prev.budget);
     if (!better) return false;
-    bestState.set(state.id, {
-      budget: state.budget, primary: state.primary, elig: state.elig,
-      down: !!state.down, calledOut: !!state.calledOut,
-    });
+    bestState.set(state.id, { ...bestState.get(state.id), budget: state.budget });
     if (state.rec) {
       const old = wiringMap.get(state.id);
-      // 根が確定している記録を、循環を避けて切った記録で置き換えない。置き換えると
-      // 経路が起点まで辿れなくなる（`via` の妥当性は昇格より先に確かめる）
-      if (!(old && (old.via || old.seedRoot) && state.rec.cut)) wiringMap.set(state.id, state.rec);
+      // 記録の置き換えをやせるのは 2 つの場合。
+      // (1) 根が確定している経路を、循環境避で切った経路に置き換えるとき（`path[0]` が起点でなくなる）
+      // (2) 本命として受理済みの行を、定義上の関連の縁で塗り替えようとするとき（根拠が弱い方に変わる）
+      const demote = !!old && bestState.get(state.id).primary && state.rec.wiring === true;
+      const shorter = !!old && !!old.via && state.rec.cut;
+      if (!demote && !shorter) wiringMap.set(state.id, state.rec);
     }
     return true;
   };
+
   for (const id of new Set(seedIds)) {
     if (!byId.has(id)) continue;
     // 記録が無い出発点（起点と同じ API を定義しているノードなど）には、**そこを根にした記録**を作る。
@@ -582,7 +613,11 @@ function runClosure(seedIds) {
       const rec = {
         id: to, edge,
         hops: cur.hops + 1, switches: 0, via: back ? null : cur.id, cut: back, wiring: !primary,
-        down: !!cur.down && !(movement && !arrowAt(edge, to)), calledOut: edge.kind === 'invokes',
+        down: !!cur.down && !(movement && !arrowAt(edge, to)),
+        // `calledOut` は**この一歩が `invokes` だった**こと。しかも呼ぶ側（矢印の先へ進む一歩）だけ。
+        // 受け手側に立てると、上流の Step Functions に呼ばれているだけの Lambda に旗が立ち、
+        // 兄弟扱いと昇格の判定が壊れた（双人レビュー P1）
+        calledOut: edge.kind === 'invokes' && arrowAt(edge, to),
         // 向きは「縁の向き × その行が矢印のどちら側か」。動きの縁なら矢印の先が下流。
         // `references`（定義）は向きに意味無いので辿ってきたノードの向きを継ぐ
         // 動きの縁は矢印の先が下流。`SFN → invokes → この Lambda` は SFN が上流なので
@@ -680,23 +715,41 @@ const insideStart = (id) => {
 const rows = [];
 // 動きの縁の**矢印の先が下流**。`exposed-by` は矢印が逆（コード → 公開するもの）なので
 // 矢印の元側が下流になる
-const directionOf = (id, info) => {
+const directionOf = (id, facts) => {
   // (1) 動きの縁（`triggers` / `invokes` / `handler` / `exposed-by`）で届いた → 矢印の先が下流。
   //     同じノードへ至る動きの縁が別の経路にもあれば、そちらを `movementEvidence` として出す
   // (2) 起点がエンドポイントで、その**実装側**に入っている → そこから先は全部 影響する先
   // (3) それ以外（定義・静的解析の縁） → 実際に辿った向き
-  const e = MOVEMENT.has(info.edge.kind) ? info.edge : (info.movementEvidence || null);
-  if (e) return arrowAt(e, id) ? 'out' : 'in';
-  if (info.down) return 'out';
-  return info.dir;
+  const e = MOVEMENT.has(facts.edge.kind) ? facts.edge : (facts.movementEvidence || null);
+  if (e) {
+    if (arrowAt(e, id)) return 'out';
+    // `handler` / `exposed-by` は「実装の対応」を表す縁で、呼び出し元を示さない。起点が
+    // API エンドポイントなら、その対応縁で繋がる側（実装を載せた Lambda など）も下流側。
+    // ここを矢印だけで 影響を受ける入口 にすると、起点のエンドポイント自身の
+    // 実装 Lambda が「呼びにくる側」に並んだ（実測: demo の `--api "POST /orders"` で
+    // `orders_api` と `notify` が 影響を受ける入口 に移った）
+    if (FLIP_INTO_IMPL.has(e.kind) && startIsEndpoint) return 'out';
+    return 'in';
+  }
+  if (facts.down) return 'out';
+  return facts.dir;
 };
 for (const [id, info] of combined) {
   if (!info.edge || insideStart(id)) continue;
   const { path: p, root } = pathOf(id);
+  // 受理済みの事実（本命か / 動きの根拠 / 旗）は記録より強い。経路を循環境避で切った行は
+  // 記録側だけが弱いままになるので、行は事実側を優先して読む
+  const st = bestState.get(id);
+  const facts = {
+    ...info,
+    down: !!(st ? st.down : info.down),
+    calledOut: !!(st ? st.calledOut : info.calledOut),
+    movementEvidence: (st && st.movementEvidence) || info.movementEvidence || null,
+  };
   rows.push({
-    // 向きは (1) 起点がエンドポイントで実装側に入っている → すべて 影響する先
-    // (2) 動きの縁が分かっていれば、その矢印の先が下流 (3) それ以外は辿った向き
-    direction: info.down ? 'out' : directionOf(id, info),
+    // 向きは (1) 動きの縁の矢印の先が下流 (2) 実装側に入った旗 (3) 実際に辿った向き
+    // （`down` を先に読むと `Step Functions → invokes → この Lambda` が 影響する先 に反転した）
+    direction: directionOf(id, facts),
     id, name: label(id), kind: byId.get(id).kind, category: category(id),
     resourceType: (byId.get(id).metadata || {}).resourceType || null,
     endpoint: endpointOf(byId.get(id)),
@@ -708,12 +761,13 @@ for (const [id, info] of combined) {
     // 動きの縁（`triggers` / `invokes` / `handler`）が別の経路で見つかっていれば、
     // 定義を辿っただけの縁が先着していても本命にする。その縁は `movementEvidence` として
     // 残す（表示の根拠は最初に辿れた縁のままにして、経路と食い違わないようにする）
-    movementEvidence: info.movementEvidence || null,
-    tier: info.wiring === true ? 'wiring' : 'primary',
+    movementEvidence: facts.movementEvidence || null,
+    // 本命かどうかも受理済みの事実で決める（経路を切った行が定義上の関連に落ちないようにする）
+    tier: (st ? st.primary : info.wiring !== true) ? 'primary' : 'wiring',
     // 起点が API エンドポイントのとき、method / resource / rest_api / integration / deployment は
     // **起点となる API 自身を定義している**ので「影響を受ける外部リソース」に数えない
     sameApi: startIsEndpoint && !endpointOf(byId.get(id)) && startApiGroups.has(apiGroupOf(byId.get(id))),
-    calledOut: !!info.calledOut, evidence: info.edge, path: p,
+    calledOut: facts.calledOut, evidence: info.edge, path: p,
   });
 }
 rows.sort((a, b) => a.switches - b.switches || a.hops - b.hops || a.id.localeCompare(b.id));
