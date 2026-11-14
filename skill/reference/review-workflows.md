@@ -76,8 +76,10 @@ node skill/scripts/query.mjs --graph out/graph/graph.json --from tf:aws_lambda_f
 - `--dir out`: 実装メソッド → そこから `calls` / `accesses` で本体、`references` で DynamoDB や IAM ロール。
 - `--dir in`: 誰がこの Lambda を呼ぶか（API Gateway の `triggers`、Step Functions の `invokes`、
   csproj の `deploys`）。**デプロイ単位とトリガ元を同時にレビュー**できる。
-- 解決できなかった handler は警告に出る（`handler の解決失敗`）。その場合は注釈で張る
-  （[schema.md](schema.md) の注釈形式、実例は [`../examples/annotations.orders-api.json`](../examples/annotations.orders-api.json)）。
+- 解決できなかった handler は警告に出る（`handler の解決失敗`）。**まず `handler` 文字列を
+  実装プロジェクトのアセンブリ名へ直す**のが典型的な修正で、注釈で張るのは意図的に別アセンブリを
+  指しているときだけ（[schema.md](schema.md) の注釈形式、実例は
+  [`../examples/annotations.orders-api.json`](../examples/annotations.orders-api.json)）。
 
 ## 5. レビュー中に「この型を触ると何が壊れる」を 10 秒で見る
 

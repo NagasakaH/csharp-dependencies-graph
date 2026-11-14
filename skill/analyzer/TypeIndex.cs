@@ -124,12 +124,16 @@ public sealed class TypeIndex
         return score;
     }
 
-    /// <summary>使用側に書かれた型引数の数。閉じないなど判定不能なら 0（ゲートは発動しない）。</summary>
+    /// <summary>使用側に書かれた型引数の数。閉じないなど判定不能なら 0（ゲートは発動しない）。
+    /// タプル型引数 `Box&lt;(int, string)&gt;` のカンマは型引数の区切りではないので、
+    /// 丸括弧と角括弧の内側では数えない（数えると 1 引数の `Box&lt;T&gt;` を 2 引数として
+    /// 拒否し、その先へ張るべき連鎖ごと消える）。</summary>
     static int UsageArity(string raw)
     {
         var lt = raw.IndexOf('<');
         if (lt <= 0) return 0;
         var depth = 0;
+        var nest = 0;
         var commas = 0;
         for (var i = lt; i < raw.Length; i++)
         {
@@ -140,7 +144,9 @@ public sealed class TypeIndex
                 depth--;
                 if (depth == 0) return commas + 1;
             }
-            else if (c == ',' && depth == 1) commas++;
+            else if (c == '(' || c == '[') nest++;
+            else if (c == ')' || c == ']') nest--;
+            else if (c == ',' && depth == 1 && nest == 0) commas++;
         }
         return 0;
     }

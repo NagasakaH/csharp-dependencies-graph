@@ -325,6 +325,35 @@ check('Consumer から化ける側（Fix.Chain.Wrong）には一切辿らない'
   !cEdges.some((e) => e.source.startsWith(consumer('').slice(0, -1)) && e.target.includes('Fix.Chain.Wrong.')),
   JSON.stringify(cEdges.filter((e) => e.target.includes('Fix.Chain.Wrong.')).map((e) => `${e.source}->${e.target}`)));
 
+// ---- タプルを型引数に受けた連鎖（型引数の数を構文どおり数えるか） ----
+// 型引数の数を `<` と `,` だけで数えると `Box<(int, string)>` のカンマを型引数の区切りと数えて
+// 1 引数の `Box<T>` を 2 引数として拒否し、その先へ張るべき連鎖ごと消える（第 12 ラウンドの再現）
+const targ = analyze('TupleArg');
+const targEdges = targ.edges.filter((e) => e.kind !== 'contains');
+const targHas = (kind, from, to) => targEdges.some((e) => e.kind === kind && e.source === from && e.target === to);
+const tupConsumer = (n) => `member:Fix.TupleArg.Models.Consumer.${n}`;
+const tupOf = (who) => targEdges.filter((e) => e.source === tupConsumer(who)).map((e) => `${e.kind}:${e.target}`);
+const tupleItemId = 'member:Fix.TupleArg.Models.Item.Id';
+const tupleBoxMake = 'member:Fix.TupleArg.Models.Box.MakeItem';
+
+for (const who of ['ChainProperty', 'ChainCall', 'ThroughDictionary', 'ThroughForEach', 'ViaVar']) {
+  check(`タプル型引数の連鎖（${who}）は要素型のメンバーへ張る`,
+    targHas('accesses', tupConsumer(who), tupleItemId), JSON.stringify(tupOf(who)));
+}
+check('タプル型引数の呼び出し（ChainCall / ThroughForEach）は Box<T> の MakeItem に張る',
+  targHas('calls', tupConsumer('ChainCall'), tupleBoxMake) && targHas('calls', tupConsumer('ThroughForEach'), tupleBoxMake),
+  JSON.stringify([...tupOf('ChainCall'), ...tupOf('ThroughForEach')]));
+check('型引数が 2 つの宣言にタプルを渡しても個数を誤らない（Pair<(int, int), string>）',
+  targHas('calls', tupConsumer('TwoArgs'), 'member:Fix.TupleArg.Models.Provider.TwoArgs')
+  && targHas('accesses', tupConsumer('TwoArgs'), 'member:Fix.TupleArg.Models.Pair.Key'),
+  JSON.stringify(tupOf('TwoArgs')));
+check('フィールド宣言の型がタプル型引数でも同じ解決になる（Provider.FromField）',
+  targHas('calls', 'member:Fix.TupleArg.Models.Provider.FromField', tupleBoxMake),
+  JSON.stringify(targEdges.filter((e) => e.source.endsWith('Provider.FromField')).map((e) => `${e.kind}:${e.target}`)));
+check('Consumer から化ける側（Fix.TupleArg.Wrong）には一切辿らない',
+  !targEdges.some((e) => e.target.includes('Fix.TupleArg.Wrong.')),
+  JSON.stringify(targEdges.filter((e) => e.target.includes('Fix.TupleArg.Wrong.')).map((e) => `${e.source}->${e.target}`)));
+
 // ---- 決定性: 同じ入力を 2 回走らせてもノード・エッジ・後付け候補が揺れない ----
 // 生成日時だけをのぞいた**バイト列そのもの**を比べる。並列走りの結果を後から並べ替えると
 // 集合は同じでも出力順が揺れるので、「ソートしてから比較」では見逃してしまう

@@ -49,7 +49,10 @@ public static class TypeText
         return s;
     }
 
-    /// <summary>ジェネリック引数を列挙（`Dictionary&lt;string, Foo&gt;` → ["string","Foo"]）。</summary>
+    /// <summary>ジェネリック引数を列挙（`Dictionary&lt;string, Foo&gt;` → ["string","Foo"]）。
+    /// タプル型引数 `Box&lt;(int, string)&gt;` のカンマは区切りとして割らない。
+    /// 対応する `&gt;` は最初の `&lt;` に対して深さで探す（`Box&lt;…&gt;.Inner&lt;…&gt;` のように
+    /// 後ろに別のジェネリックが続いても最后一个の `&gt;` を拾わない）。</summary>
     public static List<string> GenericArgs(string? raw)
     {
         var result = new List<string>();
@@ -57,21 +60,34 @@ public static class TypeText
         var s = raw!;
         var lt = s.IndexOf('<');
         if (lt < 0) return result;
-        var gt = s.LastIndexOf('>');
+        var gt = -1;
+        var angle = 0;
+        for (var i = lt; i < s.Length; i++)
+        {
+            if (s[i] == '<') angle++;
+            else if (s[i] == '>')
+            {
+                angle--;
+                if (angle == 0) { gt = i; break; }
+            }
+        }
         if (gt <= lt) return result;
         var inner = s[(lt + 1)..gt];
-        var depth = 0;
+        var depth2 = 0;
+        var nest = 0;
         var start = 0;
         for (var i = 0; i <= inner.Length; i++)
         {
-            if (i == inner.Length || (depth == 0 && inner[i] == ','))
+            if (i == inner.Length || (depth2 == 0 && nest == 0 && inner[i] == ','))
             {
                 var part = inner[start..i].Trim();
                 if (part.Length > 0) result.Add(part);
                 start = i + 1;
             }
-            else if (inner[i] == '<') depth++;
-            else if (inner[i] == '>') depth--;
+            else if (inner[i] == '<') depth2++;
+            else if (inner[i] == '>') depth2--;
+            else if (inner[i] == '(' || inner[i] == '[') nest++;
+            else if (inner[i] == ')' || inner[i] == ']') nest--;
         }
         return result;
     }

@@ -105,7 +105,7 @@ node $SKILL/scripts/build.mjs \
 - **同じ入力なら同じバイト列**。2 周目は並列走なので、そのまま書き出すとエッジの順も、同じ edge ID に
   partial の別ファイルから届いた代表（行・detail）もスレッド順序に左右される。断片はエッジを ID の
   順序に整列して書き、代表は「行が若い順、同順なら detail の辞書順」で固定する。未決着の呼び出し名は
-  順を持たない集合に聚めて、出力時に並べてから上限を掛ける。elsa-core で断片 43 MB と `graph.json` 46 MB を
+  順を持たない集合に集めて、出力時に並べてから上限を掛ける。elsa-core で断片 43 MB と `graph.json` 46 MB を
   2 回ずつ作り、`generatedAt` を除いたバイト列が一致することを実測した
   （`test-analyzer.mjs` の決定性検査は「ソートして比較」ではなくバイト比較で、partial の fixture を
   12 回連続で走らせている）
@@ -196,7 +196,7 @@ LLM が書くときの決まりごと（これをやらないとグラフが嘘�
 ### 静的解析の精度（ブラウザ不要）
 
 ```sh
-node $SKILL/scripts/test-analyzer.mjs        # cgd がビルド済みなら即実行（74 項目）
+node $SKILL/scripts/test-analyzer.mjs        # cgd がビルド済みなら即実行（83 項目）
 ```
 
 `skill/tests/fixtures/` の C# を `cgd` にかけて、期待するエッジと「出してはいけない
@@ -213,6 +213,10 @@ node $SKILL/scripts/test-analyzer.mjs        # cgd がビルド済みなら即�
 `fixtures/GenericChain/` では型引数つきコレクションの要素を**式の中でさらに辿ったとき**の解決を見る
 （`foreach` を即座に書く場合と `var` を経由する場合、indexer 経由、`p.All()[0].Make().Id` の連鎖。
 畳んだ型表記を使うと別名前空間の非ジェネリック同名型に化けるので、化ける側へ張っていないことも確かめる）。
+`fixtures/TupleArg/` は型引数の数を構文どおり数えるかの回帰で、`Box<(int, string)>` のように
+**タプルを型引数に受けた連鎖**（プロパティ / 呼び出し / タプルキーの indexer / `foreach` 要素 /
+`var` 経由 / 2 引数の `Pair<(int, int), string>` / フィールド宣言）が要素型のメンバーへ張ることを見る。
+型引数の数を `<` と `,` だけで数えるとタプル内のカンマを区切りと数え、連鎖ごと消える。
 `fixtures/PartialOrder/` は出力の決定性で、partial 型の別ファイルにある同名オーバーロードが同じ edge ID に
 畳まれたとき、断片のバイト列が 12 回連続で一致することと、代表の行が行の若い側で固定されることを見る。
 demo と `BindingRegression/` でも同じ入力を 2 回走らせて、`rejectedTypes` を含む出力が揺れないことを確かめる。
