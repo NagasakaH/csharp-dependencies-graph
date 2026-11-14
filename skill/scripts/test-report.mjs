@@ -1411,6 +1411,106 @@ check('--limit で一覧が切れてもカウンタの不変条件は保たれ�
       : '実行失敗')).join(' | '));
 }
 
+// ---- 第 37 ラウンド: 表示する代表経路を全順序で決める（双人レビュー第 36 ラウンド両名指摘）----
+// 包含支配（マスク ⊇ × 予算 ≤）は展開の枝刈りとして正しいが、表示する代表経路を一意に
+// 決める基準にはなっていない。比較不能な対（`chain` マスク 12・予算 2 と `elig|apiTail`
+// マスク 10・予算 1）と同位（同じマスク・同じ予算）の対は先着（あるいは後着）が勝っていた
+// ため、縁の並び順だけで `direction` が反転した（再現 out/tmp-r37/repro-direction.py）。
+// 直し: 実経路の候補を全部保持し、`repCmp` の全順序（昇格止めの経路 → 根付き → 定義上の
+// 関連候補 → 予算 → 段数 → apiTail → chain → 縁 id 辞書順）で代表を決める。
+//  shuffled した縁順で 欄・向き・tier・段数・根拠の縁まで一致することを固定する
+{
+  // 疑似ランダムだが決定的な並べ順（線形合同法）。シードを変えて複数並べ順を作る
+  const shuffled = (xs, seed) => {
+    const ys = [...xs];
+    let s = seed >>> 0;
+    const rnd = () => { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff; };
+    for (let i = ys.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(rnd() * (i + 1));
+      [ys[i], ys[j]] = [ys[j], ys[i]];
+    }
+    return ys;
+  };
+  // 根拠の縁まで含めた行の形。並び順で変わってはいけないものを全部入れる
+  const fullShape = (r) => [['external.out', r.external.out], ['external.in', r.external.in],
+    ['entries.out', r.entries.out], ['entries.in', r.entries.in],
+    ['artifacts.out', r.artifacts.out], ['artifacts.in', r.artifacts.in],
+    ['wiring', r.wiring], ['sameApi', r.sameApi], ['siblingEndpoints', r.siblingEndpoints]]
+    .flatMap(([b, rs]) => (rs || []).map((x) => `${b}|${x.id}=${x.tier}/${x.direction}/h${x.hops}`
+      + `/evidence:${x.evidence.kind}:${x.evidence.source}->${x.evidence.target}`));
+
+  // (1) codex 双人レビューの反例。`chain` 一本の経路（`l_out → x1 → target`、向き out）と
+  // `elig|apiTail` の経路（`i → b ← target`、向き in）が比較不能で着く。仕様どおり
+  // `apiTail` を運ぶ経路が代表になり、向き `in` / 3 段で並べ順不変
+  const counterNodes = [
+    synNode('tf:aws_lambda_function.s', 'resource', { resourceType: 'aws_lambda_function' }),
+    synNode('tf:aws_lambda_function.l_out', 'resource', { resourceType: 'aws_lambda_function' }),
+    synNode('tf:aws_s3_bucket.x1', 'resource', { resourceType: 'aws_s3_bucket' }),
+    synNode('tf:aws_api_gateway_integration.i', 'resource', { resourceType: 'aws_api_gateway_integration', category: 'apigateway' }),
+    synNode('tf:aws_lambda_function.b', 'resource', { resourceType: 'aws_lambda_function' }),
+    synNode('tf:aws_dynamodb_table.target', 'resource', { resourceType: 'aws_dynamodb_table' }),
+  ];
+  const counterEdges = [
+    synEdge('invokes', 'tf:aws_lambda_function.l_out', 'tf:aws_lambda_function.s', 'human'),
+    synEdge('references', 'tf:aws_lambda_function.l_out', 'tf:aws_s3_bucket.x1'),
+    synEdge('references', 'tf:aws_s3_bucket.x1', 'tf:aws_dynamodb_table.target'),
+    synEdge('triggers', 'tf:aws_api_gateway_integration.i', 'tf:aws_lambda_function.s'),
+    synEdge('references', 'tf:aws_api_gateway_integration.i', 'tf:aws_lambda_function.b'),
+    synEdge('references', 'tf:aws_dynamodb_table.target', 'tf:aws_lambda_function.b'),
+    synEdge('invokes', 'tf:aws_lambda_function.l_out', 'tf:aws_lambda_function.b'),
+  ];
+  const cOrders = [['orig', counterEdges], ['rev', [...counterEdges].reverse()]]
+    .concat([3, 11, 29, 77].map((sd) => [`shuf${sd}`, shuffled(counterEdges, sd)]))
+    .map(([name, edges]) => [name,
+      runSyn(`r37c-${name}`, { nodes: counterNodes, edges },
+        ['--from', 'tf:aws_lambda_function.s'], `r37c-${name}`)]);
+  const cTarget = (out) => (out ? allRows(out.result).find((x) => x.id === 'tf:aws_dynamodb_table.target') : null);
+  check('比較不能な代表経路の対決は全順序で決まり、縁を shuffled しても 欄・向き・段数・根拠が一致する',
+    cOrders.every(([, out]) => !!out && !!cTarget(out)
+      && cTarget(out).tier === 'wiring' && cTarget(out).direction === 'in'
+      && cTarget(out).hops === 3
+      && cTarget(out).evidence.kind === 'references')
+    && new Set(cOrders.map(([, out]) => JSON.stringify(out ? fullShape(out.result) : null))).size === 1,
+    cOrders.map(([name, out]) => `${name}: ` + (out
+      ? `target=${cTarget(out) ? `${cTarget(out).tier}/${cTarget(out).direction}/h${cTarget(out).hops}` : '無し'}`
+      : '実行失敗')).join(' | '));
+
+  // (2) 第 35 ラウンド agy 指摘 2 の形（純粋な Terraform）。同位の対決も全順序（`apiTail`）で
+  // 決まり、shuffled で根拠の縁（`i → b` ではなく `target → b` の `references`）まで一致する
+  const bNodes = [
+    synNode('tf:aws_lambda_function.s', 'resource', { resourceType: 'aws_lambda_function' }),
+    synNode('tf:aws_lambda_function.l_out', 'resource', { resourceType: 'aws_lambda_function' }),
+    synNode('tf:aws_s3_bucket.x1', 'resource', { resourceType: 'aws_s3_bucket' }),
+    synNode('tf:aws_api_gateway_integration.i', 'resource', { resourceType: 'aws_api_gateway_integration', category: 'apigateway' }),
+    synNode('tf:aws_s3_bucket.b', 'resource', { resourceType: 'aws_s3_bucket' }),
+    synNode('tf:aws_dynamodb_table.target', 'resource', { resourceType: 'aws_dynamodb_table' }),
+  ];
+  const bEdges = [
+    synEdge('invokes', 'tf:aws_lambda_function.l_out', 'tf:aws_lambda_function.s', 'human'),
+    synEdge('references', 'tf:aws_lambda_function.l_out', 'tf:aws_s3_bucket.x1'),
+    synEdge('references', 'tf:aws_s3_bucket.x1', 'tf:aws_dynamodb_table.target'),
+    synEdge('triggers', 'tf:aws_api_gateway_integration.i', 'tf:aws_lambda_function.s'),
+    synEdge('references', 'tf:aws_api_gateway_integration.i', 'tf:aws_s3_bucket.b'),
+    synEdge('references', 'tf:aws_dynamodb_table.target', 'tf:aws_s3_bucket.b'),
+  ];
+  const bOrders = [['orig', bEdges], ['rev', [...bEdges].reverse()]]
+    .concat([5, 13, 41, 97].map((sd) => [`shuf${sd}`, shuffled(bEdges, sd)]))
+    .map(([name, edges]) => [name,
+      runSyn(`r37b-${name}`, { nodes: bNodes, edges },
+        ['--from', 'tf:aws_lambda_function.s'], `r37b-${name}`)]);
+  const bTarget = (out) => (out ? allRows(out.result).find((x) => x.id === 'tf:aws_dynamodb_table.target') : null);
+  check('同位（同じマスク・同じ予算）の対決も shuffled で根拠の縁まで一致する（向き in / 3 段）',
+    bOrders.every(([, out]) => !!out && !!bTarget(out)
+      && bTarget(out).tier === 'wiring' && bTarget(out).direction === 'in'
+      && bTarget(out).hops === 3
+      && bTarget(out).evidence.source === 'tf:aws_dynamodb_table.target'
+      && bTarget(out).evidence.target === 'tf:aws_s3_bucket.b')
+    && new Set(bOrders.map(([, out]) => JSON.stringify(out ? fullShape(out.result) : null))).size === 1,
+    bOrders.map(([name, out]) => `${name}: ` + (out
+      ? `target=${bTarget(out) ? `${bTarget(out).tier}/${bTarget(out).direction}/h${bTarget(out).hops}` : '無し'}`
+      : '実行失敗')).join(' | '));
+}
+
 rmSync(dir, { recursive: true, force: true });
 console.log(`\n${pass}/${pass + failures.length} 件成功`);
 if (failures.length) { console.log('失敗: ' + failures.join(' / ')); process.exit(1); }

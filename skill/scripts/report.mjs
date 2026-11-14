@@ -391,9 +391,59 @@ const startApiGroups = new Set(starts.map((x) => apiGroupOf(byId.get(x.id))).fil
 // `path[0]` が必ず起点になることが常に成り立つ
 const combined = new Map();
 const wiringMap = new Map();
-// 閉包側の記録を所有している受理状態の (マスク, 予算)。記録の置き換えを
-// 展開側の予算表と同じ包含の支配関係で判定するために持つ（双人レビュー第 35 ラウンド agy 指摘 2）
-const recState = new Map();
+// **表示する代表経路**の候補集合。id -> 非支配の実経路 [{ mask, budget, rec }]。
+// 支配は展開側の予算表（`expandedAt`）と同じ包含 × 予算非増。展開側の支配は**枝刈り**として
+// そのまま残り、こちらは「表示する代表経路を一意に決める」ために使う。包含支配だけでは
+// 比較不能な対（`chain` のマスク 12・予算 2 と `elig|apiTail` のマスク 10・予算 1 など）と
+// 同位（同じマスク・同じ予算）の対が残るので、候補を全部保持し `repCmp` の全順序で勝者を
+// 決める（双人レビュー第 36 ラウンド両名指摘、仕様 out/loop/r37-decision.md）
+const repCands = new Map();
+// 真の支配。同位（同じマスク・同じ予算）は支配と数えないので両方が候補に残り、
+// `repCmp` が決める（第 36 ラウンド agy 指摘 2: 支配を `<=` 込みで/reflexive にすると
+// 同位の後着が常に勝って `direction` が並べ順で反転した）
+const repDominates = (a, b) => (a.mask & b.mask) === b.mask && a.budget <= b.budget
+  && (a.mask !== b.mask || a.budget !== b.budget);
+// **代表経路の全順序**（仕様 out/loop/r37-decision.md、原則 4）。比較不能・同位の候補にだけ
+// 適用する。縁の到着順はどこにも入らない。並べた順に比較し、次で切る:
+//  1. 昇格を止められていない経路（`wiring !== true`）を先に（旧 `promoteTo` の意図）
+//  2. 根付き（`cut === false`）を先に（旧 `shorter` / `recoverCut` の意図。挿入でも防ぐ）
+//  3. 本命ノードへの定義上の関連候補（`demote`）を最後に
+//  4. 定義段数 `budget` が小さい順（近い実経路を先に）
+//  5. 記録段数 `rec.hops` が小さい順
+//  6. `apiTail` 旗（API の定義を越えて届いた）を持つ経路を先に（旧 `carryTail` の意図。
+//     着地まで運んだ経路が代表になれないと 2 段目の種が育たない系列が最優先)
+//  7. `chain` 旗（起点の実装関係で結ばれた連鎖）を持つ経路を先に
+//  8. 根拠の縁 id → 親 id (`via`) の辞書順（最終タイブレーク。向きは選考基準でなく
+//     経路の結果なのでここでの介入はない）
+const repCmp = (a, b) => {
+  const wa = a.rec.wiring === true ? 1 : 0; const wb = b.rec.wiring === true ? 1 : 0;
+  if (wa !== wb) return wa - wb;
+  const ca = a.rec.cut ? 1 : 0; const cb = b.rec.cut ? 1 : 0;
+  if (ca !== cb) return ca - cb;
+  const dma = (a.rec.wiring === true && bestState.get(a.id) && bestState.get(a.id).primary) ? 1 : 0;
+  const dmb = (b.rec.wiring === true && bestState.get(b.id) && bestState.get(b.id).primary) ? 1 : 0;
+  if (dma !== dmb) return dma - dmb;
+  if (a.budget !== b.budget) return a.budget - b.budget;
+  if (a.rec.hops !== b.rec.hops) return a.rec.hops - b.rec.hops;
+  const ta = (a.mask & CLOSURE_API_TAIL) ? 0 : 1; const tb = (b.mask & CLOSURE_API_TAIL) ? 0 : 1;
+  if (ta !== tb) return ta - tb;
+  const cha = (a.mask & CLOSURE_CHAIN) ? 0 : 1; const chb = (b.mask & CLOSURE_CHAIN) ? 0 : 1;
+  if (cha !== chb) return cha - chb;
+  const ka = `${a.rec.edge ? a.rec.edge.id : ''}\u0000${a.rec.via || ''}`;
+  const kb = `${b.rec.edge ? b.rec.edge.id : ''}\u0000${b.rec.via || ''}`;
+  return ka < kb ? -1 : (ka > kb ? 1 : 0);
+};
+// 候補集合へ 1 経路加える。除くのは**自分から見て真に支配されている既存候補**だけ。
+// 代表は常に `repCmp` の最小なので、加える順に依らず集合と代表は同じになる
+const addRepCandidate = (id, mask, budget, rec) => {
+  const cand = { id, mask, budget, rec };
+  const kept = (repCands.get(id) || []).filter((c) => !repDominates(cand, c));
+  if (!kept.some((c) => repDominates(c, cand))) kept.push(cand);
+  repCands.set(id, kept);
+  let best = kept[0];
+  for (let i = 1; i < kept.length; i += 1) if (repCmp(kept[i], best) < 0) best = kept[i];
+  wiringMap.set(id, best.rec);
+};
 // 閉包の出発点として**根になったノード**（起点そのものではないが、起点の定義グループなので
 // 経路の先頭として出してよい）。
 
@@ -897,6 +947,28 @@ function runClosure(seedIds) {
     // `API グループ数 + 1` なので有限に止まる
     const mask = (state.chain ? CLOSURE_CHAIN : 0) | (state.elig ? CLOSURE_ELIG : 0)
       | (state.down ? CLOSURE_DOWN : 0) | (state.apiTail ? CLOSURE_API_TAIL : 0);
+    // **表示する代表経路の候補集合**（仕様 out/loop/r37-decision.md、原則 4）。加えるか決める
+    // のは r36 と同じ 2 つの防止条件だけ。
+    // (1) 本命として受理済みのノードへ、定義上の関連の経路を既存候補があるのに加えない
+    //     （旧 `demote`。受理事実 `bestState.primary` は単調）
+    // (2) 循環境避で切った経路を、根付きの候補があるノードに加えない（旧 `shorter`。
+    //     根無しの候補しかないときは加える。後から根付きが来れば `repCmp` の 2 番目が勝つ）
+    if (state.rec) {
+      const cands = repCands.get(state.id) || [];
+      const demote = cands.length > 0 && bestState.get(state.id).primary && state.rec.wiring === true;
+      const shorter = state.rec.cut && cands.some((c) => !c.rec.cut);
+      if (!demote && !shorter) {
+        // 実経路は**展開に受理されたか否かに関わらず**候補に加える。受理の枝刈り
+        // （`better`）をこの下に残すのは展開を増やさないためで、表示の代表は別問題。
+        // r36 は「支配・昇格・cut 復旧・旗運びのときだけ後着で上書き、それ以外は先着を
+        // 保つ」で、比較不能な対は先着、同位（同じマスク・同じ予算）は支配の反射性で
+        // 後着が勝っていた（双人レビュー第 36 ラウンド両名指摘。再現
+        // `out/tmp-r37/repro-direction.py`）。受理されなかった経路も実際に届いた一歩の
+        // 連鎖であり、候補に加えても展開は 1 歩も増えない。候補はすべて実在の経路で、
+        // 旗だけを合成した架空の経路にはならない
+        addRepCandidate(state.id, mask, state.budget, state.rec);
+      }
+    }
     const prevBudget = fresh ? Infinity : done.budgets[mask];
     const better = fresh || (state.primary && !done.primary) || state.budget < prevBudget;
     if (!better) return false;
@@ -925,39 +997,6 @@ function runClosure(seedIds) {
       ...bestState.get(state.id),
       budget: Math.min(bestState.get(state.id)?.budget ?? Infinity, state.budget),
     });
-    if (state.rec) {
-      const old = wiringMap.get(state.id);
-      // 記録の置き換えをやめるのは 2 つの場合。
-      // (1) 根が確定している経路を、循環境避で切った経路に置き換えるとき（`path[0]` が起点でなくなる）
-      // (2) 本命として受理済みの行を、定義上の関連の縁で塗り替えようとするとき（根拠が弱い方に変わる）
-      const demote = !!old && bestState.get(state.id).primary && state.rec.wiring === true;
-      const shorter = !!old && !!old.via && state.rec.cut;
-      // 上記 2 つを通過しても**無条件には上書きしない**。比較不能な 2 資格の経路（`chain` 単独の
-      // マスクと `apiTail` 単独のマスクなど）が同予算で着くと両方受理されるが、後着で無条件
-      // 上書きすると `direction` が縁の並び順で反転し、記録が `apiTail` の旗を落としてコードの
-      // 種から着地ごと消える（双人レビュー第 35 ラウンド agy 指摘 1・2。再現
-      // `out/tmp-r36/agy-repro-a.py` / `out/tmp-r36/agy-repro-b.py`）。
-      // 上書きは「新記録が古い記録を支配するとき」に限定する。支配は展開側の予算表と同じ
-      // 関係（マスクの包含 × 予算の非増）で決める:
-      // (1) 支配（新マスク ⊇ 記録の所有マスク かつ 予算 ≤。同マスクでの予算改善も含む。
-      //     v1 基準の `demo-iam` `order_process`（budget 0 の `invokes` 経路）と
-      //     `demo-proj` `deployment.live`（マスク 10 の向き in）はこの上書きで保たれる。実測）
-      // (2) 昇格（定義上の関連の記録を本命の経路が塗り替える）
-      // (3) cut 復旧（循環境避で切った記録が根付きの経路を引き取る）
-      // (4) `apiTail` 運び（「API の定義を越えて届いた」旗を持たない記録から持つ記録へ。
-      //     `promote` の単調な寄せと同じ事実で、旗を運ぶ経路が運ばない経路を支配する）
-      // それ以外は先着の経路を保つ（`via` / `hops` / `dir` を後から塗り替えない = 架空の経路を作らない）
-      const owner = recState.get(state.id);
-      const dominates = !!old && !!owner
-        && (mask & owner.mask) === owner.mask && state.budget <= owner.budget;
-      const promoteTo = !!old && old.wiring === true && state.rec.wiring !== true;
-      const recoverCut = !!old && !!old.cut && !state.rec.cut;
-      const carryTail = !!old && !old.apiTail && !!state.rec.apiTail;
-      if (!demote && !shorter && (!old || dominates || promoteTo || recoverCut || carryTail)) {
-        wiringMap.set(state.id, state.rec);
-        recState.set(state.id, { mask, budget: state.budget });
-      }
-    }
     return true;
   };
 
