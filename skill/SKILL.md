@@ -281,18 +281,18 @@ node $SKILL/scripts/report.mjs --graph out/graph/graph.json --api "POST /orders"
 時間ゲートだけが置き換わり、RSS の絶対上限はそのまま残った。混雑時の新版と静かだった過去の旧版を
 直接比べて合否を出すこと、混雑を理由に倍率超過を免除することは裁定で却下されている。
 
-相対ゲートでの実測（`out/tmp-r43/gate43i.log`、旧版は commit `a44b7c7` を `out/wt-head` に固定、
-旧→新 / 新→旧 を交互に 5 組、2026-11-15 00:57〜01:03、load average 3.40〜3.93）:
+相対ゲートでの実測（`out/tmp-r44/gate44a.log`、旧版は commit `a44b7c7` を `out/wt-head` に固定、
+旧→新 / 新→旧 を交互に 5 組、2026-11-15 01:38〜01:46、load average 3.40〜4.46）:
 
-| 入力 | 旧 5 組中央値 | 新 5 組中央値 | 組ごとの倍率 | 倍率の中央値 | 判定（1.20 以内） | 新 RSS |
-| --- | --- | --- | --- | --- | --- | --- |
-| demo-api | 0.0382 秒 | 0.0389 秒 | 1.01 / 1.02 / 1.03 / 1.01 / 1.02 | 1.02 | 適合 | 53.0 MB |
-| elsa-50 | 0.2606 秒 | 0.2707 秒 | 1.04 / 1.04 / 1.04 / 1.04 / 1.04 | 1.04 | 適合 | 409.3 MB |
-| elsa-folder | 0.7501 秒 | 0.8144 秒 | 1.07 / 1.10 / 1.09 / 1.08 / 1.09 | 1.09 | 適合 | 648.9 MB |
-| v2-mix | 0.2285 秒 | 0.2304 秒 | 1.01 / 1.02 / 1.01 / 1.01 / 1.00 | 1.01 | 適合 | 212.0 MB |
+| 入力 | 旧 5 組中央値 | 新 5 組中央値 | 組ごとの倍率 | 倍率の中央値 | 判定（1.20 以内） | 旧 RSS | 新 RSS |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| demo-api | 0.0386 秒 | 0.0392 秒 | 1.05 / 0.94 / 1.04 / 1.02 / 1.03 | 1.03 | 適合 | 52.8 MB | 53.3 MB |
+| elsa-50 | 0.2646 秒 | 0.2794 秒 | 1.04 / 0.98 / 1.03 / 1.09 / 1.06 | 1.04 | 適合 | 391.8 MB | 407.9 MB |
+| elsa-folder | 0.8201 秒 | 0.8966 秒 | 1.20 / 0.76 / 1.00 / 1.20 / 1.07 | 1.07 | 適合 | 602.0 MB | 656.8 MB |
+| v2-mix | 0.2317 秒 | 0.2312 秒 | 1.01 / 0.92 / 1.01 / 1.01 / 0.99 | 1.01 | 適合 | 184.3 MB | 195.8 MB |
 
 **4 とおりすべてゲート内**。ただし `elsa-folder`（`--from folder:. --limit 100000`）は他の入力より
-1.5 倍ほど重く、縁の本数ぶんの表示用コピーを隣エントリが持つため最大 RSS も 648.9 MB まで上がる
+1.5 倍ほど重く、縁の本数ぶんの表示用コピーを隣エントリが持つため最大 RSS も 656.8 MB まで上がる
 （上限 800 MB 内）。この入力を「遅いから」と理由に打ち切ることはしない。
 
 かつて超過していた値はこうです（`out/loop/r42-decision.md` §3、2026-11-14 23:00、commit `a44b7c7` との比較）:
@@ -378,7 +378,7 @@ demo と `BindingRegression/` でも同じ入力を 2 回走らせて、`rejecte
 node $SKILL/scripts/test-query.mjs           # fixtures/query/graph.json を使う（.NET 不要、28 項目）
 node $SKILL/scripts/test-merge.mjs           # Lambda handler の解決規則（.NET 必要、12 項目）
 node $SKILL/scripts/test-terraform.mjs       # API Gateway のパス組み立てと HTTP API (v2) の `target`（46 項目、.NET 不要）
-node $SKILL/scripts/test-report.mjs          # 差分 → 影響範囲レポート（99 項目、.NET 必要）
+node $SKILL/scripts/test-report.mjs          # 差分 → 影響範囲レポート（102 項目、.NET 必要）
 ```
 
 `test-merge.mjs` は `fixtures/HandlerLambda/`（`AssemblyName` を置いた csproj と `main.tf`）を
