@@ -97,9 +97,19 @@ for (const e of graph.edges) {
   if (opts.dropKind.includes(e.kind)) continue;
   if (opts.provenance && !opts.provenance.includes(e.provenance)) continue;
   const corr = CORRESPONDENCE.has(e.provenance);
+  // walk の一歩が根拠に握るのは 5 項目だけの**表示用コピー**（`--json` の `evidence` の契約）。
+  // 縁その物を隣エントリへ入れると `detail` / `line` / `count` / `metadata` まで `evidence` へ
+  // 漏れて出力契約が変わる（実測 out/tmp-r43/edge-ref-diff.txt: demo-api の 27 行中 22 行の
+  // keys が変わった）。だからと言って到着ごとに作ると walk の到着数ぶんの確保になる
+  // （実測 elsa-folder で到着 157,300 件）。縁の実体を 1 個の表で共有しても表引きが到着ごとに
+  // 効いて同じだけ遅い（第 43 ラウンドの切り分け A 0.736 秒 / B 1.101 秒。ゲート
+  // out/tmp-r43/gate43g-repro.log）。縁は読み取り専用（`rec.edge` への書き込みは grep で 0 件）
+  // なので、**隣エントリを作るこの場で 1 個だけ**作っておく。到着は自分の隣を 1 回読むだけで
+  // 縁の表示コピーが揃う（確保も表引きも到着ごとには起きない）
+  const view = { id: e.id, kind: e.kind, provenance: e.provenance, source: e.source, target: e.target };
   const push = (map, from, to) => {
     if (!map.has(from)) map.set(from, []);
-    map.get(from).push({ e, to, corr });
+    map.get(from).push({ e, to, corr, view });
   };
   // `source → target` を **順に辿れば out、逆から辿れば in** の 1 本ずつだけ入れる。
   // 注釈（対応付け）だからといって双方向に重複登録すると、同じ着地に in と out の両方が付き、
@@ -528,19 +538,6 @@ const walkCands = new Map();
 // 2 倍に水増しされた（実測 elsa-folder: 到着 157,300 / (via, 縁 id) の一意集合 78,650、
 // 候補 2 件以上のノード 3,935 件。検査 out/tmp-r43/dedup-count.py）
 const edgeIdOf = (e) => (e ? e.id : '');
-// walk の一歩が握る根拠の縁は 5 項目だけの**表示用コピー**。縁その物を渡すと `detail` /
-// `line` / `count` / `metadata` まで `--json` の `evidence` へ出て出力契約が変わる
-// （実測 out/tmp-r43/edge-ref-diff.txt）。縁のオブジェクトは読み取り専用で、`rec.edge` を
-// 書き換える箇所は無い（grep 済み）ので、縁ごとに 1 個作って回す（到着ごとの確保をやめる）
-const walkEdgeCopies = new Map();
-const walkEdgeOf = (e) => {
-  let hit = walkEdgeCopies.get(e);
-  if (!hit) {
-    hit = { id: e.id, kind: e.kind, provenance: e.provenance, source: e.source, target: e.target };
-    walkEdgeCopies.set(e, hit);
-  }
-  return hit;
-};
 // 保存は (親 `via`, 根拠の縁 id) ごとの 1 件だけの**並び**。同じ親・同じ縁の一歩は `via` と根拠が
 // 同一で、表示と選考が見る残りの項目（段数・昇格資格・切り旗・2 つの旗）は `repCmp` で
 // 比べるので、それだけ違う到着は表示に差が出ない（同一視できる到着を数え直さないための
@@ -561,18 +558,21 @@ const addWalkCandidate = (id, rec, cur) => {
   // 閉包の候補と同じ集合で比べない（walk が根付かせた行は walk の候補から選び、walk が
   // 根付かせられなかった行だけ第 40 ラウンドどおり閉包の候補から選ぶ）ので、`repCmp` の
   // 第 3 項は walk の中では常に同値になる
-  // 候補の実体をそのまま握らない。この一歩の記録は `mergeRecords` が `combined` へ入れると
-  // 同じ実体になり、後から `promote` が `wiring` / `down` / `cut` などを書き換えるので、
-  // 比較の材料が到着順で変わる（第 38 ラウンド agy 指摘 P2 と同じ型。検査
-  // out/tmp-review38/check-mutation.py）
+  // 候補は到着の記録を**そのまま**握る。到着の記録が後から書き換わらない保証は候補の側では
+  // 持たず、`combined` へ入れる側が写しで持つ（下の `mergeRecords`）。`promote` が書き換えるの
+  // は `combined` の実体だけなので、到着の記録＝候補の実体は不変のまま共有できる。到着ごとに
+  // 実体を 2 個作る必要はなく、実測 elsa-folder で候補 78,650 件・新設 21,455 件ぶん（第 38
+  // ラウンド agy 指摘 P2 の意味はそのまま。検査 out/tmp-review38/check-mutation.py）
   const list = walkCands.get(id);
-  if (!list) { walkCands.set(id, [{ id, mask, budget: 0, rec: { ...src } }]); return; }
+  if (!list) { walkCands.set(id, [{ id, mask, budget: 0, rec: src }]); return; }
   // 同じ (親, 縁) の一歩は表示も選考も見るところが同じで 1 件で足りる。キーの文字列を
   // 組み直すより先に並びを調べて、同じ一歩の実体コピーを作らない（実測 elsa-folder で
   // 到着 157,300 件のうち同じ一歩の再到着が 78,650 件。表示候補のためだけに実体を
-  // 倍作って実行時間が 0.1 秒伸びた）
+  // 倍作って実行時間が 0.1 秒伸びた）。根拠の縁は隣エントリが 1 個だけ持つ表示用コピーなので、
+  // 同じ縁なら実体も一致する（実体が違えば `id` を比べる。`id` が同じなら表示も選考も同じ）
   for (const best of list) {
-    if (best.rec.via !== src.via || edgeIdOf(best.rec.edge) !== edgeIdOf(src.edge)) continue;
+    if (best.rec.via !== src.via) continue;
+    if (best.rec.edge !== src.edge && edgeIdOf(best.rec.edge) !== edgeIdOf(src.edge)) continue;
     // 同じ親・同じ縁の一歩なので `repCmp` の最終項目は同値。選考が見る残り（昇格資格・
     // 切り旗・定義段数・段数・2 つの旗）も同じなら、表示に出る項目も同じで 1 件で足りる
     // （実測: elsa-folder / demo / fixture-api / real-api の同じ (親, 縁) の到着どうしで
@@ -583,10 +583,10 @@ const addWalkCandidate = (id, rec, cur) => {
       && (best.rec.wiring === true) === (src.wiring === true)
       && !!best.rec.apiTail === !!src.apiTail && !!best.rec.chain === !!src.chain;
     const d = sameCore ? 0 : repCmp({ id, mask, budget: 0, rec: src }, best);
-    if (d < 0) { best.rec = { ...src }; best.mask = mask; }
+    if (d < 0) { best.rec = src; best.mask = mask; }
     return;
   }
-  list.push({ id, mask, budget: 0, rec: { ...src } });
+  list.push({ id, mask, budget: 0, rec: src });
 };
 // 閉包の出発点として**根になったノード**（起点そのものではないが、起点の定義グループなので
 // 経路の先頭として出してよい）。
@@ -750,7 +750,7 @@ function walkWithSwitch(seedIds, first) {
       const base = cur.mdir || cur.dir;
       const dirs = canSwitch ? [base, base === 'in' ? 'out' : 'in'] : [base];
       for (const d of dirs) {
-        for (const { e, to, corr } of (d === 'in' ? inn : out).get(cur.id) || []) {
+        for (const { e, to, corr, view } of (d === 'in' ? inn : out).get(cur.id) || []) {
           // 根拠経路を循環させる一歩は捨てない。ただしそこを**新しい出発点**として切る
           // （`via` を付けない）。付けたままにすると経路が起点にたどり着けなくなる
           const back = onChain(cur.id, to, found);
@@ -815,7 +815,7 @@ function walkWithSwitch(seedIds, first) {
             // **API の定義（統合・method・route）を越えて届いた**経路の旗。この旗が立った
             // コードは 2 段目の walk の種にする（指摘 C）。親が既に立てているなら引き継ぐ
             apiTail: !!cur.apiTail || crossesApiTail(cur, back),
-            edge: walkEdgeOf(e),
+            edge: view,
             sibBlocked: sibHere,
             // 実装側へ**入った**一歩（`handler` / `exposed-by` を逆向きに渡った一歩）。
             // 一度入ったら、その実装の対応縁をもう一度渡る一歩は「同じコードを使う別の入口」を
@@ -923,7 +923,11 @@ function promote(cur, rec) {
 function mergeRecords(found) {
   for (const [id, rec] of found) {
     const cur = combined.get(id);
-    if (!cur) combined.set(id, rec);
+    // `combined` へは必ず写しで入れる。`promote` が書き換えるのはこの実体だけなので、到着の
+    // 記録（`found` と walk の候補が握る実体）は不変のまま共有できる。写しをここで 1 回作れば
+    // 候補は到着ごとに実体を増やさない（第 38 ラウンド agy 指摘 P2 の意味は不変。検査
+    // out/tmp-review38/check-mutation.py）
+    if (!cur) combined.set(id, { ...rec });
     else promote(cur, rec);
   }
 }
@@ -1550,9 +1554,9 @@ if (pending) {
   process.stderr.write(`[report] 警告: 探索が収束する前にラウンド上限 ${maxRounds} に達しました（結果は不完全です）\n`);
 }
 
-// walk の到着はここまで。根拠の縁のコピーを数えた表はこれ以降読まれないので、表だけ先に
-// 捨てる（写しそのものは到着の記録が握っているので残る。実測 elsa-folder で 5.3 万エントリ）
-walkEdgeCopies.clear();
+// walk の到着はここまで。根拠の縁の表示用コピーは隣エントリ（上の `view`）が 1 本につき 1 個
+// だけ持つので、到着ごとに数えた表は作っていない（以前はここで捨てていたが、実測 elsa-folder
+// で 53,521 個ぶんの表を到着のあいだ生やして 0.35 秒払っていた）
 // ---- 表示経路を「起点まで遡れる単一の連鎖」に確定する（仕様 out/loop/r40-decision.md、
 //      walk の到着を候補へ加えた改修は out/loop/r41-decision.md）----
 // 探索の受理・循環カット・旗・`bestState` は一切変えない（第 38 ラウンド不変原則 4）。
