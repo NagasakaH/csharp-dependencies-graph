@@ -47,7 +47,7 @@ node $SKILL/scripts/build.mjs \
 5. `render.mjs` がビューアへデータを埋め込んで `graph.html` を出す
 
 よくある実行時間の実測（M マシン・syntax-only）: elsa-core 6,754 ファイル（test / docs を除外）で C# 解析 3 秒、
-全体 30 秒弱、`graph.json` 45MB / `graph.html` 20MB。
+全体 30 秒弱、`graph.json` 46MB / `graph.html` 20MB。
 
 ## 使い方を選ぶ
 
@@ -94,15 +94,21 @@ node $SKILL/scripts/build.mjs \
 - 型の単純名が複数の名前空間にあり、宣言元の名前空間と `using` でも判別できないときは、
   得点が並んだ候補に最大 2 本張って `detail` に `ambiguous` を残す。同一ファイル・名前空間直下
   という手掛かりで単独決定できることが多く、実測 elsa-core は 429 → 301 → **2 本**（表現内の型参照の
-  張り分け `ambiguous: …` は 0 本、`param (ambiguous)` が 2 本。残った 2 本は `Endpoint` という同名型が
-  別名前空間に等距離にある箇所で、1 本に絞れば必ず誤りになる）。得点 0 の曖昧さは張らない
+  張り分け `ambiguous: …` は 0 本、`param (ambiguous)` が 2 本）。残った 2 本は `Elsa.Api.Common` の
+  `WebApplicationExtensions.CreateRateLimitingEndpoint` が引数に書く `Endpoint` で、正解はリポジトリ外の
+  `Microsoft.AspNetCore.Http.Endpoint` なので**どちらも誤り**（`using Elsa.Workflows;` からの
+  「内側名前空間 +1」という近似が生き残らせている）。得点 0 の曖昧さは張らないが、
+  `ambiguous` を持つ縁は断定済みの縁と混ぜて読まない
 - 型がソースコードに書かれていない名前（`out var`、`is var x` / `case var x`、タプル分割、
   `foreach ((var a, b) in ...)`、LINQ の `join` の範囲変数、`dynamic`、外部型）は
   名前だけ塞いで未解決にする。外側の同名フィールドに化けるより未解決のほうが正しい
-- **同じ入力なら同じバイト列**。2 周目は並列走なので、そのまま書き出すとエッジの順がスレッド順序に
-  左右される。断片はエッジを ID の順序に整列して書く。elsa-core で断片 43 MB と `graph.json` 46 MB を
+- **同じ入力なら同じバイト列**。2 周目は並列走なので、そのまま書き出すとエッジの順も、同じ edge ID に
+  partial の別ファイルから届いた代表（行・detail）もスレッド順序に左右される。断片はエッジを ID の
+  順序に整列して書き、代表は「行が若い順、同順なら detail の辞書順」で固定する。未決着の呼び出し名は
+  順を持たない集合に聚めて、出力時に並べてから上限を掛ける。elsa-core で断片 43 MB と `graph.json` 46 MB を
   2 回ずつ作り、`generatedAt` を除いたバイト列が一致することを実測した
-  （`test-analyzer.mjs` の決定性検査も「ソートして比較」ではなくバイト比較にした）
+  （`test-analyzer.mjs` の決定性検査は「ソートして比較」ではなくバイト比較で、partial の fixture を
+  12 回連続で走らせている）
 
 `.csproj` からは `targetFramework` `rootNamespace` `assemblyName` `packageReferences`
 `projectReferences` を取り、`.cs` / `.csproj` のテキストから AWS/DB のヒント
@@ -147,7 +153,7 @@ Terraform がある場合は `resource "aws_lambda_function" "orders_api"` の�
 
 LLM が書くときの決まりごと（これをやらないとグラフが嘘をつく）:
 
-1. **先に `graph.json` を読んでする。** 存在しないノード ID へのエッジは merge で
+1. **先に `graph.json` を読んでから書く。** 存在しないノード ID へのエッジは merge で
    警告を出して捨てられる。`sourceMatch`/`targetMatch`（`kind` + `path`/`name` の部分一致で
    探す）も使えるが、複数のノードに当たると警告して採用されない。曖昧なら ID で書く。
 2. **根拠を `note` に必ず書く。** handler 文字列の一致、環境変数名、テーブル名、
@@ -163,7 +169,8 @@ LLM が書くときの決まりごと（これをやらないとグラフが嘘�
    `assemblyName` と `type:`/`member:` の ID を突き合わせれば機械的に決められるので、推測で書かない。
    突き合わせが外れたら張らずにビルド出力へ警告を出す（アセンブリ名が実装プロジェクトと違う／
    要素数が 2〜3 に収まらない／空要素がある／型やメソッドが実在しない）。警告が出たら
-   別アセンブリの実装を指している可能性が高いので、注釈で手動に張る。
+   **まず `handler` 文字列を実装プロジェクトのアセンブリ名へ直す**（プロジェクトをリネームしたときに
+   旧名が残るのが主な原因）。意図的に別アセンブリの実装を指しているときだけ注釈で手動に張る。
    `data "aws_lambda_function"` の `handler` は既存 Lambda の読み取りなので結ばない。
 5. **外部ストレージはノードを追加する。** RDS・Redshift・S3 バケットなど、このリポジトリに
    定義がないものは `ext:<種別>/<名前>` のノードを作り、`parent` は `folder:.` か
@@ -189,7 +196,7 @@ LLM が書くときの決まりごと（これをやらないとグラフが嘘�
 ### 静的解析の精度（ブラウザ不要）
 
 ```sh
-node $SKILL/scripts/test-analyzer.mjs        # cgd がビルド済みなら即実行（64 項目）
+node $SKILL/scripts/test-analyzer.mjs        # cgd がビルド済みなら即実行（74 項目）
 ```
 
 `skill/tests/fixtures/` の C# を `cgd` にかけて、期待するエッジと「出してはいけない
@@ -203,7 +210,12 @@ node $SKILL/scripts/test-analyzer.mjs        # cgd がビルド済みなら即�
 `fixtures/BindingRegression/` ではレビューで出た過剰除去の再発を見る（`Activity` と `Activity<T>` が
 同居する基底型、戻り値型を宣言元で解決する多段アクセス、グローバル名前空間のネスト型、`var` で受けた
 戻り値の先（プロパティ / `foreach` 要素 / indexer）、型引数の数が違う候補を飛ばして次へ進む探索）。
-最後に同じ入力を 2 回走らせて、`rejectedTypes` を含む出力が揺れないこと（決定性）も検査する。
+`fixtures/GenericChain/` では型引数つきコレクションの要素を**式の中でさらに辿ったとき**の解決を見る
+（`foreach` を即座に書く場合と `var` を経由する場合、indexer 経由、`p.All()[0].Make().Id` の連鎖。
+畳んだ型表記を使うと別名前空間の非ジェネリック同名型に化けるので、化ける側へ張っていないことも確かめる）。
+`fixtures/PartialOrder/` は出力の決定性で、partial 型の別ファイルにある同名オーバーロードが同じ edge ID に
+畳まれたとき、断片のバイト列が 12 回連続で一致することと、代表の行が行の若い側で固定されることを見る。
+demo と `BindingRegression/` でも同じ入力を 2 回走らせて、`rejectedTypes` を含む出力が揺れないことを確かめる。
 
 ### 照会（逆引き・影響範囲）のテスト
 
@@ -213,8 +225,8 @@ node $SKILL/scripts/test-merge.mjs           # Lambda handler の解決規則（
 ```
 
 `test-merge.mjs` は `fixtures/HandlerLambda/`（`AssemblyName` を置いた csproj と `main.tf`）を
-`build.mjs` まで通し、張る 5 とお（一致／アセンブリ名省略／`Outer+Inner`／`Outer+Middle+Inner`／別型）と
-張らない 5 とお（アセンブリ名違い／アセンブリ名を宣言している csproj のファイル名／空要素を含む形／
+`build.mjs` まで通し、張る 5 とおり（一致／アセンブリ名省略／`Outer+Inner`／`Outer+Middle+Inner`／別型）と
+張らない 5 とおり（アセンブリ名違い／アセンブリ名を宣言している csproj のファイル名／空要素を含む形／
 4 要素以上／型が実在しない）を照合する。警告文はビルド出力に出るので、テストはそちらを読む。
 
 ### ブラウザ実操作

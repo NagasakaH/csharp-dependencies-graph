@@ -40,7 +40,8 @@ for (let i = 0; i < args.length; i++) {
   --dir         in = 使用元・呼び出し元へ逆方向 / out = 依存する側へ正方向 / both = 双方向
   --via-parent  階層も辿る（out で配下へ降りる、in で所属へ登る）。csproj 止まりの注釈をコードまで伸ばすときに使う
   --changed     変更したファイルパスを 1 行 1 件並べたテキスト。先頭が '#' の行は無視
-  --find        ノードを検索して ID を出すだけ（起点を選ぶため）
+  --find        ノードを検索して ID を出すだけ（起点を選ぶため）。--json を併用すると
+                { matched, nodes: [{ id, kind, name, path, resourceType }] } の JSON になる
 
 読み方（誤解しやすい点）:
   - 各ノードは最初に到達した 1 経路だけ出す（別経路を重ねて数えない）。「到達 N」も
@@ -49,10 +50,12 @@ for (let i = 0; i < args.length; i++) {
     足す。--dir both と併用すると祖先へ登ってから兄弟配下へ広がるので到達が膨らむ。
   - --changed でグラフに無いファイルは最も近い親フォルダを起点にする（警告を stderr へ出し、
     JSON の fallbacks に元パスを残す）。階層で届いただけなので依存エッジの証拠ではない。
-  - JSON の reached は到達した全ノード、matched はそのうち --target-kind に合ったもの。
+  - JSON の reached / matched は**いずれも起点を含まない**。matched は reached のうち
+    --target-kind に合ったもので、--target-kind を付けないときは matched が reached と同じ全件。
     summary.reached は起点を引いた到達数、summary.byNodeKind は起点も含めた到達集合の内訳
     （2 つの数字がずれていて当然）。
-  - --limit は標準出力の表示件数だけ絞る。--json は絞られないので、機械が読むなら --json。`);
+  - --limit は標準出力の表示件数（--find の検索結果を含む）だけ絞る。BFS の --json は
+    絞らないので、機械が読むなら --json。`);
       process.exit(0);
     default:
       console.error(`[query] 知らない引数: ${a}（--help を見てください）`);
@@ -86,6 +89,17 @@ function find(text) {
 
 if (opts.find) {
   const hits = find(opts.find);
+  if (opts.json) {
+    // 起点を選ぶための検索も機械で読める形で出す（--json を付けたのに素文本、では使い回せない）
+    console.log(JSON.stringify({
+      graph: opts.graph, find: opts.find, matched: hits.length,
+      nodes: hits.map((n) => ({
+        id: n.id, kind: n.kind, name: n.name, path: n.path || null,
+        resourceType: n.metadata?.resourceType || null,
+      })),
+    }, null, 2));
+    process.exit(hits.length ? 0 : 1);
+  }
   if (!hits.length) { console.log(`該当なし: ${opts.find}`); process.exit(1); }
   for (const n of hits.slice(0, opts.limit)) {
     console.log(`${n.id}  ${n.kind}${n.path ? `  ${n.path}` : ''}${n.metadata?.resourceType ? `  ${n.metadata.resourceType}` : ''}`);

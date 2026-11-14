@@ -299,6 +299,32 @@ check('名前空間直下の型が単純名で決まったときは張り分け�
     && e.target !== 'type:Fix.Regress.Ambiguous.Probe'),
   JSON.stringify(bEdges.filter((e) => e.source.includes('ProbeUser')).map((e) => `${e.kind}:${e.target}`)));
 
+// ---- 型引数を畳んだせいで別物の同名型へ化けないか（第 11 ラウンドの P1） ----
+// 第 10 ラウンドで「畳む前の表記を優先する」ときに漏れたのは、式の途中を解決する経路と
+// foreach の要素宣言だった。式の一部は正しいジェネリック型に繋がり、その先だけ
+// 別物の非ジェネリック型に化けるので、経路ごとに検査する
+const c = analyze('GenericChain');
+const cEdges = c.edges.filter((e) => e.kind !== 'contains');
+const cHas = (kind, from, to) => cEdges.some((e) => e.kind === kind && e.source === from && e.target === to);
+const consumer = (n) => `member:Fix.Chain.App.Consumer.${n}`;
+const cOf = (who) => cEdges.filter((e) => e.source === consumer(who)).map((e) => `${e.kind}:${e.target}`);
+const realItemId = 'member:Fix.Chain.Models.RealItem.Id';
+const wrongItemId = 'member:Fix.Chain.Wrong.WrongItem.Id';
+const modelsBoxGo = 'member:Fix.Chain.Models.Box.Go';
+const wrongBoxGo = 'member:Fix.Chain.Wrong.Box.Go';
+
+for (const who of ['ForeachImmediate', 'ForeachDeferred', 'ViaIndexer', 'ForEachParam']) {
+  check(`要素型の経路（${who}）は型引数を保った宣言元で解決する`,
+    cHas('calls', consumer(who), modelsBoxGo) && !cHas('calls', consumer(who), wrongBoxGo), JSON.stringify(cOf(who)));
+}
+for (const who of ['ChainCall', 'ChainProperty', 'VarCallChain']) {
+  check(`式の連鎖（${who}）は型引数を畳まず要素型のメンバーへ張る`,
+    cHas('accesses', consumer(who), realItemId) && !cHas('accesses', consumer(who), wrongItemId), JSON.stringify(cOf(who)));
+}
+check('Consumer から化ける側（Fix.Chain.Wrong）には一切辿らない',
+  !cEdges.some((e) => e.source.startsWith(consumer('').slice(0, -1)) && e.target.includes('Fix.Chain.Wrong.')),
+  JSON.stringify(cEdges.filter((e) => e.target.includes('Fix.Chain.Wrong.')).map((e) => `${e.source}->${e.target}`)));
+
 // ---- 決定性: 同じ入力を 2 回走らせてもノード・エッジ・後付け候補が揺れない ----
 // 生成日時だけをのぞいた**バイト列そのもの**を比べる。並列走りの結果を後から並べ替えると
 // 集合は同じでも出力順が揺れるので、「ソートしてから比較」では見逃してしまう
@@ -314,6 +340,28 @@ function runTwice(root) {
 check('同じ入力を 2 回実行して rejectedTypes を含む出力が揺れない',
   runTwice(resolve(HERE, '..', '..', 'demo', 'orders-api-lambda'))
   && runTwice(join(HERE, '..', 'tests', 'fixtures', 'BindingRegression')));
+
+// partial 型の別ファイルにある同名オーバーロードは同じ edge ID に畳まれるため、代表の行・detail を
+// 先着順に選ぶと並列走りの順でファイルのバイト列が変わる。多数回まわして固定できているか見る
+function runManyTimes(root, times) {
+  const seen = new Set();
+  for (let i = 0; i < times; i++) {
+    if (!runTwiceAt(root, join(dir, `many-${i}.json`))) return false;
+    seen.add(readFileSync(join(dir, `many-${i}.json`), 'utf8').replace(/"generatedAt":\s*"[^"]*"/g, '"generatedAt":""'));
+  }
+  return seen.size === 1;
+}
+function runTwiceAt(root, out) {
+  const proc = spawnSync(cgd, ['--root', root, '--out', out, '--quiet'], { encoding: 'utf8' });
+  if (proc.status !== 0) { console.error(proc.stdout + proc.stderr); process.exit(1); }
+  return true;
+}
+check('partial の別ファイルで同じ edge ID になっても 12 回とも同じバイト列',
+  runManyTimes(join(HERE, '..', 'tests', 'fixtures', 'PartialOrder'), 12));
+
+const poEdges = analyze('PartialOrder').edges.filter((e) => e.kind === 'calls' && e.target === 'member:Fix.Partial.Target.Go');
+check('同じ edge ID に別ファイルの行が届いても代表は行が若い側で固定される',
+  poEdges.length === 1 && poEdges[0].line === 7 && poEdges[0].count === 2, JSON.stringify(poEdges));
 
 rmSync(dir, { recursive: true, force: true });
 console.log(`\n${pass}/${pass + failures.length} 件成功`);

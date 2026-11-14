@@ -75,7 +75,7 @@ public static class Program
             GeneratedAt = DateTimeOffset.UtcNow.ToString("yyyy-MM-ddTHH:mm:sszzz"),
             Producer = "csharp-analyzer",
         };
-        AddNodes(fragment, index, results);
+        AddNodes(fragment, index, results, opt);
         // 2 周目は Parallel.For なので辞書の挿入順（＝列挙順）はスレッド順序に左右される。
         // 同じ入力なら同じバイト列が出るよう、エッジは ID の順序で書き出す
         foreach (var edge in scanner.Edges.Values.OrderBy(e => e.Id, StringComparer.Ordinal)) fragment.Edges.Add(edge);
@@ -108,7 +108,7 @@ public static class Program
         return 0;
     }
 
-    static void AddNodes(GraphFragment fragment, TypeIndex index, FileResult[] results)
+    static void AddNodes(GraphFragment fragment, TypeIndex index, FileResult[] results, AnalyzerOptions opt)
     {
         foreach (var file in results)
         {
@@ -188,8 +188,12 @@ public static class Program
                 }
                 if (member.Unresolved.Count > 0)
                 {
-                    meta["unresolvedCalls"] = member.Unresolved;
-                    if (member.UnresolvedTotal > member.Unresolved.Count) meta["unresolvedTotal"] = member.UnresolvedTotal;
+                    // 並列解析で集まる順は決まらないので、並べてから上限で切る
+                    var raws = member.Unresolved.ToList();
+                    raws.Sort(StringComparer.Ordinal);
+                    var shown = raws.Take(opt.MaxUnresolvedPerMember).ToList();
+                    meta["unresolvedCalls"] = shown;
+                    if (member.UnresolvedTotal > shown.Count) meta["unresolvedTotal"] = member.UnresolvedTotal;
                 }
 
                 fragment.Nodes.Add(new GraphNode

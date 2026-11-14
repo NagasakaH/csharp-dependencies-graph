@@ -174,6 +174,7 @@ for (const node of [...nodes.values()]) {
         `handler のアセンブリ名が実装プロジェクトと一致しない: ${node.id} → ${handler}` +
           `（実装プロジェクト ${project ? project.id : '不明'} のアセンブリ名は ` +
           `${names.length ? names.join(' / ') : '不明'}。` +
+          `handler 側を実装のアセンブリ名へ直すのが典型的な修正です。` +
           `意図的に別アセンブリを指しているなら注釈で紐づけてください）`,
       );
       continue;

@@ -205,9 +205,9 @@ public sealed class ReferenceScanner
         }
 
         var exprType = ResolveExpr(receiver, ts, ns, file, scope, 0);
-        // 型引数を畳んだ表記で解決すると、`List<Entry>` が別物の `List` に化ける（型引数の数が
-        // ゲートで見えないため）。畳む前の表記を優先して渡す
-        var typeRaw = exprType.RawType ?? exprType.TypeRaw ?? exprType.StaticTypeName;
+        // ExprType.TypeRaw は型引数を畳んでいない表記なので、そのまま解決に渡す
+        // （ここで畳むと `List<Entry>` が別物の非ジェネリック `List` に化ける）
+        var typeRaw = exprType.TypeRaw ?? exprType.StaticTypeName;
         if (typeRaw is null)
         {
             Unresolved(symbol, file, raw);
@@ -259,7 +259,7 @@ public sealed class ReferenceScanner
         if (string.IsNullOrEmpty(name)) return;
 
         var exprType = ResolveExpr(access.Expression, ts, ns, file, scope, 0);
-        var typeRaw = exprType.RawType ?? exprType.TypeRaw ?? exprType.StaticTypeName;
+        var typeRaw = exprType.TypeRaw ?? exprType.StaticTypeName;
         if (typeRaw is null) return;
 
         var candidates = _index.Resolve(typeRaw, exprType.OwnerNs ?? ns, exprType.OwnerFile ?? file);
@@ -330,21 +330,23 @@ public sealed class ReferenceScanner
 
     readonly struct ExprType
     {
+        /// <summary>解決に渡す型表記。**書かれた形のまま**持つ（型引数・配列・null 注釈をここで
+        /// 畳まない）。畳むのは `TypeIndex.Resolve` の中だけ。ここで畳んだ形を持つと、解決のたびに
+        /// 「畳んでいない方のフィールド」を探し直すことになり、1 箇所忘れただけで
+        /// `List<Box<int>>` の要素が別物の非ジェネリック `Box` に化ける
+        /// （第 10〜11 ラウンドのレビューで計 9 箇所が漏れた）。</summary>
         public readonly string? TypeRaw;
         public readonly string? StaticTypeName;
 
-        /// <summary>ジェネリック引数を畳む前の型表記。`List&lt;Worker&gt;` の要素型を取り出すときに使う。</summary>
-        public readonly string? RawType;
         /// <summary>この型表記が書かれていた名前空間とファイル。戻り値型は宣言元の `using` でしか
         /// 解決できないので、使用側の文脈ではなく宣言元の文脈を運び回す。</summary>
         public readonly string? OwnerNs;
         public readonly FileResult? OwnerFile;
-        public ExprType(string? typeRaw, string? staticTypeName, string? rawType = null,
+        public ExprType(string? typeRaw, string? staticTypeName,
                         string? ownerNs = null, FileResult? ownerFile = null)
         {
             TypeRaw = typeRaw;
             StaticTypeName = staticTypeName;
-            RawType = rawType;
             OwnerNs = ownerNs;
             OwnerFile = ownerFile;
         }
@@ -364,7 +366,7 @@ public sealed class ReferenceScanner
             {
                 var inner = ResolveExpr(awaitExpr.Expression, ts, ns, file, scope, depth + 1);
                 // Task<List<A>> を畳む前に剥がさないと内側のジェネリックが消える
-                return FromType(TypeText.UnwrapTask(inner.RawType ?? inner.TypeRaw), inner);
+                return FromType(TypeText.UnwrapTask(inner.TypeRaw), inner);
             }
             // `new Holder().Items` のように new の結果をそのまま使う式
             case ObjectCreationExpressionSyntax creation:
@@ -408,7 +410,7 @@ public sealed class ReferenceScanner
             {
                 var inner = ResolveExpr(element.Expression, ts, ns, file, scope, depth + 1);
                 // `List<Worker>` から要素型を取り出すときは畳む前の表記を使う（型引数が引数ゲートに必要）
-                var raw = inner.RawType ?? inner.TypeRaw ?? inner.StaticTypeName;
+                var raw = inner.TypeRaw ?? inner.StaticTypeName;
                 if (raw is null) return ExprType.Unknown;
                 var args = TypeText.GenericArgs(raw);
                 return args.Count > 0 ? FromType(args[^1], inner) : ExprType.Unknown;
@@ -551,8 +553,10 @@ public sealed class ReferenceScanner
     static ExprType FromType(string? raw)
     {
         if (string.IsNullOrWhiteSpace(raw)) return ExprType.Unknown;
-        var normalized = TypeText.Normalize(raw!);
-        return normalized.Length == 0 ? ExprType.Unknown : new ExprType(normalized, null, raw);
+        // Normalize が空を返すのは空表記のときだけ。型引数は保ったまま持つ
+        return TypeText.Normalize(raw!).Length == 0
+            ? ExprType.Unknown
+            : new ExprType(raw!.Trim(), null);
     }
 
     /// <summary>メンバーの戻り値など「宣言元に書かれた型表記」。解決には宣言元の `using` が必要。</summary>
@@ -560,7 +564,7 @@ public sealed class ReferenceScanner
     {
         var result = FromType(raw);
         if (owner is null || result.TypeRaw is null) return result;
-        return new ExprType(result.TypeRaw, result.StaticTypeName, result.RawType, owner.Namespace, owner.DeclaringFile);
+        return new ExprType(result.TypeRaw, result.StaticTypeName, owner.Namespace, owner.DeclaringFile);
     }
 
     /// <summary>内側の式から文脈だけを継ぐ（`await x.Make()` など）。</summary>
@@ -572,7 +576,7 @@ public sealed class ReferenceScanner
     {
         var result = FromType(raw);
         if (result.TypeRaw is null || ownerFile is null) return result;
-        return new ExprType(result.TypeRaw, result.StaticTypeName, result.RawType, ownerNs, ownerFile);
+        return new ExprType(result.TypeRaw, result.StaticTypeName, ownerNs, ownerFile);
     }
 
     static string LiteralType(LiteralExpressionSyntax literal) => literal.Kind() switch
@@ -772,7 +776,7 @@ public sealed class ReferenceScanner
         foreach (var (name, value, pos) in deferred)
         {
             var resolved = ResolveExpr(value, ts, ns, file, scope, 0);
-            var raw = resolved.RawType ?? resolved.TypeRaw ?? resolved.StaticTypeName;
+            var raw = resolved.TypeRaw ?? resolved.StaticTypeName;
             if (raw is null) continue;
             // 推論した型表記が書かれていた場所もいっしょに覚える。`var w = p.Make()` の `Worker` は
             // Provider 側のファイルに書かれていて、呼び出し元にその `using` が無いことがある
@@ -816,7 +820,7 @@ public sealed class ReferenceScanner
     ExprType ElementOf(ExpressionSyntax expr, TypeSymbol ts, string ns, FileResult file, Scope scope)
     {
         var collection = ResolveExpr(expr, ts, ns, file, scope, 0);
-        var raw = collection.RawType ?? collection.TypeRaw ?? collection.StaticTypeName;
+        var raw = collection.TypeRaw ?? collection.StaticTypeName;
         var args = raw is null ? new List<string>() : TypeText.GenericArgs(raw);
         return args.Count > 0 ? FromType(args[0], collection) : ExprType.Unknown;
     }
@@ -1003,6 +1007,14 @@ public sealed class ReferenceScanner
         if (_edges.TryGetValue(id, out var existing))
         {
             existing.Count = (existing.Count ?? 1) + 1;
+            // partial 型の別ファイルにある同名オーバーロードからは、同じ edge ID に別の行・detail が
+            // 届く。先着順にすると並列実行の順で出力が変わるので、「行が若い順、同順なら detail の
+            // 辞書順」という全順序で代表を決める（カウントは到着順に依存しない）
+            if (IsBetterOccurrence(line, detail, existing.Line, existing.Detail))
+            {
+                existing.Line = line == 0 ? null : line;
+                existing.Detail = detail;
+            }
             return;
         }
         _edges[id] = new GraphEdge
@@ -1021,13 +1033,23 @@ public sealed class ReferenceScanner
 
     void Unresolved(MemberSymbol symbol, FileResult file, string raw)
     {
+        // 同じメンバーでも partial の別ファイルから別スレッドで届くため、追加も lock の中で行う。
+        // 個数で切り詰めるのは出力時（集計順に依存しない形にするため）
         lock (_gate)
         {
             _unresolvedCount++;
             symbol.UnresolvedTotal++;
+            symbol.Unresolved.Add(raw);
         }
-        if (symbol.Unresolved.Count >= _opt.MaxUnresolvedPerMember) return;
-        if (!symbol.Unresolved.Contains(raw)) symbol.Unresolved.Add(raw);
+    }
+
+    /// <summary>同じ edge ID に届いた 2 箇所のうち、どちらを代表にするか。</summary>
+    static bool IsBetterOccurrence(int line, string? detail, int? currentLine, string? currentDetail)
+    {
+        var a = line == 0 ? int.MaxValue : line;
+        var b = currentLine ?? int.MaxValue;
+        if (a != b) return a < b;
+        return string.CompareOrdinal(detail ?? "", currentDetail ?? "") < 0;
     }
 
     /// <summary>候補があったのに張らなかったバインドを、後で注釈を付けられるようファイル単位で残す。</summary>

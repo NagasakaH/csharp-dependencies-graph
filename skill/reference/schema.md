@@ -48,7 +48,7 @@ csharp-analyzer の断片は「型 8,223 + メンバ 32,572 + `rejectedTypes` �
   （候補は見つかったが張れなかった型名。型引数の数が合わない／`using` も `global using` も無く
   到達不能。13 件目以降は `rejectedTypeKinds` に種類数。）注釈で正しい候補を張すための入力になる
 - `type` — `csKind`(`class`/`struct`/`interface`/`enum`/`record`/`delegate`) `namespace` `line` `file` `modifiers[]` `baseTypes[]` `memberCount` `static` `abstract` `generic` `alsoDeclaredIn[]`（partial の他ファイル）
-- `member` — `memberKind`(`method`/`property`/`constructor`/`field`/`event`/`enum-member`) `signature` `line` `visibility` `returns` `static` `async` `overloads`（2 以上のときの件数のみ） `otherSignatures[]`（オーバーロードの残りのシグネチャ） `unresolvedCalls[]` `unresolvedTotal`
+- `member` — `memberKind`(`method`/`property`/`constructor`/`field`/`event`/`enum-member`) `signature` `line` `visibility` `returns` `static` `async` `overloads`（2 以上のときの件数のみ） `otherSignatures[]`（オーバーロードの残りのシグネチャ） `unresolvedCalls[]`（決まらなかった呼び出しの表記。並列走で順が決まらないので辞書順に並べた先頭 8 件を載せる） `unresolvedTotal`（その総数）
 - `resource` — `resourceType`(`aws_lambda_function` など) `category`(`lambda`/`stepfunctions`/`apigateway`/`dynamodb`/`rds`/`s3`/`sqs`/`sns`/`secretsmanager`/`iam`/`custom`) `terraformAddress` `file` `filename` `provider` `managedBy` `referencedOnly`、リソース種別固有の値（`function_name` `handler` `runtime` `memory_size` `uri` `http_method` `rest_api_id` …）。
   HCL の文字列リテラルから取った値は outer の引用符を除いて保存する（`handler` をそのまま
   検索や `member:` との照合に使えるようにするため）

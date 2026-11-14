@@ -57,7 +57,9 @@ public sealed class MemberSymbol
     public string Visibility = "public";
     public int OverloadCount;
     public List<string> ExtraSignatures = new();
-    public List<string> Unresolved = new();
+    /// <summary>決まらなかった呼び出しの表記。並列解析で挿入順が決まらないので順を持たない集合にし、
+    /// 出力時に並べてから上限で切る。</summary>
+    public HashSet<string> Unresolved = new(StringComparer.Ordinal);
     public int UnresolvedTotal;
     public string Id => NodeId.Member(Owner.Qualified, Name);
 }

@@ -4,8 +4,8 @@
 コマンドは [`../scripts/query.mjs`](../scripts/query.mjs)（影響範囲の照会）とブラウザのビューア、
 および [`../reference/schema.md`](schema.md) のノード ID を前提にしている。
 
-数値例は elsa-core を `--exclude test,docs` で解析した実測（51,179 ノード / 53,344 エッジ、
-うち静的解析の C# エッジ 52,174 本）。
+数値例は elsa-core を `--exclude test,docs` で解析した実測（51,179 ノード / 53,521 エッジ、
+うち静的解析の C# エッジ 52,351 本）。
 
 ## 0. 始め方（1 回だけ）
 
@@ -162,8 +162,10 @@ node skill/scripts/query.mjs --graph out/demo/graph.json --from tf:aws_dynamodb_
   MSBuild が `obj/` に生成する implicit global using はアナライザから見えないので、ここで拒否に見える。
 - 同名候補が同じ強さで並んだ場所では `ambiguous` を `detail` に持つ縁を最大 2 本張る。同一ファイルや
   名前空間直下の型という手掛かりで単独決定できることが多く、elsa-core の残りは **2 本**
-  （429 → 301 → 2。表現内の型参照の張り分けは 0 本になり、`param (ambiguous)` が 2 本。残った 2 本は
-  `Endpoint` という同名型が別名前空間に等距離にある箇所で、1 本に絞れば必ず誤りになる）。
-  残った縁は断定済みの縁と混ぜて読まない。
+  （429 → 301 → 2。表現内の型参照の張り分けは 0 本になり、`param (ambiguous)` が 2 本）。残った 2 本は
+  `Elsa.Api.Common` の `WebApplicationExtensions.CreateRateLimitingEndpoint` が引数に書く `Endpoint` で、
+  正解はリポジトリ外の `Microsoft.AspNetCore.Http.Endpoint` のため**どちらも誤り**。構文解析だけでは
+  外部型に辿り着けないので、`ambiguous` を持つ縁は「ここに候補が出た」という意味にしか使えず、
+  断定済みの縁と混ぜて読まない。
 - 描画には上限（エッジ 900 / 子ノード 400 / フォーカス 120 / 検索 200）がある。上限に当たったら
   `--exclude` か chip で絞ってから見る。数えるのは常に全データ側の `graph.json`。
