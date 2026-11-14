@@ -210,17 +210,21 @@ node $SKILL/scripts/report.mjs --graph out/graph/graph.json --api "POST /orders"
 - **起点は変更ファイルの中身**。`.cs` はその中のメソッドへ自動で展開し、`.tf` はそのファイルが宣言して
   いるリソースを起点にする。グラフに無い変更ファイルは**起点にしない**（`fallbacks` に出すだけ。
   `--folder-start` は誤検出を膨らませるので理由があるときだけ）
-- **6 つの枠に分けて出す**: 影響する外部リソース / 影響を受ける入口 / コード側の入口・出口 /
-  リポジトリ内の成果物（`.csproj`・`.cs`・フォルダ。ビルドし直しが必要な範囲）/ 同じ API を定義する
-  ノード / 同じコードを使う別の API（エンドポイントと定義ノードの内訳を出す）/ 定義上の関連（Terraform の
-  `references`。値そのものは変わるとは限らないが、定義を書き換えたら効く範囲）。
+- **6 つの枠に分けて出す**（`;` が枠の区切り）: 影響する外部リソース; 影響を受ける入口;
+  コード側の入口・出口; リポジトリ内の成果物（`.csproj`・`.cs`・フォルダ。ビルドし直しが必要な範囲）;
+  同じ API を定義するノード; 同じコードを使う別の API（エンドポイントと定義ノードの内訳を出す）;
+  定義上の関連（Terraform の `references`。値そのものは変わるとは限らないが、定義を書き換えたら効く範囲）。
   **どの行も必ずどれか 1 つの枠にしか入らない**（`summary.rows` と各枠の合計が一致する）。
   段数は定義の縁（`references`）だけ数え、動きの縁を越えたら数え直す
-  起点がエンドポイントのときは、起点を定義する `resource` / `rest_api` / `integration` を
-  「影響を受ける外部リソース」に数えない
+  起点がエンドポイントのときは、起点を定義する `resource` / `rest_api` / `integration` /
+  `deployment` を「影響を受ける外部リソース」に数えない
 - **Terraform の縁は向きに意味がない**ので無方向で閉じる（`--wiring-hops` 既定 3 段）。ただし
   `triggers` / `invokes` / `handler` は動きとして伝わるので本命、`references` だけ定義上に回す。
   `data` ソースはほとんどを参照するので既定では閉じない（`--include-data`）
+- **探索の打ち切れ**: 外側の探索は「まだ歩いていないコードのノード」か「未登録の API グループ」が
+  無くなるまで続ける。上限（既定 `6 + API グループ数 + コードのノード数 + 2`、`--max-rounds`）に達して
+  仕事が残ったら `summary.unresolved` が true になり、stderr と Markdown に警告を出す。
+  一覧の `--limit` による打ち切れは `summary.listTruncated` に出る（どちらも隠さない）
 - `--expect` に期待する着地一覧（`{"expect": [...], "direction": "out"}`）を渡すと再現率・適合率を
   出して JSON に書く。**数値を記録していないと「もっともらしく間違う」レポートになる**
 - 注釈（`llm` / `human`）由来の行は「静的解析では決まらない対応付け」として件数を出す。
@@ -268,7 +272,7 @@ demo と `BindingRegression/` でも同じ入力を 2 回走らせて、`rejecte
 node $SKILL/scripts/test-query.mjs           # fixtures/query/graph.json を使う（.NET 不要、17 項目）
 node $SKILL/scripts/test-merge.mjs           # Lambda handler の解決規則（.NET 必要、12 項目）
 node $SKILL/scripts/test-terraform.mjs       # API Gateway のパス組み立て（28 項目、.NET 不要）
-node $SKILL/scripts/test-report.mjs          # 差分 → 影響範囲レポート（58 項目、.NET 必要）
+node $SKILL/scripts/test-report.mjs          # 差分 → 影響範囲レポート（63 項目、.NET 必要）
 ```
 
 `test-merge.mjs` は `fixtures/HandlerLambda/`（`AssemblyName` を置いた csproj と `main.tf`）を

@@ -21,12 +21,12 @@ import { basename, resolve } from 'node:path';
 const opts = {
   graph: null, changed: null, from: [], api: [], hops: 8, provenance: null,
   dropKind: ['contains'], json: null, md: null, expect: null, noExpand: false, limit: 200,
-  wiringHops: 3, includeData: false, folderStart: false,
+  wiringHops: 3, includeData: false, folderStart: false, maxRounds: null,
 };
 const USAGE = `使い方: report.mjs --graph <graph.json> [--changed <変更ファイル一覧>] [--from <ノード id や名前>]
                 [--api "POST /orders"] [--hops N] [--provenance static,terraform,llm,human]
                 [--json <out>] [--md <out>] [--expect <期待一覧.json>] [--no-expand] [--folder-start]
-                [--wiring-hops N] [--include-data] [--limit N]
+                [--wiring-hops N] [--include-data] [--limit N] [--max-rounds N]
 
   --changed   1 行 1 パスの一覧ファイル。`-` で標準入力（git diff --name-only をそのまま渡せる）。
               パスは graph.json の node.path と同じ表記（リポジトリ根からの相対）。
@@ -53,6 +53,7 @@ for (let i = 2; i < process.argv.length; i++) {
   else if (a === '--md') opts.md = next();
   else if (a === '--expect') opts.expect = next();
   else if (a === '--wiring-hops') opts.wiringHops = Number(next());
+  else if (a === '--max-rounds') opts.maxRounds = Number(next());
   else if (a === '--limit') opts.limit = Number(next());
   else if (a === '--no-expand') opts.noExpand = true;
   else if (a === '--folder-start') opts.folderStart = true;
@@ -61,7 +62,10 @@ for (let i = 2; i < process.argv.length; i++) {
   else { console.error(`[report] 未対応の引数: ${a}\n${USAGE}`); process.exit(2); }
 }
 if (!opts.graph) { console.error(USAGE); process.exit(2); }
-for (const [name, v] of [['--hops', opts.hops], ['--wiring-hops', opts.wiringHops], ['--limit', opts.limit]]) {
+for (const [name, v] of [['--hops', opts.hops], ['--wiring-hops', opts.wiringHops],
+  ['--limit', opts.limit], ['--max-rounds', opts.maxRounds]]) {
+  // `--max-rounds` は未指定（null）が正しい既定。グラフ中のノード数から決めた値を使う
+  if (v === null) continue;
   if (!Number.isInteger(v) || v < 0) { console.error(`[report] ${name} は 0 以上の整数: ${v}`); process.exit(2); }
 }
 
@@ -344,7 +348,9 @@ function walkWithSwitch(seedIds, first) {
   for (const id of new Set(seedIds)) {
     if (!byId.has(id)) continue;
     const prev = combined.get(id);
-    const seed = prev || {
+    // `down` を受け事実に合わせて選び替えるので `let`（`const` のままだと
+    // `TypeError: Assignment to constant variable.` で落ちる。双人レビュー第 23 ラウンド）
+    let seed = prev || {
       id, dir: first, mdir: first, switches: 0, hops: 0, via: null, edge: null,
       corr: false, down: false, reachedByInvokes: false,
     };
@@ -569,7 +575,8 @@ function runClosure(seedIds) {
     const done = expandedAt.get(state.id);
     const fresh = !done || done.gen !== apiGen;
     // 予算は非負整数で (c) ごとに厳密に減り、(a)(b) は高々 1 回、世代はグループ増でしか上がらない。
-    // だから 1 ノードあたりの再展開は高々 `4 * (予算 + 1)` 回で有限に止まる
+    // だから 1 ノード 1 世代あたりの再展開は高々 `4 * (予算 + 1) + 1` 回、世代は高々
+    // `API グループ数 + 1` なので有限に止まる
     const mask = (state.elig ? 2 : 0) | (state.down ? 1 : 0);
     const prevBudget = fresh ? Infinity : done.budgets[mask];
     const better = fresh || (state.primary && !done.primary) || state.budget < prevBudget;
@@ -705,7 +712,13 @@ const refreshGroups = () => {
 // 6 グループ反例）。上限に達して仕事が残ったときは `unresolved` として明示する
 const apiGroupTotal = new Set([...byId.values()]
   .map((n) => apiGroupOf(n)).filter((g) => g !== null && g !== undefined)).size;
-const maxRounds = MAX_ROUNDS + apiGroupTotal + 2;
+// 非終端のラウンドは「まだ歩いていない member / type」か「未登録の API グループ」を
+// 少なくとも 1 つ消費するので、両者の総数に終端確認ぶんを足した数が収束上界になる。
+// グループ数だけの式だと、API を含まない Lambda の連鎖で打ち切りが先に効く
+// （第 23 ラウンドの 26 ノード反例）。`--max-rounds` で明示的に絞れる（未収束は旗を出すので隠れない）
+const codeNodeTotal = [...byId.values()]
+  .filter((n) => n.kind === 'member' || n.kind === 'type').length;
+const maxRounds = opts.maxRounds ?? (MAX_ROUNDS + apiGroupTotal + codeNodeTotal + 2);
 let rounds = 0;
 let unresolved = false;
 let pending = true;
@@ -737,6 +750,12 @@ while (pending && rounds < maxRounds) {
   // 種は受け-record の全ノード。直前の walk が触ったノードだけにすると、既に届いた
   // エンドポイントや同じ API の定義が再種まきされず、新しいグループの下で広げられない
   closureSeeds = [...combined.keys()];
+  rounds++;
+}
+// 上限に達して仕事が残ったなら、切り詰めた結果を完全な結果として出さない
+if (pending) {
+  unresolved = true;
+  process.stderr.write(`[report] 警告: 探索が収束する前にラウンド上限 ${maxRounds} に達しました（結果は不完全です）\n`);
 }
 
 // ---- 行を組み立てる ----
@@ -1023,9 +1042,12 @@ if (fallbacks.length) {
 }
 if (summary.unresolved) {
   // 切り詰めを隠さない。上限で切った結果を完全な結果として出さない
-  md += `> **注意: 探索が収束していません**。探索 ${summary.rounds} ラウンドで上限 ${summary.maxRounds} に\n`
-    + `仕事が残ったまま達しました。**影響が抜けている可能性があります**（起点を絞り込むか、hops と\n`
-    + `wiring-hops を調整してください）。\n\n`;
+  md += ['> **注意: 探索が収束していません**。探索 ' + summary.rounds + ' ラウンドで上限 '
+    + summary.maxRounds + ' に',
+    '> 仕事が残ったまま達しました。**影響が抜けている可能性があります**。',
+    '> 回避策: 起点を絞り込む（変更ファイルを単位にする）、`--hops` / `--wiring-hops` を絞る、',
+    '> `--max-rounds` を上げて代償を承知で広く歩く。',
+    ''].join('\n');
 }
 md += `## 影響を受ける API エンドポイント\n\n`;
 md += startEndpoints.length

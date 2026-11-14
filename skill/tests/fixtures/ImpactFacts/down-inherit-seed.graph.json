@@ -1,0 +1,80 @@
+{
+  "nodes": [
+    {
+      "id": "tf:aws_api_gateway_method.m1",
+      "name": "m1",
+      "kind": "resource",
+      "metadata": {
+        "resourceType": "aws_api_gateway_method",
+        "category": "apigateway",
+        "endpoint": "POST /a"
+      }
+    },
+    {
+      "id": "tf:aws_lambda_function.lam1",
+      "name": "lam1",
+      "kind": "resource",
+      "metadata": {
+        "resourceType": "aws_lambda_function"
+      }
+    },
+    {
+      "id": "tf:aws_lambda_function.lam2",
+      "name": "lam2",
+      "kind": "resource",
+      "metadata": {
+        "resourceType": "aws_lambda_function"
+      }
+    },
+    {
+      "id": "tf:aws_s3_bucket.r2",
+      "name": "r2",
+      "kind": "resource",
+      "metadata": {
+        "resourceType": "aws_s3_bucket"
+      }
+    },
+    {
+      "id": "member:X.Handle",
+      "name": "Handle",
+      "kind": "member"
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "source": "tf:aws_api_gateway_method.m1",
+      "target": "tf:aws_lambda_function.lam1",
+      "kind": "triggers",
+      "provenance": "terraform"
+    },
+    {
+      "id": "e2",
+      "source": "tf:aws_lambda_function.lam1",
+      "target": "member:X.Handle",
+      "kind": "handler",
+      "provenance": "terraform"
+    },
+    {
+      "id": "e3",
+      "source": "tf:aws_lambda_function.lam2",
+      "target": "tf:aws_api_gateway_method.m1",
+      "kind": "exposed-by",
+      "provenance": "llm"
+    },
+    {
+      "id": "e4",
+      "source": "tf:aws_lambda_function.lam2",
+      "target": "tf:aws_s3_bucket.r2",
+      "kind": "references",
+      "provenance": "terraform"
+    },
+    {
+      "id": "e5",
+      "source": "tf:aws_s3_bucket.r2",
+      "target": "member:X.Handle",
+      "kind": "references",
+      "provenance": "terraform"
+    }
+  ]
+}

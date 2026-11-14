@@ -1,0 +1,269 @@
+{
+  "nodes": [
+    {
+      "id": "member:M0",
+      "name": "M0",
+      "kind": "member"
+    },
+    {
+      "id": "tf:aws_lambda_function.l0",
+      "name": "l0",
+      "kind": "resource",
+      "metadata": {
+        "resourceType": "aws_lambda_function"
+      }
+    },
+    {
+      "id": "member:M1",
+      "name": "M1",
+      "kind": "member"
+    },
+    {
+      "id": "tf:aws_lambda_function.l1",
+      "name": "l1",
+      "kind": "resource",
+      "metadata": {
+        "resourceType": "aws_lambda_function"
+      }
+    },
+    {
+      "id": "member:M2",
+      "name": "M2",
+      "kind": "member"
+    },
+    {
+      "id": "tf:aws_lambda_function.l2",
+      "name": "l2",
+      "kind": "resource",
+      "metadata": {
+        "resourceType": "aws_lambda_function"
+      }
+    },
+    {
+      "id": "member:M3",
+      "name": "M3",
+      "kind": "member"
+    },
+    {
+      "id": "tf:aws_lambda_function.l3",
+      "name": "l3",
+      "kind": "resource",
+      "metadata": {
+        "resourceType": "aws_lambda_function"
+      }
+    },
+    {
+      "id": "member:M4",
+      "name": "M4",
+      "kind": "member"
+    },
+    {
+      "id": "tf:aws_lambda_function.l4",
+      "name": "l4",
+      "kind": "resource",
+      "metadata": {
+        "resourceType": "aws_lambda_function"
+      }
+    },
+    {
+      "id": "member:M5",
+      "name": "M5",
+      "kind": "member"
+    },
+    {
+      "id": "tf:aws_lambda_function.l5",
+      "name": "l5",
+      "kind": "resource",
+      "metadata": {
+        "resourceType": "aws_lambda_function"
+      }
+    },
+    {
+      "id": "member:M6",
+      "name": "M6",
+      "kind": "member"
+    },
+    {
+      "id": "tf:aws_lambda_function.l6",
+      "name": "l6",
+      "kind": "resource",
+      "metadata": {
+        "resourceType": "aws_lambda_function"
+      }
+    },
+    {
+      "id": "member:M7",
+      "name": "M7",
+      "kind": "member"
+    },
+    {
+      "id": "tf:aws_lambda_function.l7",
+      "name": "l7",
+      "kind": "resource",
+      "metadata": {
+        "resourceType": "aws_lambda_function"
+      }
+    },
+    {
+      "id": "member:M8",
+      "name": "M8",
+      "kind": "member"
+    },
+    {
+      "id": "tf:aws_lambda_function.l8",
+      "name": "l8",
+      "kind": "resource",
+      "metadata": {
+        "resourceType": "aws_lambda_function"
+      }
+    },
+    {
+      "id": "member:M9",
+      "name": "M9",
+      "kind": "member"
+    },
+    {
+      "id": "tf:aws_lambda_function.l9",
+      "name": "l9",
+      "kind": "resource",
+      "metadata": {
+        "resourceType": "aws_lambda_function"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e_h_0",
+      "source": "tf:aws_lambda_function.l0",
+      "target": "member:M0",
+      "kind": "handler",
+      "provenance": "terraform"
+    },
+    {
+      "id": "e_h_1",
+      "source": "tf:aws_lambda_function.l1",
+      "target": "member:M1",
+      "kind": "handler",
+      "provenance": "terraform"
+    },
+    {
+      "id": "e_c_1",
+      "source": "member:M0",
+      "target": "tf:aws_lambda_function.l1",
+      "kind": "invokes",
+      "provenance": "llm"
+    },
+    {
+      "id": "e_h_2",
+      "source": "tf:aws_lambda_function.l2",
+      "target": "member:M2",
+      "kind": "handler",
+      "provenance": "terraform"
+    },
+    {
+      "id": "e_c_2",
+      "source": "member:M1",
+      "target": "tf:aws_lambda_function.l2",
+      "kind": "invokes",
+      "provenance": "llm"
+    },
+    {
+      "id": "e_h_3",
+      "source": "tf:aws_lambda_function.l3",
+      "target": "member:M3",
+      "kind": "handler",
+      "provenance": "terraform"
+    },
+    {
+      "id": "e_c_3",
+      "source": "member:M2",
+      "target": "tf:aws_lambda_function.l3",
+      "kind": "invokes",
+      "provenance": "llm"
+    },
+    {
+      "id": "e_h_4",
+      "source": "tf:aws_lambda_function.l4",
+      "target": "member:M4",
+      "kind": "handler",
+      "provenance": "terraform"
+    },
+    {
+      "id": "e_c_4",
+      "source": "member:M3",
+      "target": "tf:aws_lambda_function.l4",
+      "kind": "invokes",
+      "provenance": "llm"
+    },
+    {
+      "id": "e_h_5",
+      "source": "tf:aws_lambda_function.l5",
+      "target": "member:M5",
+      "kind": "handler",
+      "provenance": "terraform"
+    },
+    {
+      "id": "e_c_5",
+      "source": "member:M4",
+      "target": "tf:aws_lambda_function.l5",
+      "kind": "invokes",
+      "provenance": "llm"
+    },
+    {
+      "id": "e_h_6",
+      "source": "tf:aws_lambda_function.l6",
+      "target": "member:M6",
+      "kind": "handler",
+      "provenance": "terraform"
+    },
+    {
+      "id": "e_c_6",
+      "source": "member:M5",
+      "target": "tf:aws_lambda_function.l6",
+      "kind": "invokes",
+      "provenance": "llm"
+    },
+    {
+      "id": "e_h_7",
+      "source": "tf:aws_lambda_function.l7",
+      "target": "member:M7",
+      "kind": "handler",
+      "provenance": "terraform"
+    },
+    {
+      "id": "e_c_7",
+      "source": "member:M6",
+      "target": "tf:aws_lambda_function.l7",
+      "kind": "invokes",
+      "provenance": "llm"
+    },
+    {
+      "id": "e_h_8",
+      "source": "tf:aws_lambda_function.l8",
+      "target": "member:M8",
+      "kind": "handler",
+      "provenance": "terraform"
+    },
+    {
+      "id": "e_c_8",
+      "source": "member:M7",
+      "target": "tf:aws_lambda_function.l8",
+      "kind": "invokes",
+      "provenance": "llm"
+    },
+    {
+      "id": "e_h_9",
+      "source": "tf:aws_lambda_function.l9",
+      "target": "member:M9",
+      "kind": "handler",
+      "provenance": "terraform"
+    },
+    {
+      "id": "e_c_9",
+      "source": "member:M8",
+      "target": "tf:aws_lambda_function.l9",
+      "kind": "invokes",
+      "provenance": "llm"
+    }
+  ]
+}

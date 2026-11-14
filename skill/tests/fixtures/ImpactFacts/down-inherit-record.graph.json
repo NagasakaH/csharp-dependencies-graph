@@ -1,0 +1,89 @@
+{
+  "nodes": [
+    {
+      "id": "0",
+      "name": "0",
+      "kind": "resource",
+      "metadata": {
+        "category": "apigateway",
+        "resourceType": "aws_api_gateway_method",
+        "endpoint": "POST /s",
+        "rest_api_id": "aws_api_gateway_rest_api.g"
+      }
+    },
+    {
+      "id": "1",
+      "name": "1",
+      "kind": "resource",
+      "metadata": {}
+    },
+    {
+      "id": "2",
+      "name": "2",
+      "kind": "resource",
+      "metadata": {}
+    },
+    {
+      "id": "5",
+      "name": "5",
+      "kind": "member",
+      "metadata": {}
+    },
+    {
+      "id": "6",
+      "name": "6",
+      "kind": "member",
+      "metadata": {}
+    },
+    {
+      "id": "8",
+      "name": "8",
+      "kind": "resource",
+      "metadata": {}
+    }
+  ],
+  "edges": [
+    {
+      "id": "6",
+      "source": "5",
+      "target": "0",
+      "kind": "exposed-by",
+      "provenance": "llm"
+    },
+    {
+      "id": "7",
+      "source": "2",
+      "target": "5",
+      "kind": "handler",
+      "provenance": "terraform"
+    },
+    {
+      "id": "12",
+      "source": "1",
+      "target": "6",
+      "kind": "handler",
+      "provenance": "terraform"
+    },
+    {
+      "id": "15",
+      "source": "1",
+      "target": "0",
+      "kind": "references",
+      "provenance": "terraform"
+    },
+    {
+      "id": "16",
+      "source": "8",
+      "target": "2",
+      "kind": "references",
+      "provenance": "terraform"
+    },
+    {
+      "id": "17",
+      "source": "8",
+      "target": "1",
+      "kind": "references",
+      "provenance": "terraform"
+    }
+  ]
+}

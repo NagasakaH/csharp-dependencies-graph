@@ -28,7 +28,7 @@ open out/graph/graph.html
 
 ```sh
 node skill/scripts/test-analyzer.mjs                          # 静的解析の精度（96 項目、ブラウザ不要）
-node skill/scripts/test-report.mjs                            # 影響範囲レポート（58 項目）
+node skill/scripts/test-report.mjs                            # 影響範囲レポート（63 項目）
 node skill/scripts/test-query.mjs                             # 逆引き・影響範囲の照会（17 項目、.NET 不要）
 node skill/scripts/test-merge.mjs                             # Lambda handler の解決規則（12 項目、.NET 必要）
 node skill/scripts/test-terraform.mjs                         # API Gateway のパス組み立て（28 項目、.NET 不要）
@@ -107,9 +107,15 @@ node skill/scripts/report.mjs --graph out/demo/graph.json --api "POST /orders"
 ノード**だけを持ち、しかも**参照している側へ進む一歩**にだけ受け継がれる（自分が使っているものへ渡った
 先は資格を失う）。
 
-JSON の一覧はすべて `--limit`（既定 200）で切り詰める。切り詰めたときは `summary.listTruncated` が
-true になり、`summary` の各欄の数は**切り詰め前**のままなので「欄の合計 == 総行数」は常にカウンタ側で
+JSON の一覧はすべて `--limit`（既定 200）で**打ち切る**。打ち切ったときは `summary.listTruncated` が
+true になり、`summary` の各欄の数は**打ち切る前**のままなので「欄の合計 == 総行数」は常にカウンタ側で
 確かめる。
+
+探索の深さにも打ち切れがある。外側の探索は「まだ歩いていないコードのノード」か「未登録の API グループ」が
+無くなるまで繰り返し、回数の上限は既定で `6 + グラフ中の API グループ数 + コードのノード数 + 2`
+（`--max-rounds` で変えられる）。上限に達して仕事が残ったときは `summary.unresolved` が true になり、
+stderr に警告、Markdown に「探索が収束していません」の注意書きを出す。どちらも結果が完全でないことを
+隠さない。
 
 既知の限界として、Terraform の **module をまたぐアドレス衝突**はファイル付きの id
 （`tf:<file>#<address>`）に退避して衝突を避けるが、module 展開はしない。1 つの module を複数ファイルに

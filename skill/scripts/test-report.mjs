@@ -75,7 +75,7 @@ const FACTS = join(HERE, '..', 'tests', 'fixtures', 'ImpactFacts');
 function runOn(graphFile, args, label) {
   const json = join(dir, `${label}.json`);
   const proc = spawnSync(process.execPath, [join(HERE, 'report.mjs'), '--graph', join(FACTS, graphFile),
-    ...args, '--json', json], { cwd: root, encoding: 'utf8' });
+    ...args, '--json', json, '--md', join(dir, `${label}.md`)], { cwd: root, encoding: 'utf8' });
   if (proc.status !== 0) { console.error((proc.stdout || '') + (proc.stderr || '')); return null; }
   return { result: JSON.parse(readFileSync(json, 'utf8')), stdout: proc.stdout, stderr: proc.stderr };
 }
@@ -580,6 +580,41 @@ check('--limit で一覧が切れてもカウンタの不変条件は保たれ�
     d ? JSON.stringify([d.result.summary.primaryOut, d.result.summary.primaryIn,
       d.result.summary.wiring, d.result.summary.rounds, d.result.summary.maxRounds,
       d.result.summary.unresolved]) : '実行失敗');
+}
+
+// (7) 第 23 ラウンドの反例: 受け事実の `down` 継承とラウンドの打ち切れ
+{
+  const a = runOn('down-inherit-seed.graph.json', ['--api', 'POST /a', '--hops', '1'], 'seed-down');
+  check('受け事実の `down` を継承したコードの種で落ちない（`const` に再代入して異常終了していた）',
+    !!a && a.result.summary.primaryOut === 2,
+    a ? JSON.stringify([a.result.summary.primaryOut, a.result.summary.entryOut]) : '実行失敗');
+
+  const b = runOn('down-inherit-record.graph.json', ['--from', '0', '--hops', '3'], 'record-down');
+  check('経路の記録が 定義上の関連 のままでも受け事実の `down` を引き継いで歩く',
+    !!b && b.result.summary.entryOut === 2 && b.result.summary.wiring === 1,
+    b ? JSON.stringify([b.result.summary.entryOut, b.result.summary.wiring]) : '実行失敗');
+
+  const c = runOn('code-chain.graph.json',
+    ['--from', 'tf:aws_lambda_function.l0', '--hops', '30', '--max-rounds', '1'], 'rounds-cut');
+  const cMd = c ? readFileSync(join(dir, 'rounds-cut.md'), 'utf8') : '';
+  check('ラウンド上限に達したら 未収束 として出す（旗・警告・Markdown の注意書き）',
+    !!c && c.result.summary.unresolved === true && c.result.summary.rounds === 1
+    && /収束する前にラウンド上限/.test(c.stderr || '') && /探索が収束していません/.test(cMd),
+    c ? JSON.stringify([c.result.summary.rounds, c.result.summary.maxRounds,
+      c.result.summary.unresolved, /収束する前に/.test(c.stderr || ''), /収束していません/.test(cMd)]) : '実行失敗');
+
+  const d = runOn('code-chain-long.graph.json', ['--from', 's', '--hops', '100'], 'code-rounds');
+  check('API を含まない Lambda の連鎖は既定の上限で切り詰めない（上限式はコードのノード数も数える）',
+    !!d && d.result.summary.rows === 25 && d.result.summary.unresolved === false,
+    d ? JSON.stringify([d.result.summary.rows, d.result.summary.rounds,
+      d.result.summary.maxRounds, d.result.summary.unresolved]) : '実行失敗');
+
+  const e = runOn('budget-dominance.graph.json', ['--from', 'tf:aws_api_gateway_method.m1'], 'dominance');
+  const lam2 = e ? [...e.result.external.out, ...e.result.external.in, ...e.result.wiring]
+    .find((x) => x.id === 'tf:aws_lambda_function.lam2') : null;
+  check('比較不能な資格を 1 つの予算に合併しない（`(elig, budget)` の届け直しで先が出る）',
+    !!lam2 && lam2.tier === 'primary' && lam2.direction === 'out',
+    lam2 ? JSON.stringify([lam2.tier, lam2.direction]) : (e ? '出ていない' : '実行失敗'));
 }
 
 rmSync(dir, { recursive: true, force: true });
