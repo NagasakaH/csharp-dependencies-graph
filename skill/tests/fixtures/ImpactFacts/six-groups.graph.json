@@ -1,0 +1,410 @@
+{
+  "nodes": [
+    {
+      "id": "s",
+      "name": "s",
+      "kind": "resource",
+      "metadata": {
+        "resourceType": "aws_lambda_function"
+      }
+    },
+    {
+      "id": "m1",
+      "name": "m1",
+      "kind": "resource",
+      "metadata": {
+        "resourceType": "aws_api_gateway_method",
+        "category": "apigateway",
+        "endpoint": "POST /1",
+        "rest_api_id": "aws_api_gateway_rest_api.g1"
+      }
+    },
+    {
+      "id": "tf:aws_api_gateway_rest_api.g1",
+      "name": "tf:aws_api_gateway_rest_api.g1",
+      "kind": "resource",
+      "metadata": {
+        "resourceType": "aws_api_gateway_rest_api",
+        "category": "apigateway"
+      }
+    },
+    {
+      "id": "i1",
+      "name": "i1",
+      "kind": "resource",
+      "metadata": {
+        "resourceType": "aws_api_gateway_integration",
+        "category": "apigateway",
+        "rest_api_id": "aws_api_gateway_rest_api.g1"
+      }
+    },
+    {
+      "id": "l1",
+      "name": "l1",
+      "kind": "resource",
+      "metadata": {
+        "resourceType": "aws_lambda_function"
+      }
+    },
+    {
+      "id": "m2",
+      "name": "m2",
+      "kind": "resource",
+      "metadata": {
+        "resourceType": "aws_api_gateway_method",
+        "category": "apigateway",
+        "endpoint": "POST /2",
+        "rest_api_id": "aws_api_gateway_rest_api.g2"
+      }
+    },
+    {
+      "id": "tf:aws_api_gateway_rest_api.g2",
+      "name": "tf:aws_api_gateway_rest_api.g2",
+      "kind": "resource",
+      "metadata": {
+        "resourceType": "aws_api_gateway_rest_api",
+        "category": "apigateway"
+      }
+    },
+    {
+      "id": "i2",
+      "name": "i2",
+      "kind": "resource",
+      "metadata": {
+        "resourceType": "aws_api_gateway_integration",
+        "category": "apigateway",
+        "rest_api_id": "aws_api_gateway_rest_api.g2"
+      }
+    },
+    {
+      "id": "l2",
+      "name": "l2",
+      "kind": "resource",
+      "metadata": {
+        "resourceType": "aws_lambda_function"
+      }
+    },
+    {
+      "id": "m3",
+      "name": "m3",
+      "kind": "resource",
+      "metadata": {
+        "resourceType": "aws_api_gateway_method",
+        "category": "apigateway",
+        "endpoint": "POST /3",
+        "rest_api_id": "aws_api_gateway_rest_api.g3"
+      }
+    },
+    {
+      "id": "tf:aws_api_gateway_rest_api.g3",
+      "name": "tf:aws_api_gateway_rest_api.g3",
+      "kind": "resource",
+      "metadata": {
+        "resourceType": "aws_api_gateway_rest_api",
+        "category": "apigateway"
+      }
+    },
+    {
+      "id": "i3",
+      "name": "i3",
+      "kind": "resource",
+      "metadata": {
+        "resourceType": "aws_api_gateway_integration",
+        "category": "apigateway",
+        "rest_api_id": "aws_api_gateway_rest_api.g3"
+      }
+    },
+    {
+      "id": "l3",
+      "name": "l3",
+      "kind": "resource",
+      "metadata": {
+        "resourceType": "aws_lambda_function"
+      }
+    },
+    {
+      "id": "m4",
+      "name": "m4",
+      "kind": "resource",
+      "metadata": {
+        "resourceType": "aws_api_gateway_method",
+        "category": "apigateway",
+        "endpoint": "POST /4",
+        "rest_api_id": "aws_api_gateway_rest_api.g4"
+      }
+    },
+    {
+      "id": "tf:aws_api_gateway_rest_api.g4",
+      "name": "tf:aws_api_gateway_rest_api.g4",
+      "kind": "resource",
+      "metadata": {
+        "resourceType": "aws_api_gateway_rest_api",
+        "category": "apigateway"
+      }
+    },
+    {
+      "id": "i4",
+      "name": "i4",
+      "kind": "resource",
+      "metadata": {
+        "resourceType": "aws_api_gateway_integration",
+        "category": "apigateway",
+        "rest_api_id": "aws_api_gateway_rest_api.g4"
+      }
+    },
+    {
+      "id": "l4",
+      "name": "l4",
+      "kind": "resource",
+      "metadata": {
+        "resourceType": "aws_lambda_function"
+      }
+    },
+    {
+      "id": "m5",
+      "name": "m5",
+      "kind": "resource",
+      "metadata": {
+        "resourceType": "aws_api_gateway_method",
+        "category": "apigateway",
+        "endpoint": "POST /5",
+        "rest_api_id": "aws_api_gateway_rest_api.g5"
+      }
+    },
+    {
+      "id": "tf:aws_api_gateway_rest_api.g5",
+      "name": "tf:aws_api_gateway_rest_api.g5",
+      "kind": "resource",
+      "metadata": {
+        "resourceType": "aws_api_gateway_rest_api",
+        "category": "apigateway"
+      }
+    },
+    {
+      "id": "i5",
+      "name": "i5",
+      "kind": "resource",
+      "metadata": {
+        "resourceType": "aws_api_gateway_integration",
+        "category": "apigateway",
+        "rest_api_id": "aws_api_gateway_rest_api.g5"
+      }
+    },
+    {
+      "id": "l5",
+      "name": "l5",
+      "kind": "resource",
+      "metadata": {
+        "resourceType": "aws_lambda_function"
+      }
+    },
+    {
+      "id": "m6",
+      "name": "m6",
+      "kind": "resource",
+      "metadata": {
+        "resourceType": "aws_api_gateway_method",
+        "category": "apigateway",
+        "endpoint": "POST /6",
+        "rest_api_id": "aws_api_gateway_rest_api.g6"
+      }
+    },
+    {
+      "id": "tf:aws_api_gateway_rest_api.g6",
+      "name": "tf:aws_api_gateway_rest_api.g6",
+      "kind": "resource",
+      "metadata": {
+        "resourceType": "aws_api_gateway_rest_api",
+        "category": "apigateway"
+      }
+    },
+    {
+      "id": "i6",
+      "name": "i6",
+      "kind": "resource",
+      "metadata": {
+        "resourceType": "aws_api_gateway_integration",
+        "category": "apigateway",
+        "rest_api_id": "aws_api_gateway_rest_api.g6"
+      }
+    },
+    {
+      "id": "l6",
+      "name": "l6",
+      "kind": "resource",
+      "metadata": {
+        "resourceType": "aws_lambda_function"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e0",
+      "source": "s",
+      "target": "m1",
+      "kind": "invokes",
+      "provenance": "terraform"
+    },
+    {
+      "id": "e1",
+      "source": "m1",
+      "target": "tf:aws_api_gateway_rest_api.g1",
+      "kind": "references",
+      "provenance": "terraform"
+    },
+    {
+      "id": "e2",
+      "source": "i1",
+      "target": "tf:aws_api_gateway_rest_api.g1",
+      "kind": "references",
+      "provenance": "terraform"
+    },
+    {
+      "id": "e3",
+      "source": "i1",
+      "target": "l1",
+      "kind": "triggers",
+      "provenance": "terraform"
+    },
+    {
+      "id": "e4",
+      "source": "l1",
+      "target": "m2",
+      "kind": "invokes",
+      "provenance": "terraform"
+    },
+    {
+      "id": "e5",
+      "source": "m2",
+      "target": "tf:aws_api_gateway_rest_api.g2",
+      "kind": "references",
+      "provenance": "terraform"
+    },
+    {
+      "id": "e6",
+      "source": "i2",
+      "target": "tf:aws_api_gateway_rest_api.g2",
+      "kind": "references",
+      "provenance": "terraform"
+    },
+    {
+      "id": "e7",
+      "source": "i2",
+      "target": "l2",
+      "kind": "triggers",
+      "provenance": "terraform"
+    },
+    {
+      "id": "e8",
+      "source": "l2",
+      "target": "m3",
+      "kind": "invokes",
+      "provenance": "terraform"
+    },
+    {
+      "id": "e9",
+      "source": "m3",
+      "target": "tf:aws_api_gateway_rest_api.g3",
+      "kind": "references",
+      "provenance": "terraform"
+    },
+    {
+      "id": "e10",
+      "source": "i3",
+      "target": "tf:aws_api_gateway_rest_api.g3",
+      "kind": "references",
+      "provenance": "terraform"
+    },
+    {
+      "id": "e11",
+      "source": "i3",
+      "target": "l3",
+      "kind": "triggers",
+      "provenance": "terraform"
+    },
+    {
+      "id": "e12",
+      "source": "l3",
+      "target": "m4",
+      "kind": "invokes",
+      "provenance": "terraform"
+    },
+    {
+      "id": "e13",
+      "source": "m4",
+      "target": "tf:aws_api_gateway_rest_api.g4",
+      "kind": "references",
+      "provenance": "terraform"
+    },
+    {
+      "id": "e14",
+      "source": "i4",
+      "target": "tf:aws_api_gateway_rest_api.g4",
+      "kind": "references",
+      "provenance": "terraform"
+    },
+    {
+      "id": "e15",
+      "source": "i4",
+      "target": "l4",
+      "kind": "triggers",
+      "provenance": "terraform"
+    },
+    {
+      "id": "e16",
+      "source": "l4",
+      "target": "m5",
+      "kind": "invokes",
+      "provenance": "terraform"
+    },
+    {
+      "id": "e17",
+      "source": "m5",
+      "target": "tf:aws_api_gateway_rest_api.g5",
+      "kind": "references",
+      "provenance": "terraform"
+    },
+    {
+      "id": "e18",
+      "source": "i5",
+      "target": "tf:aws_api_gateway_rest_api.g5",
+      "kind": "references",
+      "provenance": "terraform"
+    },
+    {
+      "id": "e19",
+      "source": "i5",
+      "target": "l5",
+      "kind": "triggers",
+      "provenance": "terraform"
+    },
+    {
+      "id": "e20",
+      "source": "l5",
+      "target": "m6",
+      "kind": "invokes",
+      "provenance": "terraform"
+    },
+    {
+      "id": "e21",
+      "source": "m6",
+      "target": "tf:aws_api_gateway_rest_api.g6",
+      "kind": "references",
+      "provenance": "terraform"
+    },
+    {
+      "id": "e22",
+      "source": "i6",
+      "target": "tf:aws_api_gateway_rest_api.g6",
+      "kind": "references",
+      "provenance": "terraform"
+    },
+    {
+      "id": "e23",
+      "source": "i6",
+      "target": "l6",
+      "kind": "triggers",
+      "provenance": "terraform"
+    }
+  ]
+}

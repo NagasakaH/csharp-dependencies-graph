@@ -1,0 +1,111 @@
+{
+  "nodes": [
+    {
+      "id": "tf:aws_lambda_function.s",
+      "name": "s",
+      "kind": "resource",
+      "metadata": {
+        "resourceType": "aws_lambda_function"
+      }
+    },
+    {
+      "id": "tf:aws_lambda_function.r",
+      "name": "r",
+      "kind": "resource",
+      "metadata": {
+        "resourceType": "aws_lambda_function"
+      }
+    },
+    {
+      "id": "tf:aws_lambda_function.x",
+      "name": "x",
+      "kind": "resource",
+      "metadata": {
+        "resourceType": "aws_lambda_function"
+      }
+    },
+    {
+      "id": "tf:aws_lambda_function.a",
+      "name": "a",
+      "kind": "resource",
+      "metadata": {
+        "resourceType": "aws_lambda_function"
+      }
+    },
+    {
+      "id": "tf:aws_lambda_function.b",
+      "name": "b",
+      "kind": "resource",
+      "metadata": {
+        "resourceType": "aws_lambda_function"
+      }
+    },
+    {
+      "id": "tf:aws_lambda_function.z",
+      "name": "z",
+      "kind": "resource",
+      "metadata": {
+        "resourceType": "aws_lambda_function"
+      }
+    },
+    {
+      "id": "tf:aws_lambda_function.t",
+      "name": "t",
+      "kind": "resource",
+      "metadata": {
+        "resourceType": "aws_lambda_function"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e6",
+      "source": "tf:aws_lambda_function.z",
+      "target": "tf:aws_lambda_function.t",
+      "kind": "references",
+      "provenance": "terraform"
+    },
+    {
+      "id": "e5",
+      "source": "tf:aws_lambda_function.b",
+      "target": "tf:aws_lambda_function.z",
+      "kind": "invokes",
+      "provenance": "terraform"
+    },
+    {
+      "id": "e4",
+      "source": "tf:aws_lambda_function.a",
+      "target": "tf:aws_lambda_function.b",
+      "kind": "references",
+      "provenance": "terraform"
+    },
+    {
+      "id": "e3",
+      "source": "tf:aws_lambda_function.s",
+      "target": "tf:aws_lambda_function.a",
+      "kind": "references",
+      "provenance": "terraform"
+    },
+    {
+      "id": "e2",
+      "source": "tf:aws_lambda_function.x",
+      "target": "tf:aws_lambda_function.z",
+      "kind": "references",
+      "provenance": "terraform"
+    },
+    {
+      "id": "e1",
+      "source": "tf:aws_lambda_function.r",
+      "target": "tf:aws_lambda_function.x",
+      "kind": "references",
+      "provenance": "terraform"
+    },
+    {
+      "id": "e0",
+      "source": "tf:aws_lambda_function.s",
+      "target": "tf:aws_lambda_function.r",
+      "kind": "references",
+      "provenance": "terraform"
+    }
+  ]
+}

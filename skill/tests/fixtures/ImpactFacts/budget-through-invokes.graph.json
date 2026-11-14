@@ -1,0 +1,150 @@
+{
+ "nodes": [
+  {
+   "id": "tf:aws_api_gateway_rest_api.api",
+   "name": "tf:aws_api_gateway_rest_api.api",
+   "kind": "resource",
+   "metadata": {
+    "resourceType": "aws_api_gateway_rest_api",
+    "category": "apigateway"
+   }
+  },
+  {
+   "id": "tf:aws_api_gateway_method.m1",
+   "name": "tf:aws_api_gateway_method.m1",
+   "kind": "resource",
+   "metadata": {
+    "resourceType": "aws_api_gateway_method",
+    "category": "apigateway",
+    "rest_api_id": "aws_api_gateway_rest_api.api.id",
+    "endpoint": "POST /a",
+    "http_method": "POST",
+    "path_part": "a"
+   }
+  },
+  {
+   "id": "tf:aws_api_gateway_resource.r1",
+   "name": "tf:aws_api_gateway_resource.r1",
+   "kind": "resource",
+   "metadata": {
+    "resourceType": "aws_api_gateway_resource",
+    "category": "apigateway",
+    "rest_api_id": "aws_api_gateway_rest_api.api.id"
+   }
+  },
+  {
+   "id": "tf:aws_api_gateway_deployment.x",
+   "name": "tf:aws_api_gateway_deployment.x",
+   "kind": "resource",
+   "metadata": {
+    "resourceType": "aws_api_gateway_deployment",
+    "category": "apigateway",
+    "rest_api_id": "aws_api_gateway_rest_api.api.id"
+   }
+  },
+  {
+   "id": "tf:aws_api_gateway_integration.int1",
+   "name": "tf:aws_api_gateway_integration.int1",
+   "kind": "resource",
+   "metadata": {
+    "resourceType": "aws_api_gateway_integration",
+    "category": "apigateway",
+    "rest_api_id": "aws_api_gateway_rest_api.api.id"
+   }
+  },
+  {
+   "id": "tf:aws_lambda_function.lam1",
+   "name": "tf:aws_lambda_function.lam1",
+   "kind": "resource",
+   "metadata": {
+    "resourceType": "aws_lambda_function"
+   }
+  },
+  {
+   "id": "tf:aws_api_gateway_integration.int2",
+   "name": "tf:aws_api_gateway_integration.int2",
+   "kind": "resource",
+   "metadata": {
+    "resourceType": "aws_api_gateway_integration",
+    "category": "apigateway",
+    "rest_api_id": "aws_api_gateway_rest_api.api.id"
+   }
+  },
+  {
+   "id": "tf:aws_api_gateway_integration.int3",
+   "name": "tf:aws_api_gateway_integration.int3",
+   "kind": "resource",
+   "metadata": {
+    "resourceType": "aws_api_gateway_integration",
+    "category": "apigateway",
+    "rest_api_id": "aws_api_gateway_rest_api.api.id"
+   }
+  },
+  {
+   "id": "tf:aws_lambda_function.lam2",
+   "name": "tf:aws_lambda_function.lam2",
+   "kind": "resource",
+   "metadata": {
+    "resourceType": "aws_lambda_function"
+   }
+  }
+ ],
+ "edges": [
+  {
+   "id": "references:tf:aws_api_gateway_method.m1->tf:aws_api_gateway_resource.r1",
+   "source": "tf:aws_api_gateway_method.m1",
+   "target": "tf:aws_api_gateway_resource.r1",
+   "kind": "references",
+   "provenance": "terraform"
+  },
+  {
+   "id": "references:tf:aws_api_gateway_resource.r1->tf:aws_api_gateway_deployment.x",
+   "source": "tf:aws_api_gateway_resource.r1",
+   "target": "tf:aws_api_gateway_deployment.x",
+   "kind": "references",
+   "provenance": "terraform"
+  },
+  {
+   "id": "references:tf:aws_api_gateway_integration.int1->tf:aws_api_gateway_method.m1",
+   "source": "tf:aws_api_gateway_integration.int1",
+   "target": "tf:aws_api_gateway_method.m1",
+   "kind": "references",
+   "provenance": "terraform"
+  },
+  {
+   "id": "triggers:tf:aws_api_gateway_integration.int1->tf:aws_lambda_function.lam1",
+   "source": "tf:aws_api_gateway_integration.int1",
+   "target": "tf:aws_lambda_function.lam1",
+   "kind": "triggers",
+   "provenance": "terraform"
+  },
+  {
+   "id": "references:tf:aws_api_gateway_deployment.x->tf:aws_lambda_function.lam1",
+   "source": "tf:aws_api_gateway_deployment.x",
+   "target": "tf:aws_lambda_function.lam1",
+   "kind": "references",
+   "provenance": "terraform"
+  },
+  {
+   "id": "references:tf:aws_api_gateway_deployment.x->tf:aws_api_gateway_integration.int2",
+   "source": "tf:aws_api_gateway_deployment.x",
+   "target": "tf:aws_api_gateway_integration.int2",
+   "kind": "references",
+   "provenance": "terraform"
+  },
+  {
+   "id": "references:tf:aws_api_gateway_integration.int2->tf:aws_api_gateway_integration.int3",
+   "source": "tf:aws_api_gateway_integration.int2",
+   "target": "tf:aws_api_gateway_integration.int3",
+   "kind": "references",
+   "provenance": "terraform"
+  },
+  {
+   "id": "triggers:tf:aws_api_gateway_integration.int3->tf:aws_lambda_function.lam2",
+   "source": "tf:aws_api_gateway_integration.int3",
+   "target": "tf:aws_lambda_function.lam2",
+   "kind": "triggers",
+   "provenance": "terraform"
+  }
+ ]
+}

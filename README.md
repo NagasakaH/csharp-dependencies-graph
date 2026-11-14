@@ -28,7 +28,7 @@ open out/graph/graph.html
 
 ```sh
 node skill/scripts/test-analyzer.mjs                          # 静的解析の精度（96 項目、ブラウザ不要）
-node skill/scripts/test-report.mjs                            # 影響範囲レポート（54 項目）
+node skill/scripts/test-report.mjs                            # 影響範囲レポート（58 項目）
 node skill/scripts/test-query.mjs                             # 逆引き・影響範囲の照会（17 項目、.NET 不要）
 node skill/scripts/test-merge.mjs                             # Lambda handler の解決規則（12 項目、.NET 必要）
 node skill/scripts/test-terraform.mjs                         # API Gateway のパス組み立て（28 項目、.NET 不要）
@@ -78,7 +78,7 @@ node skill/scripts/report.mjs --graph out/demo/graph.json --api "POST /orders"
   を示すだけで、動きが伝わっている意味ではない（ここを「定義上の関連」に混ぜると「触っていない設定」と
   読めてしまう）
 - 同じ API を定義するノード — 起点がエンドポイントのとき、その API を定義している `resource` /
-  `rest_api` / `integration`。変更で値は動かないので「見直しの候補」として分ける
+  `rest_api` / `integration` / `deployment`。変更で値は動かないので「見直しの候補」として分ける
 - 同じコードを使う別の API — 兄弟として見つかったエンドポイントと、それを定義しているノード
   （`summary.siblingEndpointsOnly` / `siblingDefs` に内訳を出す）。実装を共有しているだけで、
   **別 API から自分の API へ流入している意味ではない**（`影響を受ける入口` に並べると誤読できる）
@@ -120,7 +120,7 @@ true になり、`summary` の各欄の数は**切り詰め前**のままなの�
 書き写したもの**で、正解データではなく「前回と変わったかを見る整合の測定」だと思っている。
 だからリストを作った人間と同じ前提の誤りは消えない。そこを割り引いて読んでほしい。
 
-| 実測したケース（2026-11-15 計測） | 期待 | 外部着地 | 的中 | 再現率 | 適合率 |
+| 実測したケース（2026-11-14 計測） | 期待 | 外部着地 | 的中 | 再現率 | 適合率 |
 | --- | --- | --- | --- | --- | --- |
 | demo: `src/Orders.Domain/Order.cs` | 12 | 11 | 11 | 0.917 | 1 |
 | demo: `README.md`（グラフに無い変更） | 0 | 0 | 0 | 1 | 1 |

@@ -1,0 +1,66 @@
+{
+  "nodes": [
+    {
+      "id": "s",
+      "name": "s",
+      "kind": "resource",
+      "metadata": {
+        "resourceType": "aws_lambda_function"
+      }
+    },
+    {
+      "id": "z",
+      "name": "z",
+      "kind": "resource",
+      "metadata": {
+        "resourceType": "aws_lambda_function"
+      }
+    },
+    {
+      "id": "a",
+      "name": "a",
+      "kind": "resource",
+      "metadata": {
+        "resourceType": "aws_lambda_function"
+      }
+    },
+    {
+      "id": "t",
+      "name": "t",
+      "kind": "resource",
+      "metadata": {
+        "resourceType": "aws_lambda_function"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "0",
+      "source": "s",
+      "target": "z",
+      "kind": "references",
+      "provenance": "terraform"
+    },
+    {
+      "id": "1",
+      "source": "s",
+      "target": "a",
+      "kind": "references",
+      "provenance": "terraform"
+    },
+    {
+      "id": "2",
+      "source": "a",
+      "target": "z",
+      "kind": "invokes",
+      "provenance": "terraform"
+    },
+    {
+      "id": "3",
+      "source": "z",
+      "target": "t",
+      "kind": "references",
+      "provenance": "terraform"
+    }
+  ]
+}

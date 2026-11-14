@@ -550,6 +550,38 @@ check('--limit で一覧が切れてもカウンタの不変条件は保たれ�
   }
 }
 
+// (6) 予算（`--wiring-hops`）は `(elig, down)` の資格ごとに数える
+{
+  const r = runOn('budget-min.graph.json', ['--from', 's', '--wiring-hops', '1'], 'budget-min');
+  const ids = r ? r.result.wiring.map((x) => x.id) : [];
+  check('定義上の関連でも予算の届け直しで先まで出る（`t` が脱落しない）',
+    !!r && r.result.summary.wiring === 3 && ids.includes('t'),
+    r ? JSON.stringify([r.result.summary.wiring, ids]) : '実行失敗');
+
+  const a = runOn('budget-normal.graph.json', ['--from', 's'], 'budget-normal');
+  const b = runOn('budget-reversed.graph.json', ['--from', 's'], 'budget-reversed');
+  check('同じ縁集合を逆に並べ替えても件数が変わらない（先着順で決まる状態が残っていない）',
+    !!a && !!b && a.result.summary.rows === b.result.summary.rows
+    && a.result.summary.wiring === b.result.summary.wiring,
+    a && b ? JSON.stringify([[a.result.summary.rows, a.result.summary.wiring],
+      [b.result.summary.rows, b.result.summary.wiring]]) : '実行失敗');
+
+  const c = runOn('budget-through-invokes.graph.json', ['--from', 'tf:aws_api_gateway_method.m1'], 'budget-invokes');
+  const lam2 = c ? [...c.result.external.out, ...c.result.external.in, ...c.result.wiring]
+    .find((x) => x.id === 'tf:aws_lambda_function.lam2') : null;
+  check('動きの縁で予算が戻った経路の先（`lam2`）がどこにも出ないことがない',
+    !!lam2 && lam2.tier === 'primary' && lam2.direction === 'out',
+    lam2 ? JSON.stringify([lam2.tier, lam2.direction]) : (c ? '出ていない' : '実行失敗'));
+
+  const d = runOn('six-groups.graph.json', ['--from', 's', '--hops', '32'], 'six-groups');
+  check('API の連鎖が 6 組あってもラウンド上限で黙って切らない（未収束なら旗を出す）',
+    !!d && d.result.summary.primaryOut === 12 && d.result.summary.primaryIn === 6
+    && d.result.summary.wiring === 6 && d.result.summary.unresolved === false,
+    d ? JSON.stringify([d.result.summary.primaryOut, d.result.summary.primaryIn,
+      d.result.summary.wiring, d.result.summary.rounds, d.result.summary.maxRounds,
+      d.result.summary.unresolved]) : '実行失敗');
+}
+
 rmSync(dir, { recursive: true, force: true });
 console.log(`\n${pass}/${pass + failures.length} 件成功`);
 if (failures.length) { console.log('失敗: ' + failures.join(' / ')); process.exit(1); }
