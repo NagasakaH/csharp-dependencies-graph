@@ -527,6 +527,29 @@ check('--limit で一覧が切れてもカウンタの不変条件は保たれ�
     rows ? JSON.stringify(rows.map((x) => [x.id, x.tier])) : '実行失敗');
 }
 
+// (5) 本命として届いた API のグループは、後から増えたときに定義側を拡げ直す機会がある
+{
+  const allOf = (r) => Object.values(r).flatMap((b) => (Array.isArray(b) ? b
+    : (b && typeof b === 'object' ? [...(b.in || []), ...(b.out || [])] : []))).filter((x) => x && typeof x.tier === 'string');
+  const r = runOn('touched-api.graph.json', ['--from', 'tf:aws_lambda_function.a'], 'group-touched');
+  const all = r ? allOf(r.result) : [];
+  const byId = new Map(all.map((x) => [x.id, x]));
+  check('呼び出した API の実装側（Lambda・テーブル・コード）は 定義上の関連 に落ちない',
+    !!r && r.result.summary.primaryOut === 3 && r.result.summary.entryOut === 2
+    && (byId.get('tf:aws_lambda_function.b') || {}).tier === 'primary'
+    && (byId.get('ext:rds-table/orders') || {}).tier === 'primary',
+    r ? JSON.stringify([r.result.summary.primaryOut, r.result.summary.entryOut,
+      [...byId].map(([k, v]) => [k.replace('tf:aws_', ''), v.tier])]) : '実行失敗');
+  for (const [name, file] of [['定義を辿る縁だけの API グループ', 'group-cache.graph.json'],
+    ['コードの種が無いラウンドでもグループ追加で定義を拡げる', 'group-late.graph.json']]) {
+    const rr = runOn(file, ['--from', 'tf:aws_lambda_function.s'], `group-${file}`);
+    const same = rr ? allOf(rr.result).find((x) => x.id === 'tf:aws_lambda_function.b') : null;
+    check(`${name}: 同じ API を起動する Lambda は本命で 影響する先`,
+      !!same && same.tier === 'primary' && same.direction === 'out',
+      same ? JSON.stringify([same.tier, same.direction, same.evidence.kind]) : (rr ? '出ていない' : '実行失敗'));
+  }
+}
+
 rmSync(dir, { recursive: true, force: true });
 console.log(`\n${pass}/${pass + failures.length} 件成功`);
 if (failures.length) { console.log('失敗: ' + failures.join(' / ')); process.exit(1); }

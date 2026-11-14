@@ -210,9 +210,10 @@ node $SKILL/scripts/report.mjs --graph out/graph/graph.json --api "POST /orders"
 - **起点は変更ファイルの中身**。`.cs` はその中のメソッドへ自動で展開し、`.tf` はそのファイルが宣言して
   いるリソースを起点にする。グラフに無い変更ファイルは**起点にしない**（`fallbacks` に出すだけ。
   `--folder-start` は誤検出を膨らませるので理由があるときだけ）
-- **4 つの枠に分けて出す**: 影響する外部リソース / 影響を受ける入口 / 定義上の関連（Terraform の
-  `references`。値そのものは変わるとは限らないが、定義を書き換えたら効く範囲）/
-  同じ API の定義・同じコードを使う別の API（エンドポイントと定義ノードの内訳を出す）。
+- **6 つの枠に分けて出す**: 影響する外部リソース / 影響を受ける入口 / コード側の入口・出口 /
+  リポジトリ内の成果物（`.csproj`・`.cs`・フォルダ。ビルドし直しが必要な範囲）/ 同じ API の定義・
+  同じコードを使う別の API（エンドポイントと定義ノードの内訳を出す）/ 定義上の関連（Terraform の
+  `references`。値そのものは変わるとは限らないが、定義を書き換えたら効く範囲）。
   **どの行も必ずどれか 1 つの枠にしか入らない**（`summary.rows` と各枠の合計が一致する）。
   段数は定義の縁（`references`）だけ数え、動きの縁を越えたら数え直す
   起点がエンドポイントのときは、起点を定義する `resource` / `rest_api` / `integration` を
@@ -226,7 +227,8 @@ node $SKILL/scripts/report.mjs --graph out/graph/graph.json --api "POST /orders"
   粗い変更（Terraform 1 ファイルをまるごと等）で注釈由来の着地が増えて適合率が下がるので、
   `--provenance static,terraform` か `--from tf:...` で絞る
 
-実測値は README の表にある（demo 再現率 0.917 / 適合率 0.917、実プロジェクト 1.000 / 1.000）。
+実測値は README の表にある（demo の `Order.cs` 変更で 再現率 0.917 / 適合率 1、
+`infra/main.tf` 変更は 外部着地 2 件の適合率 0、実プロジェクト 1.000 / 1.000）。
 
 ## 検証する
 
@@ -266,7 +268,7 @@ demo と `BindingRegression/` でも同じ入力を 2 回走らせて、`rejecte
 node $SKILL/scripts/test-query.mjs           # fixtures/query/graph.json を使う（.NET 不要、17 項目）
 node $SKILL/scripts/test-merge.mjs           # Lambda handler の解決規則（.NET 必要、12 項目）
 node $SKILL/scripts/test-terraform.mjs       # API Gateway のパス組み立て（28 項目、.NET 不要）
-node $SKILL/scripts/test-report.mjs          # 差分 → 影響範囲レポート（51 項目、.NET 必要）
+node $SKILL/scripts/test-report.mjs          # 差分 → 影響範囲レポート（54 項目、.NET 必要）
 ```
 
 `test-merge.mjs` は `fixtures/HandlerLambda/`（`AssemblyName` を置いた csproj と `main.tf`）を

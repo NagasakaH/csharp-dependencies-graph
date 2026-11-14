@@ -1,0 +1,22 @@
+{
+  "nodes": [
+    { "id": "tf:aws_lambda_function.a", "kind": "resource", "name": "lam_a", "metadata": { "resourceType": "aws_lambda_function", "category": "lambda" } },
+    { "id": "member:A", "kind": "member", "name": "A" },
+    { "id": "tf:aws_api_gateway_rest_api.b", "kind": "resource", "name": "b", "metadata": { "resourceType": "aws_api_gateway_rest_api", "category": "apigateway" } },
+    { "id": "tf:aws_api_gateway_resource.b", "kind": "resource", "name": "res_b", "metadata": { "resourceType": "aws_api_gateway_resource", "category": "apigateway", "rest_api_id": "aws_api_gateway_rest_api.b" } },
+    { "id": "tf:aws_api_gateway_method.b", "kind": "resource", "name": "m_b", "metadata": { "resourceType": "aws_api_gateway_method", "category": "apigateway", "rest_api_id": "aws_api_gateway_rest_api.b", "endpoint": "POST /b" } },
+    { "id": "tf:aws_api_gateway_integration.b", "kind": "resource", "name": "int_b", "metadata": { "resourceType": "aws_api_gateway_integration", "category": "apigateway", "rest_api_id": "aws_api_gateway_rest_api.b" } },
+    { "id": "tf:aws_lambda_function.b", "kind": "resource", "name": "lam_b", "metadata": { "resourceType": "aws_lambda_function", "category": "lambda" } },
+    { "id": "member:B.Handle", "kind": "member", "name": "Handle" },
+    { "id": "ext:rds-table/orders", "kind": "resource", "name": "orders", "metadata": { "resourceType": "rds-table", "category": "storage" } }
+  ],
+  "edges": [
+    { "id": "e0", "kind": "handler", "source": "tf:aws_lambda_function.a", "target": "member:A", "provenance": "terraform" },
+    { "id": "e1", "kind": "invokes", "source": "member:A", "target": "tf:aws_api_gateway_method.b", "provenance": "human" },
+    { "id": "e2", "kind": "references", "source": "tf:aws_api_gateway_method.b", "target": "tf:aws_api_gateway_resource.b", "provenance": "terraform" },
+    { "id": "e3", "kind": "references", "source": "tf:aws_api_gateway_integration.b", "target": "tf:aws_api_gateway_resource.b", "provenance": "terraform" },
+    { "id": "e4", "kind": "triggers", "source": "tf:aws_api_gateway_integration.b", "target": "tf:aws_lambda_function.b", "provenance": "terraform" },
+    { "id": "e5", "kind": "handler", "source": "tf:aws_lambda_function.b", "target": "member:B.Handle", "provenance": "terraform" },
+    { "id": "e6", "kind": "writes", "source": "member:B.Handle", "target": "ext:rds-table/orders", "provenance": "human" }
+  ]
+}

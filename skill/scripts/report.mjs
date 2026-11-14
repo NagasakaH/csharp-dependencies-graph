@@ -514,7 +514,11 @@ const bestState = new Map();   // id -> { budget, primary, elig, down, reachedBy
 // walk が後から事実を強くしたとき、その資格での展開をまだしていないのに `offer()` が
 // 「改善なし」と判断して再展開を省いた（双人レビュー第 20 ラウンド P1: 定義参照が 1 本
 // 増えただけで上流の Step Functions が 定義上の関連 に落ちた）
-const expandedAt = new Map();   // id -> { primary, elig, down, budget }
+const expandedAt = new Map();   // id -> { primary, elig, down, budget, gen }
+// `touchedApiGroups` が増えると、同じ資格の種でも子側の伝播資格 (`inTouchedApiGroup`) が変わる。
+// 世代を持たないと「同じ資格だから展開済み」と却下されて、届いた API の定義が
+// 定義上の関連 に残った（双人レビュー第 21 ラウンド P1、両名の反例）
+let apiGen = 0;
 function noteFacts(id, f) {
   const prev = bestState.get(id)
     || { primary: false, elig: false, down: false, reachedByInvokes: false, movementEvidence: null };
@@ -548,18 +552,25 @@ function runClosure(seedIds) {
       primary: state.primary, elig: state.elig, down: state.down, reachedByInvokes: state.reachedByInvokes,
       edge: state.rec ? state.rec.edge : null,
     });
-    // 展開するのは「展開に使った資格より厳密に良くなったとき」だけ。`primary` / `elig` / `down` は
-    // 高々 1 回しか立たず、`budget` は単調に減るので再展開は有限で止まる。`reachedByInvokes` は
-    // 展開条件から外した（閉包は子の旗を縁だけから決めるので不要。agy の指摘）
+    // 展開するのは「展開に使った資格より厳密に良くなったとき」、または「今の世代ではまだ
+    // 展開していないとき」だけ。`primary` / `elig` / `down` は高々 1 回しか立たず、`budget` は
+    // 単調に減り、世代は API グループが増えたときしか上がらないので再展開は有限で止まる。
+    // `reachedByInvokes` は展開条件から外した（閉包は子の旗を縁だけから決めるので不要）
     const done = expandedAt.get(state.id);
-    const better = !done
+    const better = !done || done.gen !== apiGen
       || (state.primary && !done.primary)
       || (state.elig && !done.elig)
       || (state.down && !done.down)
-      || (state.primary === done.primary && state.elig === done.elig && state.budget < done.budget);
+      || (done.primary && done.elig && state.budget < done.budget);
     if (!better) return false;
+    // 記録する資格は単調に合併する（弱い方が後から来ても巻き戻さない。巻き戻すと
+    // 強い方と弱い方が交互に届いて尽きない再展開になる。agy の P2）
     expandedAt.set(state.id, {
-      primary: !!state.primary, elig: !!state.elig, down: !!state.down, budget: state.budget,
+      primary: !!state.primary || !!done?.primary,
+      elig: !!state.elig || !!done?.elig,
+      down: !!state.down || !!done?.down,
+      budget: Math.min(done?.budget ?? Infinity, state.budget),
+      gen: apiGen,
     });
     bestState.set(state.id, { ...bestState.get(state.id), budget: state.budget });
     if (state.rec) {
@@ -588,10 +599,13 @@ function runClosure(seedIds) {
       process.stderr.write(`[report] 警告: 閉包の出発点 ${id} に walk の記録がありません\n`);
       rec = { id, edge: null, hops: 0, switches: 0, via: null, cut: true, dir: 'out', wiring: false };
     }
+    // 経路の記録（`rec`）は循環境避で `wiring` のまま残ることがあるので、資格は受理事実を優先する
+    const st = bestState.get(id);
+    const primary = st ? st.primary : rec.wiring !== true;
     const state = {
-      id, hops: rec.hops, budget: 0, down: !!rec.down,
+      id, hops: rec.hops, budget: 0, down: st ? st.down : !!rec.down,
       reachedByInvokes: rec ? !!rec.reachedByInvokes : false,
-      primary: !rec.wiring, elig: !rec.wiring || inTouchedApiGroup(id),
+      primary, elig: primary || inTouchedApiGroup(id),
       via: null, rec,
     };
     if (offer(state)) queue.push(state);
@@ -672,17 +686,25 @@ for (let round = 0; round < MAX_ROUNDS; round++) {
     return (k === 'member' || k === 'type') && primary && !walkedCode.has(id);
   });
   // 本命として届いた endpoint が属する API を覚えておく（次の往復からその API の定義も伝播できる）
+  const groupsBefore = touchedApiGroups.size;
   for (const [id, rec] of combined) {
     const st = bestState.get(id);
     if (!(st ? st.primary : rec.wiring !== true)) continue;
     const g = apiGroupOf(byId.get(id));
     if (g !== null && g !== undefined) touchedApiGroups.add(g);
   }
-  if (!codeSeeds.length) break;
+  const groupGrew = touchedApiGroups.size > groupsBefore;
+  if (groupGrew) apiGen++;
+  // コードの種が無くても、API グループが増えたなら仕事がある（新しいグループの下で定義を
+  // 広げ直す）。どちらも無いときが終わりなので、每ラウンドどちらかは増え有限で止まる
+  if (!codeSeeds.length && !groupGrew) break;
   for (const id of codeSeeds) walkedCode.add(id);
+  if (!codeSeeds.length) continue;
   const found = walkWithSwitch(codeSeeds, 'out');
   mergeRecords(found);
-  closureSeeds = [...found.keys()];
+  // 種は受け-record の全ノード。直前の walk が触ったノードだけにすると、既に届いた
+  // エンドポイントや同じ API の定義が再種まきされず、新しいグループの下で広げられない
+  closureSeeds = [...combined.keys()];
 }
 
 // ---- 行を組み立てる ----
@@ -979,7 +1001,7 @@ md += mdSection('影響を受けるコード側の入口（メソッド・型）
 md += mdSection('影響するコード側の出口（起点から届くメソッド・型）', entryRows(outRows).slice(0, opts.limit), opts.limit);
 if (startIsEndpoint) md += mdSection('起点と同じ API を定義するノード（変更で値は動かないので見直しの候補）', sameApiRows(), opts.limit);
 if (startIsEndpoint && siblingRows().length) {
-  md += `## 同じコードを使う別の API（エンドポイント ${summary.siblingEndpointsOnly} 件と、それを定義するノード ${summary.siblingDefs} 件。起点の定義ではなく、共有しているコードを変えたときに一緒に見る）\n\n`
+  md += `### 同じコードを使う別の API（エンドポイント ${summary.siblingEndpointsOnly} 件と、それを定義するノード ${summary.siblingDefs} 件。起点の定義ではなく、共有しているコードを変えたときに一緒に見る）\n\n`
     + siblingRows().map((r) => `- \`${r.name}\`（\`${r.id}\`、距離 ${r.hops}、根拠 \`${r.evidence.kind}\`）`).join('\n') + '\n\n';
 }
 // 先（影響する側）と受（影響を受ける側）を 1 表に混ぜると、集計行の

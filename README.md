@@ -28,7 +28,7 @@ open out/graph/graph.html
 
 ```sh
 node skill/scripts/test-analyzer.mjs                          # 静的解析の精度（96 項目、ブラウザ不要）
-node skill/scripts/test-report.mjs                            # 影響範囲レポート（51 項目）
+node skill/scripts/test-report.mjs                            # 影響範囲レポート（54 項目）
 node skill/scripts/test-query.mjs                             # 逆引き・影響範囲の照会（17 項目、.NET 不要）
 node skill/scripts/test-merge.mjs                             # Lambda handler の解決規則（12 項目、.NET 必要）
 node skill/scripts/test-terraform.mjs                         # API Gateway のパス組み立て（28 項目、.NET 不要）
@@ -77,9 +77,11 @@ node skill/scripts/report.mjs --graph out/demo/graph.json --api "POST /orders"
 - リポジトリ内の成果物 — 経路上にあった `.csproj`・`.cs`・フォルダ・solution。触る可能性のある**ビルド単位**
   を示すだけで、動きが伝わっている意味ではない（ここを「定義上の関連」に混ぜると「触っていない設定」と
   読めてしまう）
-- 同じ API を定義するノード / 同じコードを使う別の API — 定義上で繋がっているだけ。兄弟として
-  見つかったエンドポイントについては、**その API を定義している resource や rest_api もまとめて兄弟欄に
-  出す**（`影響を受ける入口` に並べると「別 API から自分の API へ流入している」と誤読できる）
+- 同じ API を定義するノード — 起点がエンドポイントのとき、その API を定義している `resource` /
+  `rest_api` / `integration`。変更で値は動かないので「見直しの候補」として分ける
+- 同じコードを使う別の API — 兄弟として見つかったエンドポイントと、それを定義しているノード
+  （`summary.siblingEndpointsOnly` / `siblingDefs` に内訳を出す）。実装を共有しているだけで、
+  **別 API から自分の API へ流入している意味ではない**（`影響を受ける入口` に並べると誤読できる）
 - 定義上の関連 — Terraform の `references`（ブロックを文中に書いただけ）
 
 向きは縁の意味で決める。(1) 動きの縁（`triggers` / `invokes` / `handler` / `exposed-by`）で届いていれば
