@@ -455,20 +455,56 @@ const repCmp = (a, b) => {
   const kb = `${b.rec.edge ? b.rec.edge.id : ''}\u0000${b.rec.via || ''}`;
   return ka < kb ? -1 : (ka > kb ? 1 : 0);
 };
-// 候補集合へ 1 経路加える。除くのは**自分から見て真に支配されている既存候補**だけ。
-// 代表は常に `repCmp` の最小なので、加える順に依らず集合と代表は同じになる
+// 候補集合へ 1 経路加える。除くのは**同一親（同じ `via`）の候補から見て真に支配されている
+// 既存候補**だけ。第 40 ラウンドまで異親の候補同士も支配し合っていたが、表示経路を
+// 「親が確定済みの候補だけ」で選び直す方式（仕様 out/loop/r40-decision.md）では、支配した
+// 候補の親が未確定のときに支配された候補で選び直す必要があり、捨てると経路が作れない。
+// 同一親に限定しても探索中の代表は変わらない（候補集合が上位集合になり、捨てられていた
+// 候補は常に旧集合に残る支配候補を持つので `repCmp` の最小にはなれない）。代表は常に
+// `repCmp` の最小なので、加える順に依らず集合と代表は同じになる。
+// 保存は親ごとのグループ分け（`groups`）。到着ごとの支配判定は同一親グループ内だけ見れば
+// よく、総当たりだと候補の多いノード（共有 IAM ロールなど）で届いた件数の二乗のコストに
+// なる（第 40 ラウンド実測: 全リストスキャンで `v2-big` が 0.10 秒 → 0.18 秒）。`repCmp`
+// 最小（`best`）は増分で保つ — 追加時に古い代表を消したなら新人がそれを支配したので新人が
+// 最小、何も消さなければ古い代表と新人の小さいほう、不追加なら不変。だから全集合の再計算と
+// 同じ結果になる（支配は推移的、`repDominates` は `repCmp` の接頭辞で勝つ）
 const addRepCandidate = (id, mask, budget, rec) => {
-  // `rec` は浅いコピーを持つ。代表が `combined` へ入った後は `promote` が同じオブジェクトを
-  // 変更する（`wiring` / `via` / `cut`）ので、候補が同じ実体だと「後から来た候補との比較」が
-  // マージの順番に左右される（双人レビュー第 37 ラウンド agy 指摘 3-2）。候補は加わった時点の
-  // 経路の事実だけを見ていればよい
-  const cand = { id, mask, budget, rec: { ...rec } };
-  const kept = (repCands.get(id) || []).filter((c) => !repDominates(cand, c));
-  if (!kept.some((c) => repDominates(c, cand))) kept.push(cand);
-  repCands.set(id, kept);
-  let best = kept[0];
-  for (let i = 1; i < kept.length; i += 1) if (repCmp(kept[i], best) < 0) best = kept[i];
-  wiringMap.set(id, best.rec);
+  // `rec` はコピーしない。呼び出し側が隣ループで作り立てのリテラルか、種の時点の
+  // コピー（`combined` の walk 記録は `promote` が後から変更するので実体を渡さない。
+  // 双人レビュー第 37 ラウンド agy 指摘 3-2）なので、候補は加わった時点の経路の事実を
+  // そのまま見る
+  const cand = { id, mask, budget, rec };
+  let entry = repCands.get(id);
+  if (!entry) {
+    entry = { groups: new Map(), best: null };
+    repCands.set(id, entry);
+  }
+  const key = rec.via || '';
+  const group = entry.groups.get(key);
+  let added = false;
+  if (!group) {
+    entry.groups.set(key, [cand]);
+    added = true;
+  } else {
+    const kept = group.filter((c) => !repDominates(cand, c));
+    const removed = kept.length !== group.length;
+    if (removed && entry.best && kept.indexOf(entry.best) < 0) {
+      // 古い代表が新人に消された。新人はそれを支配するので全集合の最小（支配は推移的で、
+      // `repDominates` は `repCmp` の接頭辞 6 項目で一つも劣らず 1 つ以上 strict に良い）
+      entry.best = cand;
+    }
+    if (!kept.some((c) => repDominates(c, cand))) {
+      kept.push(cand);
+      added = true;
+    }
+    if (kept.length) entry.groups.set(key, kept); else entry.groups.delete(key);
+  }
+  if (added && (!entry.best || repCmp(cand, entry.best) < 0)) entry.best = cand;
+  // 候補の実体をそのまま渡さない。`mergeWiring → promote` が `combined` 側を後から変更するとき、
+  // `wiringMap` を経由して候補（`repCands`）と実体を共有していると比較の材料が書き換わる
+  // （双人レビュー第 38 ラウンド agy 指摘 P2 / codex 指摘 P2。実測 `fixture-api` で候補 4 件の
+  // `wiring` が書き換わった。検査 out/tmp-review38/check-mutation.py）
+  wiringMap.set(id, { ...entry.best.rec });
 };
 // 閉包の出発点として**根になったノード**（起点そのものではないが、起点の定義グループなので
 // 経路の先頭として出してよい）。
@@ -489,31 +525,12 @@ const onChain = (fromId, id, extra, cap = 64) => {
   }
   return false;
 };
-// 閉包の循環境避。**展開中のキュー状態が実際に届いた経路**（`parent` で辿る実経路と、
-// その種の walk 記録の `via` 連鎖）だけを見て、次の一歩が同じノードへ戻るものかどうかを
-// 決める。`wiringMap` は表示の代表を選ぶ途中で書き換わるので**読まない**。読むと
-// 「代表の選び方」が循環判定 → `cut` / `apiTail` → 候補の合否へ逆流し、候補集合そのものが
-// 縁の到着順で変わった（双人レビュー第 37 ラウンド指摘 1、両名。再現
-// out/tmp-r38/path-counter.json: `s → x1 → target` の 2 段実経路が、`b` の代表に選ばれた
-// `s → x1 → target → b` の経路に `target` が居たせいで循環と誤判定され、候補から落ちた）
-// 起点の walk 記録は `combined` にあり、ラウンドの途中で書き換わらないので祖先として見てよい
-const onPath = (state, id, cap = 64) => {
-  let s = state;
-  for (let i = 0; s && i < cap; i += 1) {
-    if (s.id === id) return true;
-    if (!s.parent) {
-      let rec = combined.get(s.id);
-      rec = rec && rec.via ? combined.get(rec.via) : null;
-      for (let j = 0; rec && j < cap; j += 1) {
-        if (rec.id === id) return true;
-        rec = rec.via ? combined.get(rec.via) : null;
-      }
-      return false;
-    }
-    s = s.parent;
-  }
-  return false;
-};
+// 閉包の循環境避は `runClosure` の中の `fillPath` / `pathHas` を見る。表示の代表を選ぶ途中で
+// 書き換わる `wiringMap` を循環判定に読むと「代表の選び方」が循環判定 → `cut` / `apiTail` →
+// 候補の合否へ逆流し、候補集合そのものが縁の到着順で変わった（双人レビュー第 37 ラウンド
+// 指摘 1、両名。再現 out/tmp-r38/path-counter.json: `s → x1 → target` の 2 段実経路が、`b` の
+// 代表に選ばれた `s → x1 → target → b` の経路に `target` が居たせいで循環と誤判定され、
+// 候補から落ちた）
 
 // 向きが反転する縁。`exposed-by` は「このコードがこのエンドポイントで公開される」なので
 // 動きはエンドポイント → コードへ流れ、`handler` は「この Lambda がこのコードを実行する」。
@@ -939,6 +956,25 @@ const isSiblingEndpointNode = (id) => {
   const st = bestState.get(id);
   return !(st ? st.reachedByInvokes : false);
 };
+// 隣エントリごとの事前計算。閉包の不受理到着の再辿り（`candQueue`）は到着ごとに隣を
+// 評価し直すので、隣ごとの helper 呼び出しがそのまま倍の回数になっていた（第 40 ラウンドの
+// 性能 gate 実測）。**到着の状態に依らない項目だけ**をここに置く。`sib`（`bestState` を読む）と
+// `inTouchedApiGroup`（`touchedApiGroups` を読む）は到着ごとに変わり得るので動的のまま
+for (const [fromId, list] of tfAdj) {
+  const tailFromHome = apiTailFrom(byId.get(fromId));
+  for (const nb of list) {
+    const e = nb.edge;
+    nb.mv = MOVEMENT.has(e.kind);
+    nb.arrow = arrowAt(e, nb.to);
+    nb.rInto = e.target === fromId && e.source === nb.to;
+    nb.kindInv = e.kind === 'invokes';
+    nb.flipKind = FLIP_INTO_IMPL.has(e.kind);
+    nb.flipAmb = nb.flipKind ? flipAmbiguous(e.kind, fromId) : false;
+    nb.cuts = refCutsChain(e, fromId, nb.to);
+    nb.intInv = nb.kindInv && internalInvokes(fromId, nb.to);
+    nb.tailFrom = tailFromHome;
+  }
+}
 const bestState = new Map();   // id -> { budget, primary, elig, down, reachedByInvokes, movementEvidence }
 // 動きの根拠縁の選び方（双人レビュー第 37 ラウンド指摘 2、両名。再現
 // `out/tmp-review37/closure-counter.json`: 経路・段数・根拠が同じまま、動きの縁の先着保持で
@@ -1032,42 +1068,47 @@ function noteFacts(id, f) {
 // 定義上から本命へ昇格した」なら再展開する
 function runClosure(seedIds) {
   const queue = [];
-  // 受理したら true。**受理された状態だけを展開する**（受理不看で queue に入れると、
-  // 古い状態が隣を又呼び、隣が又戻ってきて列が伸び続けて終わらなくなる）
-  const offer = (state) => {
-    // **受理した状態だけ**を記録に残して展開する。不受理の状態でも書き込むようにすると、
-    // `via` が循環して `path[0]` が起点でなくなる行が出た（実測: 実プロジェクトの
-    // `--api "POST /messages"` で 9 行中 5 行、`--from tf:aws_iam_role_policy.…` で全 15 行が
-    // 2 ノードの循環）
-    // 事実は一度立ったら消えない。弱い方の状態が後から来ても旗を戻さないよう、ここで合流させる
+  // 資格のマスク。展開の受理表と表示候補の両方が同じ資格を見る
+  const maskOf = (state) => (state.chain ? CLOSURE_CHAIN : 0) | (state.elig ? CLOSURE_ELIG : 0)
+    | (state.down ? CLOSURE_DOWN : 0) | (state.apiTail ? CLOSURE_API_TAIL : 0);
+  // 到着の事実と表示候補の記録。届いた一歩は**展開に受理されたか否か・`cut`・`wiring`・
+  // 受理済み事実に関わらず**ここに全部残す。事実は一度立ったら消えないので、弱い方の状態が
+  // 後から来ても旗を戻さないよう、ここで合流させる
+  const noteArrival = (state) => {
     noteFacts(state.id, {
       primary: state.primary, elig: state.elig, down: state.down, reachedByInvokes: state.reachedByInvokes,
       chain: state.chain, apiTail: state.apiTail, edge: state.rec ? state.rec.edge : null,
       // 循環境避で切った一歩は「このノードへ着地した一歩」ではない
       edgeIsArrival: !(state.rec && state.rec.cut),
     });
+    // **表示する代表経路の候補集合**（仕様 out/loop/r38-decision.md、原則 4）。
+    // r37 までここに有った 2 つの到着順ゲート（旧 `demote` / `shorter`）は削除した。ゲートは
+    // 「既に何が候補に入っているか」と「`bestState` の到着順の旗」を読むので、同じ経路でも
+    // 加わる順で合否が変わり、支配関係との非対称性を作っていた（双人レビュー第 37 ラウンド
+    // agy 指摘 3-1）。旧ゲートの意図（定義上の関連を最後に、根付きを先に）は `repDominates` と
+    // `repCmp` の第 1・2 項が同じ比較項目で持っているので、代表の選び方は変わらない
+    const mask = maskOf(state);
+    if (state.rec) addRepCandidate(state.id, mask, state.budget, state.rec);
+    return mask;
+  };
+  // 受理したら true。**受理された状態だけを展開する**（受理不看で queue に入れると、
+  // 古い状態が隣を又呼び、隣が又戻ってきて列が伸び続けて終わらなくなる）
+  const offer = (state) => {
+    // `via` が循環して `path[0]` が起点でなくなる行が出た（実測: 実プロジェクトの
+    // `--api "POST /messages"` で 9 行中 5 行、`--from tf:aws_iam_role_policy.…` で全 15 行が
+    // 2 ノードの循環）。表示の連鎖の打ち切り・循環そのものは収束後の確定処理で防ぐ
+    // （仕様 out/loop/r40-decision.md）
     // 展開するのは (a) 今の世代ではまだ展開していない、(b) 初めて本命として展開する、
     // (c) 同じ `(chain, elig, down, apiTail)` の資格で前回より小さい予算で届いた、のいずれかのとき。
     // (c) は本命でなくても効く（定義上の関連にも `--wiring-hops` の予算は及ぶ）。第 22 ラウンドの
     // 最小反例では `references` で budget 2 のノードが、`invokes` を越えて budget 1 で届き直したとき
     // に却下され、その先 1 ノードがどの欄にも出なかった
+    const mask = noteArrival(state);
     const done = expandedAt.get(state.id);
     const fresh = !done || done.gen !== apiGen;
     // 予算は非負整数で (c) ごとに厳密に減り、(a)(b) は高々 1 回、世代はグループ増でしか上がらない。
     // だから 1 ノード 1 世代あたりの再展開は高々 `16 * (予算 + 1) + 1` 回、世代は高々
     // `API グループ数 + 1` なので有限に止まる
-    const mask = (state.chain ? CLOSURE_CHAIN : 0) | (state.elig ? CLOSURE_ELIG : 0)
-      | (state.down ? CLOSURE_DOWN : 0) | (state.apiTail ? CLOSURE_API_TAIL : 0);
-    // **表示する代表経路の候補集合**（仕様 out/loop/r38-decision.md、原則 4）。
-    // 届いた実経路は**展開に受理されたか否か・`cut`・`wiring`・受理済み事実に関わらず**
-    // すべて加える。r37 までここに有った 2 つの到着順ゲート（旧 `demote` / `shorter`）は
-    // 削除した。ゲートは「既に何が候補に入っているか」と「`bestState` の到着順の旗」を
-    // 読むので、同じ経路でも加わる順で合否が変わり、支配関係との非対称性を作って
-    // いた（双人レビュー第 37 ラウンド agy 指摘 3-1）。旧ゲートの意図（定義上の関連を
-    // 最後に、根付きを先に）は `repDominates` と `repCmp` の第 1・2 項が同じ比較項目で
-    // 持っているので、代表の選び方は変わらない。受理の枝刈り（下の `better`）は
-    // 展開を増やさないためだけで、候補の合否には無関係
-    if (state.rec) addRepCandidate(state.id, mask, state.budget, state.rec);
     const prevBudget = fresh ? Infinity : done.budgets[mask];
     const better = fresh || (state.primary && !done.primary) || state.budget < prevBudget;
     if (!better) return false;
@@ -1097,6 +1138,90 @@ function runClosure(seedIds) {
       budget: Math.min(bestState.get(state.id)?.budget ?? Infinity, state.budget),
     });
     return true;
+  };
+
+  // 展開中の実経路のノード（第 37 ラウンドの `onPath` と同じ材料・同じ上限 64: キュー状態の
+  // `parent` 連鎖と種の walk 記録（`combined`）の `via` 連鎖。閉包の最中に `combined` は
+  // 変わらないので見てよい。表示の代表は**読まない**）。隣ごとの循環判定と背面パターンの符号で
+  // 同じ連鎖を何度も辿るのは高いので、1 状態 1 回だけ再利用配列へ写す（Set を不受理到着の
+  // 全件分作ったのが `elsa-folder` の主コストの一つ。実測 1.01 → 0.70 秒）
+  const pathBuf = [];
+  const pathStamp = new Map();
+  let pathEpoch = 0;
+  const fillPath = (state) => {
+    pathEpoch += 1;
+    let n = 0;
+    let s = state;
+    for (let i = 0; s && i < 64; i += 1) {
+      pathBuf[n] = s.id; n += 1;
+      if (!s.parent) {
+        let rec = combined.get(s.id);
+        rec = rec && rec.via ? combined.get(rec.via) : null;
+        for (let j = 0; rec && j < 64; j += 1) {
+          pathBuf[n] = rec.id; n += 1;
+          rec = rec.via ? combined.get(rec.via) : null;
+        }
+        break;
+      }
+      s = s.parent;
+    }
+    for (let i = 0; i < n; i += 1) pathStamp.set(pathBuf[i], pathEpoch);
+    return n;
+  };
+  // 経路上の判定は書き込み時の刻印（`pathStamp`）で見る。隣ごとの総当り（`pathBuf` の
+  // 線形走査を隣の数だけ繰り返す）は背面パターンの符号と合わせて主コストだった
+  const pathHas = (n, id) => pathStamp.get(id) === pathEpoch;
+  // 隣ごとの背面フラグを書き出す再利用配列（`pathBuf` が子の判定で書き換わるため、
+  // 隣ループは先にフラグだけ確保してから進む。`pathHas` を先に読むため値は常に真偽）
+  const backBuf = [];
+  // 背面パターン: この状態の隣が「展開中の経路上に居るか」の 0/1 並び（`tfAdj` の順は
+  // グラフから決まり到着順に依らない）。同じ隣を辿る状態は同じ結論になるので、不受理到着の
+  // 重複の識別に使う。**共有配列なので呼んだ人が `pathHas` を読み終わるまで
+  // 他の `fillPath` を挟まない**こと（隣ループでは背面フラグを先に書き出してから使う）
+  const sigOf = (state) => {
+    const n = fillPath(state);
+    const arr = [];
+    for (const nb of tfAdj.get(state.id) || []) arr.push(pathHas(n, nb.to) ? 1 : 0);
+    // 不受理到着として再辿るとき、pop 後の背面フラグはここで測ったものと同一になる
+    // （同じ `tfAdj` の並びを同じ経路で見る）。配列を置いておけば pop 時の `fillPath` を
+    // _walk_しなくて済む（第 40 ラウンド実測: 不受理再辿りの主コストが到着ごとの `fillPath` 二重計算）
+    state.candBack = arr;
+    return arr.join('');
+  };
+  // **不受理の到着も 1 回は隣へ事実と候補を残す**（双人レビュー第 38 ラウンド codex 指摘 P1）。
+  // 受理表は展開を増やさないための枝刈りだが、循環境避（`onPath`）は展開中の実経路を読むので、
+  // 同じ (資格, 予算) で親だけ違う到着のどちらが展開されるかで「ある一歩が到着か背面カットか」が
+  // 変わり、候補集合と動きの根拠そのものが縁の並び順で揺れた（再現
+  // `out/tmp-review38/repro.py` の `core-minimal-lambda`: `c` が orig 3 段 / rev 1 段、
+  // `minimal-lambda`: `t` の動きの根拠が e4 / e2）。不受理の到着から隣をもう 1 周辿るが、
+  // 事実と候補の記録だけ（受理表には触れない）で、その先の展開はしない。展開の受理は
+  // この処理に一切影響しないので探索の広がり・終了性は不変。同じ
+  // (ノード, 資格, 予算, 隣に対する背面パターン) の不受理到着は 1 回だけなので有限で終わる
+  const candQueue = [];
+  // `id -> (キー -> 再辿り済みの最小段数)`。キーは (資格, 予算, 背面パターン, `sibBlocked`)。
+  // `sibBlocked` は子の `primary`（=`wiring`）を決めるので資格のマスクに入っていなくても
+  // キーに必要。段数だけが違う不受理到着は多い方が子の候補で支配される（同じ `via` 群で
+  // 段数以外同じ候補は段数の小さい方に負ける）ため、少ない方だけ辿れば着地は同じ
+  const candRelaxed = new Map();
+  // `gateKind` は展開側の受理と同じ門（種の時点はノード種別を問わないが、一歩ごとの展開は
+  // Terraform の資源ノードだけ。メンバで展開しないのはコード側の縁を辿るのを本命 walk
+  // だけにさせるため）
+  const offerOrQueue = (state, gateKind) => {
+    const isResource = (byId.get(state.id) || {}).kind === 'resource';
+    if (offer(state)) {
+      if (!gateKind || isResource) queue.push(state);
+      return;
+    }
+    if (gateKind && !isResource) return;
+    const sig = sigOf(state);
+    const key = `${maskOf(state)}|${state.budget}|${sig}|${state.sibBlocked ? 1 : 0}`;
+    const keys = candRelaxed.get(state.id) || new Map();
+    const known = keys.get(key);
+    if (known !== undefined && state.hops >= known) return;
+    keys.set(key, state.hops);
+    candRelaxed.set(state.id, keys);
+    state.candOnly = true;
+    candQueue.push(state);
   };
 
   for (const id of new Set(seedIds)) {
@@ -1130,22 +1255,38 @@ function runClosure(seedIds) {
       primary, elig: primary || inTouchedApiGroup(id),
       chain,
       apiTail: !!rec.apiTail,
-      via: null, rec, parent: null,
+      via: null, rec: { ...rec }, parent: null,
     };
-    if (offer(state)) queue.push(state);
+    offerOrQueue(state, false);
   }
   let guard = 0;
-  while (queue.length && guard++ < MAX_CLOSURE_STEPS) {
-    const cur = queue.shift();
-    for (const { to, edge } of tfAdj.get(cur.id) || []) {
+  while ((queue.length || candQueue.length) && guard++ < MAX_CLOSURE_STEPS * 2) {
+    // 受理された状態の列が先。**`candOnly` の再辿りは受理 BFS が空になった後だけ**に流す。
+    // 再辿りの子は事実（`noteFacts`）へ直接寄せるので、受理の到着と混ぜると事実の
+    // 「先に着いた記録」の順序が揺れて、支配判定の及ばない項目（定義上の関連の段数など）が
+    // 食い違った（第 40 ラウンド実測: 交差優先にすると `real-handler.json` の `example_api` が
+    // in/3 段 → out/4 段 へ反転）。受理 BFS の処理順は `candQueue` の有無で変わらない
+    const cur = queue.length ? queue.shift() : candQueue.shift();
+    // 循環境避は**展開中の実経路**（`fillPath`。キュー状態の `parent` 連鎖と種の walk 記録）
+    // だけで決める。表示の代表が入る `wiringMap` を読むと、代表の選び方が循環判定 →
+    // `cut` / `apiTail` → 候補の合否へ逆流して候補集合自体が到着順で変わる
+    // （双人レビュー第 37 ラウンド指摘 1。仕様 out/loop/r38-decision.md）。
+    // 背面フラグは隣へ進む前に全部書き出しておく。共有の `pathBuf` は子の受理・不受理の
+    // 判定（`sigOf`）で書き換わるので、間に挟んだ `pathHas` は信用できない
+    const nbs = tfAdj.get(cur.id) || [];
+    if (cur.candBack) {
+      for (let qi = 0; qi < nbs.length; qi += 1) backBuf[qi] = cur.candBack[qi];
+    } else {
+      const pn = fillPath(cur);
+      for (let qi = 0; qi < nbs.length; qi += 1) backBuf[qi] = pathHas(pn, nbs[qi].to);
+    }
+    for (let qi = 0; qi < nbs.length; qi += 1) {
+      const nb = nbs[qi];
+      const { to, edge } = nb;
       // 段数の上限は「Terraform の定義単位をどこまで閉じるか」なので、予算を課すのは
       // `references`（定義を辿る縁）だけ。**動きの縁を越えたところでは数え直す**
-      // 循環境避は**展開中の実経路**（`onPath`。キュー状態の `parent` 連鎖と種の walk 記録）
-      // だけで決める。表示の代表が入る `wiringMap` を読むと、代表の選び方が循環判定 →
-      // `cut` / `apiTail` → 候補の合否へ逆流して候補集合自体が到着順で変わる
-      // （双人レビュー第 37 ラウンド指摘 1。仕様 out/loop/r38-decision.md）
-      const back = onPath(cur, to);   // 循環させる一歩は出発点を切り直す
-      const movement = MOVEMENT.has(edge.kind);
+      const back = !!backBuf[qi];   // 循環させる一歩は出発点を切り直す
+      const movement = nb.mv;
       const budget = movement ? 0 : cur.budget + 1;
       if (budget > opts.wiringHops) continue;
       // **伝播の資格**: 動きの縁を辿っても、辿ってきたノードが「起点 / 本命として届いたノード /
@@ -1156,8 +1297,7 @@ function runClosure(seedIds) {
       // 起点がエンドポイントのとき、`handler` / `exposed-by` を**逆向き**に越えた一歩は
       // 「そのコードを実装している別の入口」を覗いているだけなので、そこからは伝播させない。
       // 逆向き `handler` 経由で別 API の Lambda やその handler まで本命になっていた（双人レビュー P1）
-      const flipped = startIsEndpoint && FLIP_INTO_IMPL.has(edge.kind) && !arrowAt(edge, to)
-        && flipAmbiguous(edge.kind, cur.id);
+      const flipped = startIsEndpoint && nb.flipKind && !nb.arrow && nb.flipAmb;
       // 本命は**動きの縁 × 連鎖**。`cur.elig`（同じ API を定義しているだけ）をここに使っていたのが
       // 過剰昇格の door で、グループ全体が種になって翌ラウンドで昇格した
       const primary = movement && !!cur.chain && !cur.sibBlocked && !flipped;
@@ -1168,29 +1308,29 @@ function runClosure(seedIds) {
       // 伝播の資格は与えない（`api_id` が同じだけの別 route の実装を本命にしない）
       const sib = isSiblingEndpointNode(to);
       const elig = !sib && !flipped && (primary || inTouchedApiGroup(to)
-        || (!movement && cur.elig && refersInto(edge, cur.id, to)));
+        || (!movement && cur.elig && nb.rInto));
       // 閉包でも連鎖は同じ規則で受け継ぐ（walk と同じ `refCutsChain`）
-      const chain = !!cur.chain && !sib && !flipped && !refCutsChain(edge, cur.id, to);
+      const chain = !!cur.chain && !sib && !flipped && !nb.cuts;
       const rec = {
         id: to, edge,
         hops: cur.hops + 1, switches: 0, via: back ? null : cur.id, cut: back, wiring: !primary,
-        down: !!cur.down && !(movement && !arrowAt(edge, to)),
+        down: !!cur.down && !(movement && !nb.arrow),
         // `reachedByInvokes` は**この一歩が `invokes` だった**こと。しかも矢印どおりに辿った
         // 一歩（呼ばれる側へ着いた一歩）だけ。逆にたどった一歩（呼び出し元へ着いた一歩）に
         // 立てると「自分が呼んだ」と読める旗が上流に立った（双人レビュー第 20 ラウンド P2）
-        reachedByInvokes: edge.kind === 'invokes' && arrowAt(edge, to) && !internalInvokes(cur.id, to),
+        reachedByInvokes: nb.kindInv && nb.arrow && !nb.intInv,
         // walk と同じ「API の定義を越えて届いた」旗。閉包は Terraform の定義を無方向に閉じるので、
         // `integration → references → resource` のような定義側もここを通る。旗は**この経路が
         // 運んできたもの**だけを使う（`bestState` の寄せ集めを種に渡すと、別の経路で立った旗が
         // 無い経路にも付く。実測: IAM ポリシー起点が 19 行に膨らんだ）。立てる条件は walk と同じ
-        apiTail: !!cur.apiTail || crossesApiTail(cur, back),
+        apiTail: !!cur.apiTail || (!back && !!cur.chain && nb.tailFrom),
         sibBlocked: sib,
         chain,
         // 向きは「縁の向き × その行が矢印のどちら側か」。動きの縁なら矢印の先が下流。
         // `references`（定義）は向きに意味無いので辿ってきたノードの向きを継ぐ
         // 動きの縁は矢印の先が下流。`SFN → invokes → この Lambda` は SFN が上流なので
         // 影響を受ける入口（実測バグ: 「実装側に入った」旗を先に読んで 影響する先 に反転した）
-        dir: movement ? (arrowAt(edge, to) ? 'out' : 'in')
+        dir: movement ? (nb.arrow ? 'out' : 'in')
           : cur.down ? 'out'
             : ((combined.get(cur.id) || {}).dir || (edge.target === cur.id ? 'in' : 'out')),
       };
@@ -1200,7 +1340,12 @@ function runClosure(seedIds) {
         apiTail: !!rec.apiTail, parent: cur,
       };
       // メンバ（`handler` の届く先）では展開しない。コード側の縁を辿るのは本命の walk だけにさせる
-      if (offer(state) && (byId.get(to) || {}).kind === 'resource') queue.push(state);
+      if (cur.candOnly) {
+        // 記録のみの状態からの子は事実と候補だけ残す（受理表に触れないので展開の広さは不変）
+        noteArrival(state);
+      } else {
+        offerOrQueue(state, true);
+      }
     }
   }
   return wiringMap;
@@ -1208,7 +1353,10 @@ function runClosure(seedIds) {
 function mergeWiring() {
   for (const [id, info] of wiringMap) {
     const cur = combined.get(id);
-    if (!cur) combined.set(id, info);
+    // `combined` にもコピーを入れる（双人レビュー第 38 ラウンド P2。候補や `wiringMap` と
+    // 同じ実体を握ったまま `promote` が書き換えると、後から来た候補との比較がマージ順に
+    // 左右される）
+    if (!cur) combined.set(id, { ...info });
     else promote(cur, info);
   }
 }
@@ -1306,6 +1454,112 @@ while (pending && rounds < maxRounds) {
 if (pending) {
   unresolved = true;
   process.stderr.write(`[report] 警告: 探索が収束する前にラウンド上限 ${maxRounds} に達しました（結果は不完全です）\n`);
+}
+
+// ---- 表示経路を「起点まで遡れる単一の連鎖」に確定する（仕様 out/loop/r40-decision.md）----
+// 探索の受理・循環カット・旗・代表の選び方は一切変えない（第 38 ラウンド不変原則 4）。
+// ここは収束後の表示だけを見る。`combined` の `via` 連鎖が起点まで遡れないノード
+// （打ち切り・循環）だけを `repCands` から選び直す。選び直しは**親が確定済みの候補だけ**が
+// 対象で、確定済み親を持つ候補のうち `repCmp` 最小を全グラフで一番小さいものから順に
+// 確定していく（親の確定順）。選び直した一歩は常に「確定済み親の確定経路 + 1 縁」なので、
+// 後から何が確定しても連鎖は閉じない。候補集合は到着順に依らず（第 38 ラウンド）、
+// `repCmp` は全順序で、同一候補が並ぶ最後のタイブレークはノード id。よって結果は
+// 縁の並び順・到着順に依らない（第 39 ラウンド Astra 裁定「決定論性は絶対」）。
+// 探索中の `wiringMap` / `combined` の中身は触らないので、欄・向き・本命区分の判定材料
+// （`bestState`）も不変。表示の根拠縁と段数だけがこの経路から決まる
+const rooted = new Set();
+const isRooted = (id) => {
+  if (rooted.has(id)) return true;
+  const stack = []; const seen = new Set();
+  let cur = id; let ok = false;
+  for (;;) {
+    if (rooted.has(cur)) { ok = true; break; }
+    if (seen.has(cur)) { ok = false; break; }        // via 連鎖が循環
+    const rec = combined.get(cur);
+    if (!rec) { ok = false; break; }                 // via が存在しないレコードを指す
+    seen.add(cur); stack.push(cur);
+    if (!rec.via) { ok = !rec.cut; break; }          // 根（起点そのもの）で着地したか
+    cur = rec.via;
+  }
+  if (ok) for (const n of stack) rooted.add(n);
+  return ok;
+};
+for (const id of combined.keys()) isRooted(id);
+const byParent = new Map();
+for (const [id, entry] of repCands) {
+  if (rooted.has(id)) continue;
+  for (const list of entry.groups.values()) {
+    for (const c of list) {
+      // 循環境避で切った一歩（`via = null`）は起点へ遡れないので確定の土台にしない
+      if (!c.rec.via) continue;
+      if (!byParent.has(c.rec.via)) byParent.set(c.rec.via, []);
+      byParent.get(c.rec.via).push([id, c]);
+    }
+  }
+}
+const settled = new Set(rooted);
+const tentative = new Map();
+// 選ぶたびに候補集合を全スキャンすると候補の数千件で二乗のコストになる（実測の主要因）。
+// 二分ヒープで保つ。取り出し順は全スキャンと同じ — `repCmp` は全順序で、同値のときは
+// ノード ID が小さい順。より良い候補に差し替えられた古い条目は取り出し時に捨てる
+const heap = [];
+const heapLt = (a, b) => {
+  const d = repCmp(a.c, b.c);
+  return d !== 0 ? d < 0 : a.id < b.id;
+};
+const hpush = (item) => {
+  heap.push(item);
+  let i = heap.length - 1;
+  while (i > 0) {
+    const p = (i - 1) >> 1;
+    if (!heapLt(heap[i], heap[p])) break;
+    const t = heap[p]; heap[p] = heap[i]; heap[i] = t; i = p;
+  }
+};
+const hpop = () => {
+  const top = heap[0];
+  const last = heap.pop();
+  if (heap.length) {
+    heap[0] = last;
+    let i = 0;
+    for (;;) {
+      const l = 2 * i + 1; const r = l + 1;
+      let m = i;
+      if (l < heap.length && heapLt(heap[l], heap[m])) m = l;
+      if (r < heap.length && heapLt(heap[r], heap[m])) m = r;
+      if (m === i) break;
+      const t = heap[m]; heap[m] = heap[i]; heap[i] = t; i = m;
+    }
+  }
+  return top;
+};
+const considerCand = (id, c) => {
+  const cur = tentative.get(id);
+  if (!cur || repCmp(c, cur) < 0) { tentative.set(id, c); hpush({ id, c }); }
+};
+for (const [p, entries] of byParent) {
+  if (settled.has(p)) for (const [id, c] of entries) if (!settled.has(id)) considerCand(id, c);
+}
+const displayPick = new Map();
+while (heap.length) {
+  const { id, c } = hpop();
+  if (tentative.get(id) !== c) continue;   // より良い候補に差し替え済みの古い条目
+  tentative.delete(id);
+  if (settled.has(id)) continue;
+  settled.add(id);
+  displayPick.set(id, c.rec);
+  for (const [nid, nc] of byParent.get(id) || []) if (!settled.has(nid)) considerCand(nid, nc);
+}
+const stranded = [];
+for (const [id] of repCands) {
+  if (rooted.has(id)) continue;
+  if (displayPick.has(id)) combined.set(id, { ...displayPick.get(id) });
+  else stranded.push(id);
+}
+if (stranded.length) {
+  // どの候補の親も起点に届かないノードは表示を壊したまま残す。黙って打ち切った経路を
+  // 出さないための警告（検査 out/tmp-r40/via-cycle.py と test-report.mjs が失敗するので隠れない）
+  process.stderr.write(`[report] 警告: ${stranded.length} ノードの表示経路を起点へ繋げませんでした（打ち切りのまま残します）\n`);
 }
 
 // ---- 行を組み立てる ----
@@ -1619,7 +1873,7 @@ const provLabel = (p) => ({
 }[p] || p);
 function mdSection(title, rs, limit) {
   if (!rs.length) return `### ${title}\n\n該当なし\n\n`;
-  const head = `### ${title}\n\n| 着地 | 種別 | 距離 | 根拠 | 由来 |\n| --- | --- | --- | --- | --- |\n`;
+  const head = `### ${title}\n\n| 着地 | 種別 | 表示経路の段数<br>（最短とは限りません） | 根拠 | 由来 |\n| --- | --- | --- | --- | --- |\n`;
   const body = rs.slice(0, limit).map((r) => {
     // 経路の根拠（最初に辿れた縁）と、本命にした**動きの縁**を両方出す。後者だけを見て
     // 「経路に無い縁を根拠にしている」とは読ませない
@@ -1644,7 +1898,7 @@ const siblingEpIds = new Set(siblingRows().filter((r) => !!r.endpoint).map((r) =
 const reachedRealEndpoints = reachedEndpoints.filter((e) => !siblingEpIds.has(e.id));
 const reachedSiblingEndpoints = reachedEndpoints.filter((e) => siblingEpIds.has(e.id));
 const SIBLING_LIST_HINT = '一覧は `--list-siblings`（本数は `--limit`）';
-let md = `# 影響範囲レポート\n\n- グラフ: \`${summary.graph}\`\n- 起点 ${summary.starts} 件（展開後 ${summary.expandedStarts} 件、グラフに無く起点にしなかった変更 ${summary.fallbacks} 件）\n- 探索 ${summary.hops} ホップ（方向の切り替え 1 回まで許可、二段到達 ${summary.secondOrder} 件）/ Terraform の定義単位は ${summary.wiringHops} 段まで無方向で閉じる / 階層（parent・contains）は起点の展開にのみ使用\n- 本命: 影響する先 ${summary.primaryOut} / 影響を受ける入口 ${summary.primaryIn} / コード 出口 ${summary.entryOut}・入口 ${summary.entryIn} / 成果物 先 ${summary.artifactsOut}・受 ${summary.artifactsIn} / 定義上の関連 ${summary.wiring} / 同じ API の定義 ${summary.sameApi} / 同じコードを使う別の API ${summary.siblings}（エンドポイント ${summary.siblingEndpointsOnly}・定義ノード ${summary.siblingDefs}）\n- 根拠の由来: ${Object.entries(summary.byProvenance).map(([k, v]) => `${provLabel(k)} ${v}`).join(' / ') || 'なし'}（**注釈由来 ${summary.annotationRows} 件**は静的解析では決まらない対応付け）\n\n`;
+let md = `# 影響範囲レポート\n\n- グラフ: \`${summary.graph}\`\n- 起点 ${summary.starts} 件（展開後 ${summary.expandedStarts} 件、グラフに無く起点にしなかった変更 ${summary.fallbacks} 件）\n- 探索 ${summary.hops} ホップ（方向の切り替え 1 回まで許可、二段到達 ${summary.secondOrder} 件）/ Terraform の定義単位は ${summary.wiringHops} 段まで無方向で閉じる / 階層（parent・contains）は起点の展開にのみ使用\n- 本命: 影響する先 ${summary.primaryOut} / 影響を受ける入口 ${summary.primaryIn} / コード 出口 ${summary.entryOut}・入口 ${summary.entryIn} / 成果物 先 ${summary.artifactsOut}・受 ${summary.artifactsIn} / 定義上の関連 ${summary.wiring} / 同じ API の定義 ${summary.sameApi} / 同じコードを使う別の API ${summary.siblings}（エンドポイント ${summary.siblingEndpointsOnly}・定義ノード ${summary.siblingDefs}）。**「本命」は「最短」を意味しません**\n- 各段数欄は**表示経路の段数**です（起点 0 段、表示経路の関係 1 本を 1 段。表の値と行の経路表示は一致させます）。**最短とは限りません**。経路全体の整合性を保つため、より長い代表経路を表示する場合があります。この段数は影響の強さやレビューの優先度を示しません\n- 根拠の由来: ${Object.entries(summary.byProvenance).map(([k, v]) => `${provLabel(k)} ${v}`).join(' / ') || 'なし'}（**注釈由来 ${summary.annotationRows} 件**は静的解析では決まらない対応付け）\n\n`;
 if (result.score) {
   const s = result.score;
   md += `## 精度（期待一覧との突き合わせ）\n\n- ケース: ${s.case}（方向 ${s.direction}）\n- 期待 ${s.expected} 件 / 外部リソースへの着地 ${s.landedExternal} 件 / 的中 ${s.hitExternal} 件\n- **再現率 ${s.recall} / 適合率 ${s.precision}**\n- 取りこぼし: ${s.missed.map((x) => `\`${x}\``).join(', ') || 'なし'}\n- 余分な着地: ${s.extraExternal.map((x) => `\`${label(x)}\``).join(', ') || 'なし'}\n- 取りこぼしのうち到達はしていた（定義上の関連に回ったもの）: ${s.wiringOnly} 件\n${s.note ? `\n> ${s.note}\n` : ''}\n`;
@@ -1695,9 +1949,9 @@ if (startIsEndpoint && siblingRows().length) {
   md += `### 同じコードを使う別の API（エンドポイント ${summary.siblingEndpointsOnly} 件と、それを定義するノード ${summary.siblingDefs} 件。起点の定義ではなく、共有しているコードを変えたときに一緒に見る）\n\n`;
   md += `兄弟ルート ${summary.siblingEndpointsOnly} 件 / その API を定義しているノード ${summary.siblingDefs} 件`
     + `（**起点の 本命 の結果には入りません**。全件は \`--json\` の \`siblingEndpoints\`、${SIBLING_LIST_HINT}）\n\n`;
-  if (opts.listSiblings) {
+if (opts.listSiblings) {
     const shown = siblingRows().filter((r) => !!r.endpoint).slice(0, opts.limit);
-    md += (shown.map((r) => `- \`${r.name}\`（\`${r.id}\`、距離 ${r.hops}、根拠 \`${r.evidence.kind}\`、理由 \`${r.siblingReason}\`）`).join('\n') || '（なし）') + '\n\n';
+    md += (shown.map((r) => `- \`${r.name}\`（\`${r.id}\`、段数 ${r.hops}（最短とは限りません）、根拠 \`${r.evidence.kind}\`、理由 \`${r.siblingReason}\`）`).join('\n') || '（なし）') + '\n\n';
     const rest = siblingRows().filter((r) => !!r.endpoint).length - shown.length;
     if (rest > 0) md += `他のルート ${rest} 件（\`--limit\` を上げるか \`--json\` 参照）\n\n`;
   }
@@ -1731,7 +1985,7 @@ if (opts.listSiblings) {
   for (const r of sibEps.slice(0, opts.limit)) {
     console.log(`  [sib ${r.hops}] ${r.name}  <- ${r.evidence.kind} (${r.siblingReason})`);
   }
-  if (sibEps.length > opts.limit) {
+if (sibEps.length > opts.limit) {
     console.log(`  他のルート ${sibEps.length - opts.limit} 件（\`--limit\` を上げるか \`--json\` 参照）`);
   }
 }

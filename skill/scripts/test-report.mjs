@@ -459,15 +459,31 @@ const hopBad = hopReports.flatMap((x) => allRows(x.result)
   .filter((r) => r.hops !== r.path.length - 1).map((r) => `${x.name || ''}${r.id} ${r.hops}/${r.path.length - 1}`));
 check('段数と経路の長さがすべての行で一致する', hopBad.length === 0, hopBad.slice(0, 4).join(' / '));
 
-// 経路は必ず起点から始まる。`via` が循環すると長さ 2 の循環でも `hops === path.length - 1` を
-// 素通りしてしまう（第 18 ラウンド両名: 実プロジェクトの 9 行中 5 行、IAM ポリシー起点の全 15 行）
+// 表示経路は必ず起点まで遡れる単一の連鎖で出す（裁定 out/loop/r39-astra.md、
+// 仕様 out/loop/r40-decision.md）。`via` が循環すると経路が起点に遡れなくなるのに、
+// 旧検査は `second-stage` かつ先頭が起点でない行を素通りしていた（第 38 ラウンド agy:
+// `demo-iam` の `notify ⇄ order_process`、実測 4 行）。経路の先頭は起点そのものか、
+// 2 段目 walk の種（その行がレポート内にあり、その経路がさらに起点へ繋がる）なら可。
+// 起点が `--limit` で切り詰められると先頭が `startIds` にも一覧にも出ないが、
+// それは一覧外の起点レコードで着地しているので遡れている
 const rootBad = hopReports.flatMap((x) => {
   const starts = new Set(x.result.summary.startIds || []);
+  const byId = new Map(allRows(x.result).map((r) => [r.id, r]));
+  const headOk = (head, seen) => {
+    if (seen.has(head)) return false;
+    if (starts.has(head)) return true;
+    const up = byId.get(head);
+    if (!up || !up.path || !up.path.length) return true;
+    return headOk(up.path[0], new Set([...seen, head]));
+  };
   return allRows(x.result)
-    .filter((r) => r.pathRoot === 'broken' || (r.pathRoot === 'second-stage' && starts.has(r.path[0])))
-    .map((r) => `${x.name || ''}${r.id} ${r.pathRoot} path[0]=${r.path[0]}`);
+    .filter((r) => !r.path || !r.path.length || r.pathRoot !== 'start'
+      || new Set(r.path).size !== r.path.length
+      || r.path[r.path.length - 1] !== r.id
+      || !headOk(r.path[0], new Set([r.id])))
+    .map((r) => `${x.name || ''}${r.id} ${r.pathRoot} path[0]=${r && r.path && r.path[0]}`);
 });
-check('経路は起点から始まるか、2 段階目として切れた地点から始まる（壊れた経路を出さない）',
+check('全行の表示経路が起点まで遡れる単一の連鎖である（打ち切り・循環を出さない）',
   rootBad.length === 0, rootBad.slice(0, 3).join(' / '));
 
 // 一覧は `--limit` で切れるが、カウンタは切り詰前の値。不変条件はカウンタ側で見る
@@ -1558,15 +1574,24 @@ check('--limit で一覧が切れてもカウンタの不変条件は保たれ�
       runSyn(`r38pc-${name}`, { nodes, edges },
         ['--from', 'tf:aws_lambda_function.s'], `r38pc-${name}`)]);
   const pcRow = (out, id) => (out ? allRows(out.result).find((x) => x.id === id) : null);
-  check('path-counter 反例: 縁の反転・ノードの反転で 段数・根拠・動きの根拠まで一致（target=in/primary/1段/new9、b=out）',
+  // 第 38 ラウンド時点の期待値は `target` 1 段（経路 `[b, target]`）だったが、それは
+  // `b ⇄ target` の 2 ノード循環を `pathOf` が打ち切った表示だった（第 38 ラウンド agy
+  // 指摘 P0 と同じ型。旧検査は先頭が起点でない `second-stage` 行を素通りしていた）。
+  // 第 40 ラウンド（裁定 out/loop/r39-astra.md）では循環せず起点まで遡れる連鎖を表示する:
+  // `[s, i, b, target]` の 3 段。`repCmp` が動きの縁（`triggers`）を定義の縁より先に選ぶので
+  // 根拠縁は `triggers:target->b` のまま、向き in / 本命区分 primary も不変
+  check('path-counter 反例: 縁の反転・ノードの反転で 段数・根拠・動きの根拠まで一致（target=in/primary/3段/new9、b=out）',
     pcOrders.every(([, out]) => {
       if (!out) return false;
       const t = pcRow(out, 'tf:aws_dynamodb_table.target');
       const b = pcRow(out, 'tf:aws_lambda_function.b');
-      return !!t && !!b && t.direction === 'in' && t.tier === 'primary' && t.hops === 1
+      return !!t && !!b && t.direction === 'in' && t.tier === 'primary' && t.hops === 3
+        && t.pathRoot === 'start'
+        && t.path.join(' ') === ['tf:aws_lambda_function.s', 'tf:aws_api_gateway_integration.i',
+          'tf:aws_lambda_function.b', 'tf:aws_dynamodb_table.target'].join(' ')
         && t.evidence.id === 'triggers:tf:aws_dynamodb_table.target->tf:aws_lambda_function.b'
         && !!t.movementEvidence && t.movementEvidence.id === t.evidence.id
-        && b.direction === 'out' && b.tier === 'primary';
+        && b.direction === 'out' && b.tier === 'primary' && b.hops === 2 && b.pathRoot === 'start';
     })
     && new Set(pcOrders.map(([, out]) => JSON.stringify(out ? fullShape(out.result) : null))).size === 1,
     pcOrders.map(([name, out]) => {
