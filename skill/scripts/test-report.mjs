@@ -422,6 +422,14 @@ check('合成グラフでも欄の合計 == 総行数',
   [sh, ne, ch, fl, ar].every((x) => x && bucketTotal(x.result) === x.result.summary.rows),
   [sh, ne, ch, fl, ar].map((x) => x && [x.result.summary.rows, bucketTotal(x.result)]).join(' '));
 
+// `hops` は**表示している経路の長さ**。探索側が持つ段数は「定義単位をまたいだ数」で
+// 動きの縁を越えたら数え直す予算なので、そちらをそのまま出すと `path` と食い違った
+// （第 17 ラウンド agy: demo の 5 行中 4 行で不一致）
+const hopReports = [A, B, lam, proj, fold, foldAll, sh, ne, ch, fl, ar].filter((x) => x && x.result);
+const hopBad = hopReports.flatMap((x) => allRows(x.result)
+  .filter((r) => r.hops !== r.path.length - 1).map((r) => `${x.name || ''}${r.id} ${r.hops}/${r.path.length - 1}`));
+check('段数と経路の長さがすべての行で一致する', hopBad.length === 0, hopBad.slice(0, 4).join(' / '));
+
 rmSync(dir, { recursive: true, force: true });
 console.log(`\n${pass}/${pass + failures.length} 件成功`);
 if (failures.length) { console.log('失敗: ' + failures.join(' / ')); process.exit(1); }

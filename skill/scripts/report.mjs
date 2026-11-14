@@ -626,6 +626,7 @@ const directionOf = (id, info) => {
 };
 for (const [id, info] of combined) {
   if (!info.edge || insideStart(id)) continue;
+  const p = pathOf(id);
   rows.push({
     // 向きは (1) 起点がエンドポイントで実装側に入っている → すべて 影響する先
     // (2) 動きの縁が分かっていれば、その矢印の先が下流 (3) それ以外は辿った向き
@@ -633,7 +634,10 @@ for (const [id, info] of combined) {
     id, name: label(id), kind: byId.get(id).kind, category: category(id),
     resourceType: (byId.get(id).metadata || {}).resourceType || null,
     endpoint: endpointOf(byId.get(id)),
-    hops: info.hops, switches: info.switches, correspondence: !!info.corr,
+    // 表示する段数は**経路の長さ**。探索側が持つ段数は「定義単位をまたいだ数」で、
+    // 動きの縁を越えたら数え直す予算なので、そのまま出すと `path` と食い違った
+    // （実測: demo の `--api` で 1 行が 8 段 / 経路 6 ノード）
+    hops: p.length - 1, switches: info.switches, correspondence: !!info.corr,
     // 動きの縁（`triggers` / `invokes` / `handler`）が別の経路で見つかっていれば、
     // 定義を辿っただけの縁が先着していても本命にする。その縁は `movementEvidence` として
     // 残す（表示の根拠は最初に辿れた縁のままにして、経路と食い違わないようにする）
@@ -643,7 +647,7 @@ for (const [id, info] of combined) {
     // 起点が API エンドポイントのとき、method / resource / rest_api / integration / deployment は
     // **起点となる API 自身を定義している**ので「影響を受ける外部リソース」に数えない
     sameApi: startIsEndpoint && !endpointOf(byId.get(id)) && startApiGroups.has(apiGroupOf(byId.get(id))),
-    calledOut: !!info.calledOut, evidence: info.edge, path: pathOf(id),
+    calledOut: !!info.calledOut, evidence: info.edge, path: p,
   });
 }
 rows.sort((a, b) => a.switches - b.switches || a.hops - b.hops || a.id.localeCompare(b.id));
