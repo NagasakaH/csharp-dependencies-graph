@@ -502,22 +502,43 @@ check('--limit で一覧が切れてもカウンタの不変条件は保たれ�
   const byId = new Map();
   if (r) for (const x of [...r.result.external.in, ...r.result.external.out, ...r.result.wiring]) byId.set(x.id, x);
   const g = (id) => byId.get(id.startsWith('aws_') ? `tf:${id}` : `tf:aws_${id}`);
-  check('経路を循環境避で切っても、動きの縁で受理した本命は定義上の関連へ落とさない',
-    !!r && ['c', 'b'].every((n) => { const x = g(`sfn_state_machine.${n}`); return x && x.tier === 'primary'
-      && x.direction === 'in' && x.movementEvidence && x.movementEvidence.kind === 'invokes'; })
+  // `tf:aws_sfn_state_machine.c` への表示経路は `a ←references← c` の 1 段。第 45 ラウンドの
+  // Astra 裁定・案 D（`out/review-astra45.log`）で **動きの根拠は表示経路に実際に含まれる縁だけ**
+  // にしたので、別経路の `invokes: c → e` を根拠に読む規則は捨てた。表示経路の最終一歩は
+  // `references` なので 動きの根拠 は無し。
+  // 第 46 ラウンド Astra 裁定 (b)(c)（`out/review-astra46.log`）で、**無方向の定義縁だけで
+  // 届いた行の `向き` は `none`** になった（端点から 向き の種を作らない）。向き を持たない行は
+  // 方向別の欄（external.in / out）に並べられないので、`c` は 定義上の関連 の欄で受けるが
+  // **`tier` は `primary` のまま**（裁定: 「`none` の行で中立欄以外へ行くものは『定義上の関連』で
+  // 受け、`tier` は保つ。判定を `tier=wiring` に限定しない」）。本命扱いを落とさないことが
+  // この検査の本命の論点
+  check('経路を循環境避で切っても、動きの縁で受理した本命の tier を落とさない'
+    + '（無方向の一歩だけの行は 向き none で 定義上の関連 欄で受け、tier は保つ）',
+    !!r && ['c', 'b'].every((n) => { const x = g(`sfn_state_machine.${n}`); return x && x.tier === 'primary'; })
+    && g('sfn_state_machine.b').direction === 'in'
+    && g('sfn_state_machine.c').direction === 'none'
+    && g('sfn_state_machine.b').movementEvidence
+    && g('sfn_state_machine.b').movementEvidence.kind === 'invokes'
+    && g('sfn_state_machine.c').movementEvidence === null
     && ['d', 'e'].every((n) => { const x = g(`aws_lambda_function.${n}`); return x && x.tier === 'primary' && x.direction === 'out'; })
-    && r.result.summary.wiring === 0,
-    r ? JSON.stringify([...byId.values()].map((x) => [x.id, x.tier, x.direction])) : '実行失敗');
+    && r.result.summary.wiring === 1
+    && r.result.summary.directionless === 1 && r.result.summary.directionlessPrimary === 1,
+    r ? JSON.stringify([...byId.values()].map((x) => [x.id, x.tier, x.direction,
+      x.movementEvidence ? x.movementEvidence.kind : 'mv-'])) : '実行失敗');
 }
-// (2) 向きの判定は「動きの縁の矢印」を先に読む。実装側に入った旗より優先する
+// (2) 動きの根拠は表示経路の最終一歩だけを見る（第 45 ラウンド Astra 裁定・案 D）。
+// `tf:aws_sfn_state_machine.up` への表示経路は `post_x ←exposed-by← X.Handle ←handler← x
+// ←references← up` で、最終一歩は `references`。別経路の `invokes: up → Y.Handle`（注釈）を
+// 根拠に読む規則を捨てたので 動きの根拠 は無しになり、向きは「起点の実装側に入った旗」で
+// 影響する先 に出る。注釈縁 `exposed-by` が経路に入っているので 対応 は true
 {
   const r = runOn('arrow-priority.graph.json', ['--api', 'POST /orders'], 'facts-arrow');
   const sfnId = 'tf:aws_sfn_state_machine.up';
   const hit = r ? [...r.result.external.in, ...r.result.external.out].find((x) => x.id === sfnId) : null;
-  check('この Lambda を呼びにくる側は、実装側に入った旗よりも動きの縁の矢印で 影響を受ける入口 に出す',
-    !!hit && hit.direction === 'in' && !!hit.movementEvidence
-    && hit.movementEvidence.kind === 'invokes' && hit.tier === 'primary',
-    hit ? JSON.stringify([hit.direction, hit.tier, hit.movementEvidence && hit.movementEvidence.kind])
+  check('表示経路の最終一歩が定義の縁なら 動きの根拠 は無し。実装側に入った旗で 影響する先 に出す（第 45 ラウンド裁定）',
+    !!hit && hit.direction === 'out' && hit.movementEvidence === null
+    && hit.tier === 'primary' && hit.correspondence === true,
+    hit ? JSON.stringify([hit.direction, hit.tier, hit.movementEvidence, hit.correspondence])
       : (r ? 'external に出ていない: ' + JSON.stringify([...r.result.external.in, ...r.result.external.out].map((x) => x.id)) : '実行失敗'));
   // 起点のエンドポイント自身の実装を載せた Lambda は下流側のまま（矢印だけで上流にしない）
   check('起点のエンドポイントの実装を載せた Lambda は 影響する先に残す',
@@ -530,17 +551,72 @@ check('--limit で一覧が切れてもカウンタの不変条件は保たれ�
   const r = runOn('preempt.graph.json', ['--from', 'tf:aws_lambda_function.s'], 'facts-preempt');
   const all = r ? [...r.result.external.in, ...r.result.external.out, ...r.result.wiring] : [];
   const up = all.find((x) => x.id === 'tf:aws_sfn_state_machine.r');
-  check('定義参照が 1 本増えても、実際の呼び出し元は 定義上の関連 に落ちない',
-    !!up && up.tier === 'primary' && up.direction === 'in'
-    && !!up.movementEvidence && up.movementEvidence.kind === 'invokes' && r.result.summary.wiring === 0,
-    up ? JSON.stringify([up.tier, up.direction, up.movementEvidence && up.movementEvidence.kind, r.result.summary.wiring])
+  // 表示経路は `s →references→ r`（`references` の矢印が `r` を指す 1 段）。第 45 ラウンドの
+  // Astra 裁定・案 D（`out/review-astra45.log`）で 動きの根拠 は表示経路の最終一歩だけを見るので、
+  // 別経路の `invokes: r → a` を根拠に読む規則は捨てた（この行は 動きの根拠 無し）。
+  // 第 46 ラウンド裁定 (b)(c) で 向き は `none`（無方向の定義縁 1 本だけの経路なので端点から
+  // 種を作らない）。`向き` を持たない行は 影響する先 / 影響を受ける入口 の欄に並べられないので
+  // 定義上の関連 の欄で受けるが、**本命（`tier=primary`）のままだ**（裁定: 「判定を `tier=wiring`
+  // に限定しない」）。検査の本命は「本命扱いを保つ / 定義上の関連 の意味に落とさない」側
+  check('定義参照が 1 本増えても、実際の呼び出し元の 本命 扱いを落とさない'
+    + '（無方向の定義縁だけの行は 向き none で 定義上の関連 欄で受ける）',
+    !!up && up.tier === 'primary' && up.direction === 'none'
+    && up.movementEvidence === null && r.result.summary.wiring === 1
+    && r.result.summary.directionless === 1 && r.result.summary.directionlessPrimary === 1,
+    up ? JSON.stringify([up.tier, up.direction, up.movementEvidence, r.result.summary.wiring])
       : (r ? 'external / wiring に出ていない' : '実行失敗'));
   const r2 = runOn('promote-skip.graph.json', ['--from', 'tf:aws_lambda_function.start'], 'facts-promote');
   const all2 = r2 ? [...r2.result.external.in, ...r2.result.external.out, ...r2.result.wiring] : [];
   const r3 = all2.find((x) => x.id === 'tf:aws_lambda_function.r3');
+  // `r3` への表示経路は `start →Handle →m2 →r2 →r3`（最後は `triggers`）なので 向き は `out` のまま。
+  // 定義上の関連 が 1 行あるのは `tf:aws_iam_role.r0`（起点から `references` 1 段だけ。第 46
+  // ラウンド裁定 (b)(c) で 向き が `none` になり、方向別の欄から 定義上の関連 へ移った。
+  // `tier` は `primary` のまま）
   check('walk が後から本命にしたノードから先も、閉包の 2 ラウンド目で本命まで育つ',
-    !!r3 && r3.tier === 'primary' && r3.direction === 'out' && r2.result.summary.wiring === 0,
+    !!r3 && r3.tier === 'primary' && r3.direction === 'out' && r2.result.summary.wiring === 1,
     r3 ? JSON.stringify([r3.tier, r3.direction, r2.result.summary.wiring]) : (r2 ? 'r3 が出ていない: ' + JSON.stringify(all2.map((x) => [x.id, x.tier])) : '実行失敗'));
+
+  // 第 46 ラウンド Astra 裁定 §4-4（`out/tmp-r46/spec-none.md`）: `向き = none` の行を
+  // 方向別のフィルターで黙って落とさない。同じ着地 `tf:aws_sfn_state_machine.r`（`references`
+  // 1 段だけ。向き none / tier primary / 外部リソース）を
+  //  - `direction: "none"` で指名すると 再現率 1 / 適合率 1
+  //  - `direction` を書かない（既定 both）でも数に入る
+  //  - `direction: "out"` を明示した方には入らない（明示した方向だけを数えるので仕様）
+  const expectNone = join(dir, 'expect-none.json');
+  writeFileSync(expectNone, JSON.stringify({
+    name: 'fixture: 無方向の着地', direction: 'none', expect: ['tf:aws_sfn_state_machine.r'],
+    note: 'Terraform の定義の縁 1 段だけで届いた着地',
+  }));
+  const en = runOn('preempt.graph.json',
+    ['--from', 'tf:aws_lambda_function.s', '--expect', expectNone], 'facts-preempt-none');
+  const expectBoth = join(dir, 'expect-none-both.json');
+  writeFileSync(expectBoth, JSON.stringify({
+    name: 'fixture: 向きを絞らない', expect: ['tf:aws_sfn_state_machine.r'],
+  }));
+  const eb = runOn('preempt.graph.json',
+    ['--from', 'tf:aws_lambda_function.s', '--expect', expectBoth], 'facts-preempt-both');
+  const expectOut = join(dir, 'expect-none-out.json');
+  writeFileSync(expectOut, JSON.stringify({
+    name: 'fixture: 影響する先だけ', direction: 'out', expect: ['tf:aws_sfn_state_machine.r'],
+  }));
+  const eo = runOn('preempt.graph.json',
+    ['--from', 'tf:aws_lambda_function.s', '--expect', expectOut], 'facts-preempt-out');
+  check('向き none の着地を --expect で拾える（none と既定の both で数え、out 明示では数えない）',
+    !!en && en.result.score.direction === 'none' && en.result.score.recall === 1
+    && en.result.score.precision === 1 && en.result.score.landedExternal === 1
+    && !!eb && eb.result.score.direction === 'both' && eb.result.score.recall === 1
+    && eb.result.score.missed.length === 0
+    && !!eo && eo.result.score.direction === 'out' && eo.result.score.missed.length === 1
+    && eo.result.score.missed[0] === 'tf:aws_sfn_state_machine.r',
+    JSON.stringify([en && en.result.score, eb && eb.result.score, eo && eo.result.score]));
+
+  // Markdown 側では 向き 列に「—」を出す（裁定 §2: 「Markdown の 向き 表示は『—』」）。
+  // 定義上の関連 の欄に受けた行であることを一緒に確かめる
+  const noneLine = (en ? en.md : '').split('\n')
+    .find((l) => l.startsWith(`| ${up.name} |`) && l.includes('`references`'));
+  check('Markdown の一覧の 向き 列は none の行を「—」で出す（定義上の関連 に受けた行）',
+    !!noneLine && noneLine.includes('| — |') && /### 定義上の関連/.test(en.md),
+    JSON.stringify([noneLine || '行が見つからない', /### 定義上の関連/.test(en.md)]));
 }
 // (4) 旗の名前どおりに立つ（呼ばれる側へ着いた一歩だけ。呼び出し元に立たない）
 {
@@ -729,9 +805,18 @@ check('--limit で一覧が切れてもカウンタの不変条件は保たれ�
     a ? JSON.stringify([a.result.summary.primaryOut, a.result.summary.entryOut]) : '実行失敗');
 
   const b = runOn('down-inherit-record.graph.json', ['--from', '0', '--hops', '3'], 'record-down');
-  check('経路の記録が 定義上の関連 のままでも受け事実の `down` を引き継いで歩く',
-    !!b && b.result.summary.entryOut === 2 && b.result.summary.wiring === 1,
-    b ? JSON.stringify([b.result.summary.entryOut, b.result.summary.wiring]) : '実行失敗');
+  // 受け事実 `down` は **歩く資格（予算のマスク）の引き継ぎ**には今も使っているので、定義上の関連
+  // と記録されたノードの先も 入口 まで育つ（`entryOut === 2` のまま）。ただし第 46 ラウンド Astra
+  // 裁定 (a-2)（`out/review-astra46.log`）で **向き の決定から `down` の独立した上書きを外した**
+  // （「有向縁で `in` に決めた直後、無方向の一歩が残存する `down` によって `out` に戻る余地が
+  // 残る」ため）。実装側へ入る例外は 動きの縁 の枝の中にだけ残す。結果、無方向の定義縁だけで
+  // 届いた `1` と `8` の 向き は `none` になり、方向別の欄ではなく 定義上の関連 に並ぶ
+  check('経路の記録が 定義上の関連 のままでも受け事実の `down` を引き継いで歩く'
+    + '（向き は `down` で上書きしない。第 46 ラウンド裁定 (a-2)）',
+    !!b && b.result.summary.entryOut === 2 && b.result.summary.wiring === 2
+    && b.result.summary.directionless === 2 && b.result.summary.directionlessPrimary === 1,
+    b ? JSON.stringify([b.result.summary.entryOut, b.result.summary.wiring,
+      b.result.summary.directionless, b.result.summary.directionlessPrimary]) : '実行失敗');
 
   const c = runOn('code-chain.graph.json',
     ['--from', 'tf:aws_lambda_function.l0', '--hops', '30', '--max-rounds', '1'], 'rounds-cut');
@@ -1259,7 +1344,11 @@ check('--limit で一覧が切れてもカウンタの不変条件は保たれ�
   // B. 同じ API を定義する行を walk の折り返しで塗り替えない。`method --exposed-by(注釈)--> 実装`
   // を折り返して `method` へ戻る一歩が `mdir` を反転させ、`references` で定義側へ再突入すると
   // `hops: 3` の walk 経路が 向き out・根拠薄い で先着した（v1 基準の 2 行が in → out）。
-  // 定義跨ぎの広がり自体は閉包が `hops: 1`・完全な縁で記録しているので、向きは in のまま
+  // 定義跨ぎの広がり自体は閉包が `hops: 1`・完全な縁で記録しているので、段数と 親 と 根拠縁 は
+  // 塗り替わらないまま。`向き` は表示経路を根から読む（第 45 ラウンド追加裁定）。この 1 段は
+  // `references`（定義閉包で 向き を意味として採用しない 無方向の定義縁）なので、第 46 ラウンド
+  // Astra 裁定 (b)(c)（`out/review-astra46.log`）どおり **端点から 向き の種を作らず**、起点の
+  // `none` をそのまま継承して `向き = none`（Markdown では「—」）
   const defNodes = [
     synNode('tf:aws_api_gateway_method.post_order', 'resource', { resourceType: 'aws_api_gateway_method',
       category: 'apigateway', endpoint: 'POST /orders' }),
@@ -1280,10 +1369,11 @@ check('--limit で一覧が切れてもカウンタの不変条件は保たれ�
   const defRuns = [['def-orig', defEdges], ['def-rev', [...defEdges].reverse()]].map(([name, edges]) =>
     [name, runSyn(name, { nodes: defNodes, edges }, ['--api', 'POST /orders'], name)]);
   const defRow = (out, id) => (out ? allRows(out.result).find((x) => x.id === id) : null);
-  check('実装から method へ折り返す一歩が 同じ API を定義する行の 向き を塗り替えない（向き in・hops 1 のまま）',
+  check('実装から method へ折り返す一歩が 同じ API を定義する行を塗り替えない（hops 1・親・根拠縁のまま。'
+    + '無方向の定義縁だけの 1 段なので 向き は none）',
     defRuns.every(([, out]) => !!out && defIds.every((id) => {
       const hit = defRow(out, id);
-      return !!hit && hit.tier === 'wiring' && hit.direction === 'in' && hit.hops === 1
+      return !!hit && hit.tier === 'wiring' && hit.direction === 'none' && hit.hops === 1
         && hit.via === 'tf:aws_api_gateway_method.post_order'
         && hit.path.length === 2 && hit.evidence.kind === 'references';
     }))
@@ -1463,7 +1553,12 @@ check('--limit で一覧が切れてもカウンタの不変条件は保たれ�
 
   // (1) codex 双人レビューの反例。`chain` 一本の経路（`l_out → x1 → target`、向き out）と
   // `elig|apiTail` の経路（`i → b ← target`、向き in）が比較不能で着く。仕様どおり
-  // `apiTail` を運ぶ経路が代表になり、向き `in` / 3 段で並べ順不変
+  // `apiTail` を運ぶ経路が代表になり、3 段で並べ順不変。
+  // 向きは表示経路を根から読む（第 45 ラウンド追加裁定）。代表になった
+  // `s ←invokes(注釈)← l_out --invokes--> b ←references-- target` は、2 本目が 動きの縁で
+  // 矢印が `b` を指すのでそこで 影響する先 へ決まり、3 本目の Terraform の定義の縁は
+  // 向きを変えない → out（向き変え 2 回として表示に出る）。v1 基準の in は 別経路の
+  // `i → b` 側の記録の 向き を読んでいた値で、表示経路の純関数ではない
   const counterNodes = [
     synNode('tf:aws_lambda_function.s', 'resource', { resourceType: 'aws_lambda_function' }),
     synNode('tf:aws_lambda_function.l_out', 'resource', { resourceType: 'aws_lambda_function' }),
@@ -1489,7 +1584,7 @@ check('--limit で一覧が切れてもカウンタの不変条件は保たれ�
   const cTarget = (out) => (out ? allRows(out.result).find((x) => x.id === 'tf:aws_dynamodb_table.target') : null);
   check('比較不能な代表経路の対決は全順序で決まり、縁を shuffled しても 欄・向き・段数・根拠が一致する',
     cOrders.every(([, out]) => !!out && !!cTarget(out)
-      && cTarget(out).tier === 'wiring' && cTarget(out).direction === 'in'
+      && cTarget(out).tier === 'wiring' && cTarget(out).direction === 'out'
       && cTarget(out).hops === 3
       && cTarget(out).evidence.kind === 'references')
     && new Set(cOrders.map(([, out]) => JSON.stringify(out ? fullShape(out.result) : null))).size === 1,
@@ -1831,8 +1926,17 @@ check('--limit で一覧が切れてもカウンタの不変条件は保たれ�
   // 反例 1: `member:N0` は注釈の `calls` で `member:N7` に届き、`member:N7` は `member:N1` が呼ぶ。
   // 同じ `member:N1` へ `member:N4` から 動きの縁 `triggers` も届く。後着として消えた方の並びでは
   // `triggers` を忘れて 影響を受ける入口 に並んでいた（実測 4 縁。min-2.json）
+  // 第 45 ラウンドの Astra 裁定・案 D（`out/review-astra45.log`）で **動きの根拠は表示経路に
+  // 実際に含まれる縁だけ** から決めるので、`member:N1` への表示経路
+  // （`N0 ←calls(e4, 注釈)← N7 ←calls(e2)← N1`）に動きの縁は無い。動きの根拠 は無し。
+  // 向きは表示経路を根から読む（第 45 ラウンド追加裁定）: `e4` の矢印が `N7` を指すので 1 本目が
+  // 影響する先、`e2` は 向きを持つ一歩（静的解析の `calls`）なので自分の矢印で 影響を受ける入口 に
+  // 戻る。注釈縁 `e4` が経路に入るので 対応 は true
+  // （`e2` の provenance は 上の説明どおり 静的解析の縁なので `static`。実グラフで `calls` が
+  // `terraform` の provenance を持つことは無い。実測の kind × provenance 内訳は
+  // `out/tmp-r45/ATTRIB.md`。Terraform の定義の縁 = 無方向で閉じる縁、の判定に効く）
   const g44a = [
-    e44('e2', 'calls', 'member:N1', 'member:N7', 'terraform'),
+    e44('e2', 'calls', 'member:N1', 'member:N7', 'static'),
     e44('e4', 'calls', 'member:N0', 'member:N7', 'human'),
     e44('e6', 'triggers', 'member:N0', 'member:N4', 'llm'),
     e44('e8', 'triggers', 'member:N4', 'member:N1', 'static'),
@@ -1840,18 +1944,24 @@ check('--limit で一覧が切れてもカウンタの不変条件は保たれ�
   const runs44a = orders44(g44a).map(([name, es]) => [name, runSyn(`r44-min2-${name}`,
     { nodes: ['member:N0', 'member:N1', 'member:N4', 'member:N7'].map(n44), edges: es },
     ['--from', 'member:N0', '--hops', '4'], `r44-min2-${name}`)]);
-  check('後着の一歩の動きの縁も事実へ寄せる。4 とおりの縁順で 欄・向き・動きの根拠 が 1 通り（第 44 ラウンド）',
+  check('別経路の動きの縁は 動きの根拠 にしない。4 とおりの縁順で 欄・向き・動きの根拠 が 1 通り（第 45 ラウンド裁定）',
     runs44a.every(([, out]) => !!out)
       && new Set(runs44a.map(([, out]) => shape44(out.result))).size === 1
       && runs44a.every(([, out]) => {
         const r = row44(out, 'member:N1');
-        return !!r && r.direction === 'out' && !!r.movementEvidence && r.movementEvidence.id === 'e8';
+        return !!r && r.direction === 'in' && r.movementEvidence === null && r.correspondence === true;
       }),
     runs44a.map(([name, out]) => `${name}: ${out ? `${(row44(out, 'member:N1') || {}).direction}`
       + `/mv:${((row44(out, 'member:N1') || {}).movementEvidence || {}).id || '-'}` : '実行失敗'}`).join(' | '));
 
   // 反例 2: 並行する 2 縁（`invokes` と `calls`）と 定義ノードへ戻る `references` の形。
   // `member:N2` の 動きの根拠 と 呼ばれて成立 が並び順で消えていた（実測 5 縁。min-5.json）
+  // 第 45 ラウンドの Astra 裁定・案 D で表示値は表示経路だけの関数。`member:N2` への表示経路は
+  // `N0 ←handler(e6)← N3 ←references(e4)← N2` の 2 段で、最終一歩は `references`。別経路の
+  // `invokes(e0)` を読む規則は捨てたので 動きの根拠 は無し・呼ばれて成立 は false、
+  // 向きは表示経路を根から読んだ値（`e6` の 矢印が `N3` を指すので 1 本目が 影響する先、
+  // `e4` は 向きを持つ一歩（static）なので 自分の 矢印で 影響を受ける入口）。
+  // 4 とおりの縁順で表が 1 通りであることは不変
   const g44b = [
     e44('e0', 'invokes', 'member:N1', 'member:N2', 'static'),
     e44('e4', 'references', 'member:N2', 'member:N3', 'static'),
@@ -1867,7 +1977,8 @@ check('--limit で一覧が切れてもカウンタの不変条件は保たれ�
       && new Set(runs44b.map(([, out]) => shape44(out.result))).size === 1
       && runs44b.every(([, out]) => {
         const r = row44(out, 'member:N2');
-        return !!r && r.direction === 'out' && r.switches === 1 && !!r.movementEvidence;
+        return !!r && r.direction === 'in' && r.switches === 1 && r.movementEvidence === null
+          && r.reachedByInvokes === false;
       }),
     runs44b.map(([name, out]) => `${name}: ${out ? JSON.stringify(shape44(out.result).split('\n').length) : '実行失敗'}`).join(' | '));
 

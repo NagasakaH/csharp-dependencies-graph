@@ -35,8 +35,17 @@ const USAGE = `使い方: report.mjs --graph <graph.json> [--changed <変更フ�
   --list-siblings 兄弟ルート（同じコードを使う別のエンドポイント）の**一覧**を出す。既定は件数だけの
               要約（一覧を変えても結果は同じだと分かっていても、数百本が画面を埋めて見直しの
               候補が見えなくなるため）。一覧を出すときの本数は --limit に従う。
-  --expect    期待する着地の一覧（{"expect": [...], "direction": "in"|"out"|"both", "note": "..."}）。
-              渡すと再現率・適合率を出して JSON にも書く。
+  --expect    期待する着地の一覧（{"expect": [...], "direction": "in"|"out"|"none"|"both", "note": "..."}）。
+              渡すと再現率・適合率を出して JSON にも書く。direction を書かなかった（= both）ときは
+              向き を持つ行と none の行をまとめて数えるので、none の着地も取りこぼさない。
+              none を書くと 向き を決める関係が無い行だけを選んで割る。
+  向き（JSON の行の direction。値域は in / out / none）:
+              in = 影響を受ける入口、out = 影響する先、none = **この表示経路に 向き を決める
+              関係が無い**（Terraform の定義の縁だけを辿った行）。Markdown の一覧の 向き 列では「—」と書く。
+              none は「そのノードに他の有向関係が存在しない」意味ではなく、動きの根拠が
+              無いこと同義でもない（以前の有向縁から 向き を継承した行もある）。none の行は
+              定義上の関連 / 同じ API の定義 / 同じコードを使う別の API の欄に並び、
+              tier（本命の資格）はそのまま保つ。
   変更ファイルがグラフに見当たらないときは、既定では起点にしません（--folder-start で初めて親フォルダ起点）。`;
 
 for (let i = 2; i < process.argv.length; i++) {
@@ -576,7 +585,7 @@ const addWalkCandidate = (id, rec, cur) => {
     // 同じ親・同じ縁の一歩なので `repCmp` の最終項目は同値。選考が見る残り（昇格資格・
     // 切り旗・定義段数・段数・2 つの旗）も同じなら、表示に出る項目も同じで 1 件で足りる
     // （実測: elsa-folder / demo / fixture-api / real-api の同じ (親, 縁) の到着どうしで
-    // 違うのは `hops` だけで、他は `dir` / `down` / `corr` / 旗まで一致。
+    // 違うのは `hops` だけで、他は `dir` / `down` / 旗まで一致。
     // out/tmp-r43/dbg2.mjs）。`hops` が違う対は `repCmp` の第 4 項で短い方が残り、
     // 残った側の `switches` は比較の材料にしない（確定の段で親の確定済み連鎖から数え直す）
     const sameCore = best.rec.hops === src.hops && best.rec.cut === src.cut
@@ -714,7 +723,6 @@ function walkWithSwitch(seedIds, first) {
       apiTail: !!(prev.apiTail || rec.apiTail),
       sibBlocked: !!(prev.sibBlocked && rec.sibBlocked),
       switches: Math.min(prev.switches, rec.switches),
-      corr: !!(prev.corr || rec.corr),
       wiring,
     };
   };
@@ -725,7 +733,7 @@ function walkWithSwitch(seedIds, first) {
     // `TypeError: Assignment to constant variable.` で落ちる。双人レビュー第 23 ラウンド）
     let seed = prev || {
       id, dir: first, mdir: first, switches: 0, hops: 0, via: null, edge: null,
-      corr: false, down: false, reachedByInvokes: false, apiTail: false,
+      down: false, reachedByInvokes: false, apiTail: false,
     };
     // 種は 2 通りある。**起点そのもの**（新しい種）は連鎖の入り口。前ラウンドの記録を
     // 種に使うときは、そのノードが連鎖に入っていたかだけを見る（`bestState` の `elig` は
@@ -795,9 +803,12 @@ function walkWithSwitch(seedIds, first) {
           const sibHere = isSiblingEndpointNode(to) && !calledOut;
           const rec = {
             id: to, mdir: d, down, switches,
-            // 動きの縁は矢印で向きを決める（`exposed-by` は反転）。定義や注釈の縁は、
-            // 実装側に入っているなら 影響する先、そうでなければ辿った向きをそのまま使う
-            dir: movement ? (arrowAt(e, to) ? 'out' : 'in') : (down ? 'out' : d),
+            // 記録の `dir` は**機械的な 辿った向き だけ**（`mdir` と同じ値）。第 46 ラウンド裁定まで
+            // ここは表示用の 向き（実装側に入ったら 影響する先）を持っていたが、表示の 向き は
+            // `displayFacts` が表示経路を根からフォールドして決めるので、記録の 向き を表示へ
+            // 返すと別経路の旗が混ざる（`mergeFlags` は旗を論理和で引き継ぐ）。残りの読み手は
+            // `stateKey` の `mdir` の代用と、選び直しの候補が同値だったときの比較だけ
+            dir: d,
             // Terraform の `references` は「そのブロックを文中に書いた」だけで値が動かない。
             // walk で辿っても定義上の関連のままにする（実測: `admin_users` / `admin_api` が
             // 「動きの根拠: `references`」付きで本命に昇格した）
@@ -810,7 +821,7 @@ function walkWithSwitch(seedIds, first) {
               // 本命 = 「このメソッドを実行している Lambda」の逆引きなので、そこは昇格させる）
               || (startIsEndpoint && FLIP_INTO_IMPL.has(e.kind) && !arrowAt(e, to)
                 && flipAmbiguous(e.kind, cur.id)),
-            hops: cur.hops + 1, via: back ? null : cur.id, cut: back, corr,
+            hops: cur.hops + 1, via: back ? null : cur.id, cut: back,
             reachedByInvokes: calledOut,
             // **API の定義（統合・method・route）を越えて届いた**経路の旗。この旗が立った
             // コードは 2 段目の walk の種にする（指摘 C）。親が既に立てているなら引き継ぐ
@@ -838,16 +849,15 @@ function walkWithSwitch(seedIds, first) {
           addWalkCandidate(to, rec, cur);
           // **到着した全ての一歩**の事実を受理の表へ寄せる。`found` で先着と合流させられた
           // 一歩の縁は `mergeFlags` が旗だけを寄せて捨て、`promote`（＝ここ）へは届かない。
-          // そのため「同じノードへ届いた動きの縁」という事実が縁の並び順で有無に変わる
-          // （実測 out/tmp-r44/min-2.json、4 ノード 4 縁: `member:N4 → triggers → member:N1` の
-          // 一歩が後着で消えた方だけ 動きの根拠 が無しになり、`directionOf` が 動きの縁の矢印 を
-          // 読まずに 辿った向きへ落ちて 影響する先 / 影響を受ける入口 が入れ替わった）。
-          // 閉包側はすでに全ての到着を `noteArrival` で寄せていたので、walk と揃えた
+          // 同じノードへ届いた**全ての一歩**を事実へ寄せるのは閉包側（`noteArrival`）と同じで、
+          // 後着の一歩が立てる旗（本命・連鎖・`down`・`reachedByInvokes`・`apiTail`）を
+          // 先着の枠で捨てないため。第 44 ラウンドまではここに「動きの縁」も集めて表示の根拠に
+          // したが、別経路の縁は表示へ出さない（第 45 ラウンド Astra 裁定・案 D。`displayFacts` が
+          // 表示に確定した連鎖の縁だけから決める）
           noteFacts(to, {
             primary: rec.wiring !== true && rec.chain !== false,
             elig: rec.wiring !== true, chain: rec.chain !== false,
-            down: rec.down, reachedByInvokes: rec.reachedByInvokes, edge: rec.edge,
-            edgeIsArrival: !rec.cut, apiTail: rec.apiTail,
+            down: rec.down, reachedByInvokes: rec.reachedByInvokes, apiTail: rec.apiTail,
           });
           const prevRec = found.get(to);
           if (!prevRec) {
@@ -880,9 +890,13 @@ function walkWithSwitch(seedIds, first) {
 // 「経路の先頭が起点でない」「`hops` と経路の長さが食い違う」壊れ方を二度と同じ場所に
 // 戻さないため）。書き換えずに済む情報だけ足す:
 //  - `reachedByInvokes`: 呼ばれる側へ着いた一歩で着いた（兄弟エンドポイントと区別する判定に使う）
-//  - `movementEvidence` / `wiring = false`: 別の経路に**動きの縁**があった = 定義上ではなく本命
+//  - `wiring = false`: 別の経路に**動きの縁**があった = 定義上ではなく本命
+// 表示する 動きの根拠 はここから読まない（第 45 ラウンド Astra 裁定・案 D）。別経路の動きの縁を
+// 記録へ集めると、その縁が 4 枠のどれへ入るか（＝表示で読むか）が `onChain` の循環境避判定＝
+// **先着の連鎖**で決まり、同じ表示経路なのに 向き と 欄 まで入れ替わった
+// （実測 `out/tmp-r44/min2-1.json` ほか 7 例）。表示は `displayFacts` が表示経路の縁だけから決める
 function promote(cur, rec) {
-  // walk 側で分かった事実も同じ場所へ合流させる（行の本命判定と向きはここを見る）
+  // walk 側で分かった事実も同じ場所へ合流させる（行の本命判定はここを見る）
   noteFacts(cur.id, {
     // 昇格は **昇格を止められていない一歩** かつ **起点の実装関係で結ばれた連鎖** の両方を
     // 満たすときだけ。以前は前者だけだったので、`references` で着いた定義ノードが閉包の種に
@@ -890,9 +904,7 @@ function promote(cur, rec) {
     // （実測: 40 API × 20 route の fixture で 1 本の route 起点から 先 800 件）
     primary: rec.wiring !== true && rec.chain !== false,
     elig: rec.wiring !== true, chain: rec.chain !== false,
-    down: rec.down, reachedByInvokes: rec.reachedByInvokes, edge: rec.edge,
-    // 循環境避で切った一歩の縁は到着ではない（閉包側と同じ規約）
-    edgeIsArrival: !rec.cut,
+    down: rec.down, reachedByInvokes: rec.reachedByInvokes,
     apiTail: rec.apiTail,
   });
   if (rec.reachedByInvokes) cur.reachedByInvokes = true;
@@ -906,31 +918,23 @@ function promote(cur, rec) {
   // 昇格は**動きの縁か注釈の縁**で届いたときだけ。Terraform の `references` は
   // 定義を書いただけなので、それが別の経路で届いても本命にはしない
   // 循環境避のために切った経路より、ちゃんと根まで辿れる経路の方がマシ。後から来た方の
-  // `via` を引き取って経路を伸ばす（表示する根拠の縁は最初のものまま）
+  // `via` を引き取って経路を伸ばす。`edge` も同じ到着の一歩へ同時に差し替える —
+  // 表示経路は `via` の連鎖なので、`edge` を最初の一歩のまま残すと「表示経路の最後の 1 本」が
+  // 実際にその親を結んでいない行になる（第 45 ラウンド裁定の不変条件「根拠縁 ∈ 表示経路」に反する。
+  // 実測 `annotations.report.json` の `GET /users`: 表示経路の親は handler を持つ Lambda なのに
+  // 根拠縁は別経路の `invokes: method → integration` として残り、`呼ばれて成立` が立たなかった）
   if (cur.cut && rec.via) {
     cur.via = rec.via || null;
+    cur.edge = rec.edge || null;
     cur.cut = false;
   }
   const kind = rec.edge ? rec.edge.kind : null;
   const prov = rec.edge ? rec.edge.provenance : null;
   if (cur.wiring === true && rec.wiring !== true
     && (MOVEMENT.has(kind) || CORRESPONDENCE.has(prov))) {
+    // 別経路の動きの縁（または注釈の縁）が本命の資格を戻す。表示の 動きの根拠 はこの縁を
+    // 読まない（第 45 ラウンド裁定）。ここで直すのは 定義上 / 本命 の資格だけ
     cur.wiring = false;
-    // 記録側の動きの根拠も先着保持にしない（`movementWins` の辞書順最小。閉包側の
-    // `bestState` があるときはそれが先に読まれるが、ないときのフォールバックが
-    // 到着順で変わらないようにする）。循環境避で切った一歩の縁は到着ではないので候補にしない
-    if (MOVEMENT.has(kind)) {
-      // 記録側も同じ 4 枠（`movementWins` の辞書順最小で、到着順に依らない）
-      const rCorr = FLIP_INTO_IMPL.has(kind);
-      const rArr = !rec.cut;
-      const rs = (name) => movementWins(cur[name] || null, rec.edge || null);
-      if (rCorr && rArr) cur.movementEvidenceAC = rs('movementEvidenceAC');
-      else if (rCorr) cur.movementEvidenceCC = rs('movementEvidenceCC');
-      else if (rArr) cur.movementEvidenceAF = rs('movementEvidenceAF');
-      else cur.movementEvidenceCF = rs('movementEvidenceCF');
-      cur.movementEvidence = cur.movementEvidenceAC || cur.movementEvidenceCC
-        || cur.movementEvidenceAF || cur.movementEvidenceCF;
-    }
   }
 }
 function mergeRecords(found) {
@@ -959,6 +963,16 @@ const MOVEMENT = new Set(['triggers', 'invokes', 'handler', 'exposed-by']);
 // 公開している」という向きなので、矢印の元側（コード）が下流になる
 const ARROW_REVERSED = new Set(['exposed-by']);
 const arrowAt = (edge, id) => (ARROW_REVERSED.has(edge.kind) ? edge.source : edge.target) === id;
+// この一歩が縁の**どちらの端点に届いた**かという機械的な 辿った向き。矢印の意味は問わない
+// （`arrowAt` と違い `exposed-by` の反転も看得ない）。表示の 向き（`in` / `out` / `none`）では
+// なく、隣接表のえらび方（walk の `mdir`）と 向き変え回数（`switches`）の材料に使う。
+// 第 46 ラウンド裁定 (b): 無方向の一歩の 向き をここから作ってはいけない
+const endpointDirOf = (id, edge) => {
+  if (!edge) return null;
+  if (edge.target === id) return 'out';
+  if (edge.source === id) return 'in';
+  return null;   // 縁の端点がこのノードではない（あってはならない形）
+};
 // `handler` / `exposed-by` を**逆向き**に越える一歩（コード側から実体側へ戻る一歩）が、
 // 唯一の実体を指しているのか、同じメソッドを実装する複数の中身のどれかを指しているのかを数える。
 // 2 件以上あれば「どれがこのエンドポイントの実装か」は決まらないので推測しない。逆向き
@@ -1078,36 +1092,16 @@ for (const [fromId, list] of tfAdj) {
     nb.tailFrom = tailFromHome;
   }
 }
-const bestState = new Map();   // id -> { budget, primary, elig, down, reachedByInvokes, movementEvidence }
-// 動きの根拠縁の選び方（双人レビュー第 37 ラウンド指摘 2、両名。再現
-// `out/tmp-review37/closure-counter.json`: 経路・段数・根拠が同じまま、動きの縁の先着保持で
-// `external.in` / `external.out` が並び順により反転した）。先着保持をやめ、**縁 id の
-// 辞書順で最小のものを保つ**。向き（矢印が自分を指すか）は選考基準にしない。向きの
-// 判断は `directionOf` の読む規約（「自分へ向いている矢印があればそっちを読む」）が
-// 代表の縁とこの根拠の 2 件に対して行うので、ここで向きを基準にすると同じ規約が
-// 2 重に効いて、到着順では決まらなかった向きが事実層で先に決まってしまう
-// （実測: v1 監査の `demo-order` などで Lambda の向きが in → out に反転した）。
-// 最小値は入る順に依らないので、届く順に関係なく同じ縁が残る。集めるプールは 4 つの
-// 枠に分けて、この優先順で読む（上の枠がある限り下の枠は読まない）:
-//  1. 到着 × 対応縁（`handler` / `exposed-by`）
-//  2. 切った一歩 × 対応縁
-//  3. 到着 × 流れの縁（`invokes` / `triggers`）
-//  4. 切った一歩 × 流れの縁
-// 対応縁が流れの縁より先: 対応縁は「このノードが誰のコードを載せるか」を表し、向きの
-// 土台になる。第三者の呼び込み（`Step Functions → invokes → notify`）の矢印が後から
-// 届いても、自分の `handler` を載せる Lambda が 影響する先 へ反転してはならない
-// （実測: プロジェクト起点の `demo-proj` の `notify` が in → out した）。
-// 同じ枠の中は 到着が切り位置より先: 循環境避で切った一歩は代表経路の一歩ではない。
-// ReportImpact の integration は 循環で切った method 由来の `invokes`（自分を指す矢印）を
-// 拾うと 影響する先 へ反転した（上流の法線は代表経路の到着縁が持つ）。逆に
-// `arrow-priority` の 呼びにくる側 は出ていく縁が循環境避の一歩でしか観測されないので、
-// 枠が空のときは切り位置の縁でも根拠にする（4 の枠）
-const movementWins = (a, b) => {
-  if (!a) return b;
-  if (!b) return a;
-  const ia = a.id || ''; const ib = b.id || '';
-  return ia <= ib ? a : b;
-};
+const bestState = new Map();   // id -> { budget, primary, elig, down, reachedByInvokes, chain, apiTail }
+// **表示する動きの根拠はここに集めない**（第 45 ラウンド Astra 裁定・案 D）。第 44 ラウンドまで
+// は「同じノードへ届いた動きの縁」を 4 枠（対応縁×到着 / 対応縁×循環境避 / 流れの縁×到着 /
+// 流れの縁×循環境避）に分けて `movementWins`（縁 id の辞書順最小）で選び直し、枠の優先順で
+// 表示へ出していた。枠のどちらへ入るかは `onChain` の循環境避判定が**先着の連鎖**を読むので
+// 縁の並び順で変わり、同じ表示経路なのに 動きの根拠 → 向き → 欄 まで入れ替わった（実測
+// `out/tmp-r44/min2-0.json` 〜 `min2-5.json` と `min-3.json` の 7 例、`out/tmp-r44/FINDINGS2.md`）。
+// 表示の根拠は `displayFacts` が**表示に確定した連鎖の縁だけ**から決める。ここに積む
+// `primary`（本命）や旗は受理事実としてそのまま残す — 別経路の事実は「一覧に出す資格」の材料で、
+// 表示値の材料にしない
 // **受理した事実（本命か / 動きの根拠 / 旗）はここ、経路（`via` と表示する縁）は記録側**に置く。
 // 両方を記録に持たせていたため、経路を循環境避で切ったときに受理済みの本命情報まで捨てた
 // （双人レビュー P1: タグ参照が 1 本増えただけで実際の `invokes` が定義上の関連へ落ちた）
@@ -1132,16 +1126,7 @@ const expandedAt = new Map();   // id -> { primary, gen, budgets: [8] }
 let apiGen = 0;
 function noteFacts(id, f) {
   const prev = bestState.get(id)
-    || { primary: false, elig: false, down: false, reachedByInvokes: false, chain: false, apiTail: false, movementEvidence: null, movementAC: null, movementCC: null, movementAF: null, movementCF: null };
-  const kind = f.edge ? f.edge.kind : null;
-  const fMove = MOVEMENT.has(kind) ? f.edge : null;
-  const fArr = f.edgeIsArrival === false ? null : fMove;
-  const isCorr = FLIP_INTO_IMPL.has(kind);
-  const slot = (name, edge) => movementWins(prev[name] || null, edge);
-  const mvAC = fArr && isCorr ? slot('movementAC', fArr) : prev.movementAC || null;
-  const mvCC = fMove && isCorr && !fArr ? slot('movementCC', fMove) : prev.movementCC || null;
-  const mvAF = fArr && !isCorr ? slot('movementAF', fArr) : prev.movementAF || null;
-  const mvCF = fMove && !isCorr && !fArr ? slot('movementCF', fMove) : prev.movementCF || null;
+    || { primary: false, elig: false, down: false, reachedByInvokes: false, chain: false, apiTail: false };
   bestState.set(id, {
     ...prev,
     primary: prev.primary || !!f.primary,
@@ -1155,13 +1140,6 @@ function noteFacts(id, f) {
     // 定義の縁だけで届いた一歩が先着しても、後から `apiTail` を立てて届いた事実を捨てない
     // （双人レビュー第 31 ラウンド agy 指摘 1）
     apiTail: prev.apiTail || !!f.apiTail,
-    // 動きの根拠は先着保持にしない。4 枠のプールを `movementWins`（id 辞書順の最小）で
-    // 選び直すので、届く順に関係なく同じ縁が残る（双人レビュー第 37 ラウンド指摘 2）
-    movementAC: mvAC,
-    movementCC: mvCC,
-    movementAF: mvAF,
-    movementCF: mvCF,
-    movementEvidence: mvAC || mvCC || mvAF || mvCF,
   });
 }
 // closure の状態は (段数, 定義の縁の残り予算, 本命か, 動きを伝播してよいか)。
@@ -1180,9 +1158,7 @@ function runClosure(seedIds) {
   const noteArrival = (state) => {
     noteFacts(state.id, {
       primary: state.primary, elig: state.elig, down: state.down, reachedByInvokes: state.reachedByInvokes,
-      chain: state.chain, apiTail: state.apiTail, edge: state.rec ? state.rec.edge : null,
-      // 循環境避で切った一歩は「このノードへ着地した一歩」ではない
-      edgeIsArrival: !(state.rec && state.rec.cut),
+      chain: state.chain, apiTail: state.apiTail,
     });
     // **表示する代表経路の候補集合**（仕様 out/loop/r38-decision.md、原則 4）。
     // r37 までここに有った 2 つの到着順ゲート（旧 `demote` / `shorter`）は削除した。ゲートは
@@ -1347,7 +1323,9 @@ function runClosure(seedIds) {
     let rec = combined.get(id);
     if (!rec) {
       process.stderr.write(`[report] 警告: 閉包の出発点 ${id} に walk の記録がありません\n`);
-      rec = { id, edge: null, hops: 0, switches: 0, via: null, cut: true, dir: 'out', wiring: false };
+      // 根となる一歩を持たない記録なので 辿った向き は `null`（機械的な向きも、表示の 向きも
+      // 縁の無い一歩からは決まらない）
+      rec = { id, edge: null, hops: 0, switches: 0, via: null, cut: true, dir: null, wiring: false };
     }
     // 経路の記録（`rec`）は循環境避で `wiring` のまま残ることがあるので、資格は受理事実を優先する
     const st = bestState.get(id);
@@ -1437,13 +1415,12 @@ function runClosure(seedIds) {
         apiTail: !!cur.apiTail || (!back && !!cur.chain && nb.tailFrom),
         sibBlocked: sib,
         chain,
-        // 向きは「縁の向き × その行が矢印のどちら側か」。動きの縁なら矢印の先が下流。
-        // `references`（定義）は向きに意味無いので辿ってきたノードの向きを継ぐ
-        // 動きの縁は矢印の先が下流。`SFN → invokes → この Lambda` は SFN が上流なので
-        // 影響を受ける入口（実測バグ: 「実装側に入った」旗を先に読んで 影響する先 に反転した）
-        dir: movement ? (nb.arrow ? 'out' : 'in')
-          : cur.down ? 'out'
-            : ((combined.get(cur.id) || {}).dir || (edge.target === cur.id ? 'in' : 'out')),
+        // 機械的な 辿った向き（このノードが縁のどちらの端点かに届いた一歩か）だけを持つ。
+        // walk の `mdir` と同じ意味で、表示の 向き は `displayFacts` が表示経路を根から
+        // フォールドして決める（第 46 ラウンド裁定）。以前はここで 実装側の旗 `cur.down` と
+        // 親レコードの 向き を継いだ表示用の値を持っていた。`combined.get(cur.id).dir` は
+        // 同じノードへ別経路から届いた先着値なので、それを読む組み立て自体が裁定で却下された
+        dir: endpointDirOf(to, edge),
       };
       const state = {
         id: to, hops: rec.hops, budget, primary, elig, via: rec.via, rec, chain,
@@ -1740,12 +1717,7 @@ const settledSw = new Map();   // 確定済みのノード id -> 根から数え
 // （`mdir: 'out'` なのに親は別経路）になり得る。端点から決めれば同じ一歩（同じ親・同じ縁）は
 // どの到着から来ても同じ向きになる（実測 `out/tmp-r43-review/switch-a.json` の 5 ノードで
 // `mdir` を読んだ版は `switches` が 2 / 1 に割れた。双人レビュー第 43 ラウンド指摘 2）
-const stepDirOf = (rec) => {
-  if (!rec || !rec.edge) return null;
-  if (rec.edge.target === rec.id) return 'out';
-  if (rec.edge.source === rec.id) return 'in';
-  return null;   // 縁の端点がこのノードではない（あってはならない形）
-};
+const stepDirOf = (rec) => (rec ? endpointDirOf(rec.id, rec.edge) : null);
 // 1 歩が向きを変えているか。walk の展開と同じ規則で見る — 親の一歩の向きと違い、かつ
 // 対応付け（注釈）の縁のときだけ数える。機械的な向きを持たない一歩（Terraform の定義を
 // 無方向に閉じる閉包の一歩）は向きを変えない（下の `switchCount` がそこで打ち切る）
@@ -1753,10 +1725,11 @@ const stepSwitches = (parentRec, rec) => {
   const d = stepDirOf(rec);
   const p = stepDirOf(parentRec);
   if (!d || !p || d === p) return 0;
-  // 対応付け（注釈）の縁を渡る向き替えは数えない（walk の展開と同じ）。記録の `corr` は
-  // `mergeFlags` が**同じノードへ届いた別の一歩**の値を引き継ぐ（論理和）ので、表示の一歩が
-  // 注釈縁でなくても true になる（実測 `member:Mid → member:C` の `calls`（static）の行が、
-  // 別経路の `invokes`（human）との合流で `corr: true` になり、向き変え回数が 1 / 0 に割れた）
+  // 対応付け（注釈）の縁を渡る向き替えは数えない（walk の展開と同じ）。**この一歩の縁の
+  // 由来**で決める。第 44 ラウンドまで持っていた記録の `corr` は `mergeFlags` が同じノードへ
+  // 届いた別の一歩の値を引き継ぐ（論理和）ので、表示の一歩が注釈縁でなくても true になり
+  // 向き変え回数が割れた（実測 `member:Mid → member:C` の `calls`（static）の行が、別経路の
+  // `invokes`（human）との合流で `corr: true` になった）。記録の `corr` は第 45 ラウンドで削除
   if (rec.edge && CORRESPONDENCE.has(rec.edge.provenance)) return 0;
   return 1;
 };
@@ -1950,8 +1923,14 @@ for (const [id, rec] of walkPick) {
   for (const group of (repCands.get(id) || { groups: [] }).groups.values()) {
     for (const c of group) {
       if (repKey(c.rec) !== key) continue;
+      // `coreCmp` の 6 項目（昇格を止めたか / 循環境避 / 予算 / 段数 / API の定義尾根 / 連鎖旗）が
+      // 同値で、しかも (親, 縁) も土台と同じなら、**表示が読む項目はすべて同一**（表示は
+      // `displayFacts` の通り (親, 縁) と `coreCmp` の項目しか読まない）。同じ (親, 縁) の候補が
+      // 2 件並ぶ形は上の `dupKeys` で警告する異常形で、実測 18 レポートは 0 件。第 45 ラウンドまで
+      // ここで 記録の `dir`（旧・表示用の向き）を最終タイブレークに読んでいたが、記録の `dir` が
+      // 機械的な 辿った向き になった今は同じ一歩では必ず同値になるので比較を外した
       const d = alt ? coreCmp(c, alt) : -1;
-      if (d < 0 || (d === 0 && (c.rec.dir || '') < (alt.rec.dir || ''))) alt = c;
+      if (d < 0) alt = c;
     }
   }
   // 向き変え回数は確定の段で数え直した値（`settledSw`）を乗せる。候補が持っていた到着時点の
@@ -2046,65 +2025,134 @@ const insideStart = (id) => {
   }
   return false;
 };
-const rows = [];
-// 動きの縁の**矢印の先が下流**。`exposed-by` は矢印が逆（コード → 公開するもの）なので
-// 矢印の元側が下流になる
-const directionOf = (id, facts) => {
-  // (1) 動きの縁（`triggers` / `invokes` / `handler` / `exposed-by`）で届いた → 矢印の先が下流。
-  //     同じノードへ至る動きの縁が別の経路にもあれば、そちらを `movementEvidence` として出す
-  // (2) 起点がエンドポイントで、その**実装側**に入っている → そこから先は全部 影響する先
-  // (3) それ以外（定義・静的解析の縁） → 実際に辿った向き
-  // 動きの縁が複数見つかることがある（先に着いた逆向きの一歩と、後から分かった
-  // **自分へ向いている**一歩）。自分へ向いている矢印があればそっちを読む
-  // （実測: 注釈で `GET /users` を呼びに出している fixture で、`GET /users` が
-  // 「同じ Lambda を経由する逆向き」の記録が先着して 影響を受ける入口 に並んだ）
-  const cands = [facts.edge, facts.movementEvidence].filter((x) => x && MOVEMENT.has(x.kind));
-  const e = cands.find((x) => arrowAt(x, id)) || cands[0] || null;
-  if (e) {
-    if (arrowAt(e, id)) return 'out';
+// ---- 1 歩の 向き（表示）。第 46 ラウンド Astra 裁定（`out/review-astra46.log`）----
+// 表示の 向き は表示経路を**根からフォールド**して決める。起点の 向き は `none`
+// （起点そのものには 向き が無い）で、各一歩は次のどれか。
+//  (1) **動きの縁**（`triggers` / `invokes` / `handler` / `exposed-by`）の一歩 → 縁の矢印の先が
+//      下流。`exposed-by` は矢印が逆（コード → 公開するもの）なので矢印の元側が下流になる。
+//      **実装側へ入る例外（`handler` / `exposed-by` を逆向きに越える一歩）はこの枝の中にだけ
+//      ある**（裁定 (a-2): 「既存の実装側へ入る例外は規則 1 に限定してください」）
+//  (2) **無方向の定義縁** → 直前の 向き をそのまま継承する（最初は `none` のまま）。
+//      継承するのは「定義閉包で、向きを意味として採用しない縁」だけ。判定式は
+//      `provenance === 'terraform'` かつ 動きの縁でないこと。
+//      根拠は縁の**由来**ではなく関係の意味で、「無方向の隣接表（`tfAdj`）に登録されているから」
+//      ではない — `tfAdj` は到達対象を両方向に探すための隣接表で、**動きの縁も登録されている**
+//      （`handler` / `triggers` / `invokes` が通る）。到達を両方向に探すことと、表示上でその
+//      矢印に意味を持たせないことは別（裁定 (a)）
+//  (3) その他の一歩（静的解析と注釈が結んだ**向きを持つ縁**。`calls` / `writes` / `reads` /
+//      `accesses` / `creates` / `deploys` / `project-reference` など）→ その縁の矢印で決める。
+//      裁定 (a-2) は有向縁の矢印を優先するので、**`down`（実装側に入った旗）による上書きは
+//      向き決定から外した**。実測 `demo-api` の `Orders.Api.csproj` は最後の縁が
+//      `project --deploys--> Lambda` で Lambda 側から辿った行なので 上流（`in`）。
+//      「起点 API の実装に関係する成果物」であることを理由に矢印を反転させない
+//      （`down` 優先の版だと `artifacts.out` になった。裁定の表どおり `artifacts.in`）
+// 有向縁の判定に縁の端点是使えるが、**無方向の一歩の 向き を端点から作ることはしない**
+// （裁定 (b): 無方向と決めた縁から最初の一歩だけ方向を作る根拠が無い）。端点から決まる
+// `stepDirOf` は `switches`（向き変え回数）の相対比較にだけ使う
+const dirOfStep = (id, edge, inherited) => {
+  if (!edge) return inherited;
+  if (MOVEMENT.has(edge.kind)) {
+    if (arrowAt(edge, id)) return 'out';
     // `handler` / `exposed-by` は「実装の対応」を表す縁で、呼び出し元を示さない。起点が
     // API エンドポイントなら、その対応縁で繋がる側（実装を載せた Lambda など）も下流側。
     // ここを矢印だけで 影響を受ける入口 にすると、起点のエンドポイント自身の
     // 実装 Lambda が「呼びにくる側」に並んだ（実測: demo の `--api "POST /orders"` で
     // `orders_api` と `notify` が 影響を受ける入口 に移った）
-    if (FLIP_INTO_IMPL.has(e.kind) && startIsEndpoint) return 'out';
-    // **起点の実行が呼びに出した**（`invokes` の矢印の先に着いた）なら、先に着いていた
-    // 逆向きの動きの縁よりそっちを読む。矢印だけで決めると、注釈で別 API を呼びにいく
-    // 形（`Handler → invokes → GET /users`）の着地が 影響を受ける入口 に並んだ
-    if (startIsEndpoint && facts.reachedByInvokes) return 'out';
+    if (FLIP_INTO_IMPL.has(edge.kind) && startIsEndpoint) return 'out';
     return 'in';
   }
-  if (facts.down) return 'out';
-  return facts.dir;
+  // (2) 無方向の定義縁。`none` でもそのまま返す（無方向の一歩は最初も途中も同じ規則）
+  if (edge.provenance === 'terraform') return inherited;
+  // (3) 向きを持つ縁は自分の矢印で決める
+  return arrowAt(edge, id) ? 'out' : 'in';
 };
+// ---- 表示値は「表示に確定した連鎖」だけを根から読む（第 45 ラウンド Astra 裁定・案 D）----
+// 裁定（`out/review-astra45.log`）: 表示する値は、表示に確定した連鎖（`combined` の `via` を親へ
+// 辿った列）だけから決める。**別経路に動きの縁があればそれを読む**規則は捨て、欄・向き・段数・
+// 対応を同じ経路から再計算する。探索が別経路から寄せた値は表示へ読まない —
+//  - `bestState` の動きの根拠の 4 枠（第 44 ラウンドまであった。到着 / 循環境避 × 対応縁 / 流れの縁
+//    の組み合わせ）: 枠のどれに入るかは `onChain` の循環境避判定が**先着の連鎖**を読むので縁の並び順で変わる。実測
+//    `out/tmp-r44/min2-1.json`（4 ノード 4 縁）は表示経路がどちらの縁順でも `N0 ←e3← N4` の
+//    1 段・根拠縁も `e3` で同じなのに、別経路の `e0` が到着の枠に入る並びだけ 動きの根拠 が `e0` に
+//    なり、`向き` と 欄 まで入れ替わった（min2-0〜min2-5 と min-3 の計 7 例）
+//  - `mergeFlags` が論理和で引き継いだ `corr`: 同じノードへ届いた**別の一歩**の注釈縁を真にする。
+//    実測 `out/tmp-r44/min-0.json`（6 縁）は縁の 720 とおりの半数で `member:N2` の 対応 が反転し、
+//    `summary.correspondenceRows` が 4 / 3 に割れた
+//  - 機械的な `mdir` / `info.dir`: `mergeFlags` は向きを先着のまま残すので、実在しない一歩の
+//    向きが混ざる（第 43 ラウンド実測 `out/tmp-r43-review/switch-a.json`）
+// 循環は `seen` で打ち切り、上限は選び直しと同じ `chainCap`、`edge` の無い一歩（起点）で打ち切る。
+// `tier`（本命 / 定義上）だけは受理事実（`bestState`）のままでよい — 「別経路に昇格の一歩が
+// あったか」は縁順に依らない事実なので、ここは表示経路の純関数にしない（裁定の「据えてよいもの」）
+const displayFacts = (id) => {
+  // `via` を親へ辿った列を**根から順**に並べる（walk と閉包の一歩が混ざっても同じ読み方をする）
+  const chain = [];
+  const seen = new Set();
+  let cur = combined.get(id);
+  for (let i = 0; cur && i <= chainCap; i += 1) {
+    if (seen.has(cur.id)) break;              // `via` が循環している（あってはならない形）
+    seen.add(cur.id);
+    chain.unshift(cur);
+    if (!cur.edge) break;                     // 縁の無い一歩（起点）で打ち切る
+    cur = cur.via ? combined.get(cur.via) : null;
+  }
+  // 対応は表示経路に含まれる注釈縁（`llm` / `human`）の論理和
+  let correspondence = false;
+  // 表示の 向き は連鎖を**根から受け継ぐ**（第 46 ラウンド裁定）。起点の 向き は `none`
+  // （「この表示経路に、向きを決める関係が無い」）。端点から 向き の種を作らないので、
+  // Terraform の定義の縁だけの連鎖は `none` のまま残る（裁定 (b)・(c)）
+  let dir = 'none';
+  for (let i = 1; i < chain.length; i += 1) {
+    const rec = chain[i];
+    const e = rec.edge;
+    if (CORRESPONDENCE.has(e.provenance)) correspondence = true;
+    dir = dirOfStep(rec.id, e, dir);
+  }
+  const last = chain[chain.length - 1];
+  const edge = last ? last.edge : null;
+  // `呼ばれて成立` は**当該ノードへ入る最終一歩**だけを見る（walk の `calledOut` と同じ条件）。
+  // 同じ API の定義同士の `invokes`（method → integration）は旗を立てない
+  const reachedByInvokes = !!(edge && edge.kind === 'invokes' && last.via && arrowAt(edge, id)
+    && !internalInvokes(last.via, id));
+  return {
+    edge,
+    // 動きの根拠は表示経路に実際に含まれる縁だけから選ぶ。表示経路の最後の 1 本（当該ノードへ
+    // 入る一歩）が動きの縁のときそれ、そうでなければ無し
+    movementEvidence: edge && MOVEMENT.has(edge.kind) ? edge : null,
+    // 向き は上の連鎖を根から順に読んで決めた値をそのまま出す（規則は `dirOfStep`）。
+    // 機械的な `mdir` / `info.dir` は読まない。`none` は「この表示経路に、向きを決める関係が
+    // 無い」で、「このノードに他の有向関係が無い」意味ではない（第 46 ラウンド裁定 (c)）
+    direction: dir,
+    reachedByInvokes, correspondence,
+  };
+};
+const rows = [];
 for (const [id, info] of combined) {
   if (!info.edge || insideStart(id)) continue;
   const { path: p, root } = pathOf(id);
-  // 受理済みの事実（本命か / 動きの根拠 / 旗）は記録より強い。経路を循環境避で切った行は
-  // 記録側だけが弱いままになるので、行は事実側を優先して読む
+  // 表示値（動きの根拠 / 実装側 / 呼ばれて成立 / 対応 / 一歩の向き）は上の `displayFacts` が
+  // **表示に確定した連鎖だけ**から作る。受理済みの事実（`bestState`）と記録の寄せ値は
+  // 表示へ読まない（第 45 ラウンド Astra 裁定・案 D）
+  const facts = displayFacts(id);
+  // 本命か（`tier`）だけが受理事実を見る。本命は「別経路に昇格の一歩があったか」で決まるので
+  // 表示経路の純関数ではない（裁定で据えてよいとされた項目）
   const st = bestState.get(id);
-  const facts = {
-    ...info,
-    down: !!(st ? st.down : info.down),
-    reachedByInvokes: !!(st ? st.reachedByInvokes : info.reachedByInvokes),
-    movementEvidence: (st && st.movementEvidence) || info.movementEvidence || null,
-  };
   rows.push({
-    // 向きは (1) 動きの縁の矢印の先が下流 (2) 実装側に入った旗 (3) 実際に辿った向き
-    // （`down` を先に読むと `Step Functions → invokes → この Lambda` が 影響する先 に反転した）
-    direction: directionOf(id, facts),
+    // 向きは `displayFacts` が表示経路を根から順に読んで決めた値（規則は `dirOfStep`）
+    direction: facts.direction,
     id, name: label(id), kind: byId.get(id).kind, category: category(id),
     resourceType: (byId.get(id).metadata || {}).resourceType || null,
     endpoint: endpointOf(byId.get(id)),
     // 表示する段数は**経路の長さ**。探索側が持つ段数は「定義単位をまたいだ数」で、
     // 動きの縁を越えたら数え直す予算なので、そのまま出すと `path` と食い違った
     // （実測: demo の `--api` で 1 行が 8 段 / 経路 6 ノード）
-    hops: p.length - 1, switches: displaySwitches(id), correspondence: !!info.corr,
+    hops: p.length - 1, switches: displaySwitches(id),
+    // 対応は**表示経路全体の注釈縁の有無**（経路内の縁の論理和）。記録の `corr` は
+    // `mergeFlags` が同じノードへ届いた別の一歩の値を引き継ぐので読まない（第 45 ラウンド裁定）
+    correspondence: facts.correspondence,
     pathRoot: root, via: info.via || null,
-    // 動きの縁（`triggers` / `invokes` / `handler`）が別の経路で見つかっていれば、
-    // 定義を辿っただけの縁が先着していても本命にする。その縁は `movementEvidence` として
-    // 残す（表示の根拠は最初に辿れた縁のままにして、経路と食い違わないようにする）
-    movementEvidence: facts.movementEvidence || null,
+    // 動きの根拠は表示経路に実際に含まれる縁だけ（`displayFacts`）。別経路で動きの縁が見つかって
+    // いてもここへ出さない。表示の根拠（`evidence`）と同じ 1 本が動きの縁のときだけ、その 1 本が出る
+    movementEvidence: facts.movementEvidence,
     // 本命かどうかも受理済みの事実で決める（経路を切った行が定義上の関連に落ちないようにする）
     // 未受理の行は record 自身で決める。`wiring` だけでなく**連鎖に入っているか**も見る。
     // `wiring` は一歩ごとの昇格停止なので、親が連鎖外でも false になれる。実測: 起点の
@@ -2119,6 +2167,13 @@ for (const [id, info] of combined) {
 }
 rows.sort((a, b) => a.switches - b.switches || a.hops - b.hops || a.id.localeCompare(b.id));
 const byDirection = (d) => rows.filter((r) => r.direction === d);
+// 向き が `none` の行（第 46 ラウンド裁定 (c）。意味は「この表示経路に、向きを決める関係が
+// 無い」で「このノードに他の有向関係が無い」ではない）。方向を持つ欄（外部 / コードの入口 /
+// 成果物の 先・受）に並べると in / out の意味をでっち上げることになるので中立欄へ寄せる。
+// 中立欄（同じ API の定義・同じコードを使う別の API）はそのまま、それ以外は `tier` を保ったまま
+// 「定義上の関連」で受ける（裁定: 判定を `tier === 'wiring'` に限定しない。実測で
+// `tier === 'primary'` の `none` 行が出る）
+const directionless = (r) => r.direction === 'none';
 const primaryRows = (rs) => rs.filter((r) => r.tier === 'primary' && !r.sameApi && !isSibling(r));
 // `sameApi` の行は **tier に関係なく** ここへ寄せる。`tier === 'wiring'` だけを見ると、
 // `triggers` で昇格した integration が「本命でもない／同じ API の定義でもない」枠になり、
@@ -2164,8 +2219,9 @@ for (const r of rows) {
 }
 // 定義上の関連 = 他の枠（本命の外部リソース / コードの入口 / 同じ API の定義 / 兄弟）に
 // 入らなかった行の引き取り手。ここに条件を足し忘れると行がどこにも出なくなるので、
-// 「本命として列挙した行」だけを明示的に除外する形にする
-const listedElsewhere = (r) => r.tier === 'primary' && !r.sameApi && !isSibling(r)
+// 「本命として列挙した行」だけを明示的に除外する形にする。`向き` が `none` の行は
+// 方向を持つ欄に列挙しないので、ここでも「列挙済み」に数えない（数えると行がどこにも出ない）
+const listedElsewhere = (r) => !directionless(r) && r.tier === 'primary' && !r.sameApi && !isSibling(r)
   && (isExternal(r.id) || r.kind === 'member' || r.kind === 'type');
 // リポジトリ内の**成果物**（プロジェクト・ファイル・フォルダ・solution）。外部リソースでも
 // コードの入口でもないので「定義上の関連」に混ぜない。混ぜると csproj が本命なのに
@@ -2173,7 +2229,10 @@ const listedElsewhere = (r) => r.tier === 'primary' && !r.sameApi && !isSibling(
 const ARTIFACT_KINDS = new Set(['project', 'file', 'folder', 'solution']);
 const isArtifact = (r) => ARTIFACT_KINDS.has(r.kind);
 const artifactRows = (rs) => rs.filter((r) => !isApiDefinition(r) && !isSibling(r) && !listedElsewhere(r) && isArtifact(r));
-const wiringRows = () => rows.filter((r) => !isApiDefinition(r) && !isSibling(r) && !listedElsewhere(r) && !isArtifact(r));
+// 成果物欄は 先・受 の 2 欄だけで 向き を持つ行しか置けない。向き が `none` の成果物の行は
+// ここから落ちるとどの欄にも入らなくなるので「定義上の関連」で受ける
+const wiringRows = () => rows.filter((r) => !isApiDefinition(r) && !isSibling(r) && !listedElsewhere(r)
+  && (!isArtifact(r) || directionless(r)));
 const sameApiRows = () => rows.filter(isApiDefinition);
 // 「外部リソースへの着地」と「コード側の入口」は別の数える対象。同じ一覧を両方の欄に流すと、
 // エンドポイント起点のときにコードのメソッドが「外部リソース」として数えてしまう
@@ -2190,10 +2249,11 @@ function score() {
   const spec = JSON.parse(readFileSync(resolve(opts.expect), 'utf8'));
   // 「影響する先（out）」と「影響を受ける入口（in）」を混ぜて割ると適合率が意味をなくす
   // （呼び出し元は外部リソースなのに分母に入ってしまう）。期待側に direction を書いてもらい、既定は both
-  const dir = spec.direction === 'in' || spec.direction === 'out' ? spec.direction : 'both';
-  const list = dir === 'in' ? primaryRows(byDirection('in'))
-    : dir === 'out' ? primaryRows(byDirection('out'))
-      : rows.filter((r) => r.tier === 'primary' && !r.sameApi && !isSibling(r));
+  // （第 46 ラウンド裁定 (c): 向き を決める関係が無い行 `none` も値域なので、それを指定できる。
+  // both は 向き の有無で絞り込まないので、none の着地を方向別フィルターで落とさない）
+  const dir = ['in', 'out', 'none'].includes(spec.direction) ? spec.direction : 'both';
+  const list = dir === 'both' ? rows.filter((r) => r.tier === 'primary' && !r.sameApi && !isSibling(r))
+    : primaryRows(byDirection(dir));
   const got = new Set(list.map((r) => r.id));
   const want = new Set(spec.expect || []);
   const landedExt = [...got].filter(isExternal);
@@ -2266,6 +2326,13 @@ const summary = {
   // 対応が読めなかった（レビュー指摘）
   siblingEndpointsOnly: siblingRows().filter((r) => !!r.endpoint).length,
   siblingDefs: siblingRows().filter((r) => !r.endpoint).length,
+  // **向き を決める関係が無い行**（`direction === "none"`。第 46 ラウンド裁定 (c)）の件数。
+  // 方向別のカウンタ（`primaryIn` / `primaryOut` / `entryIn` / `entryOut` / `artifactsIn` /
+  // `artifactsOut`）は `none` の行を数えないので、ここを出さないと「黙って消えた」ように読める
+  directionless: rows.filter(directionless).length,
+  // `none` の行のうち **本命 の資格を持っていた行数**。欄は「定義上の関連」へ寄せるが
+  // `tier` は保つ（裁定: 判定を `tier === 'wiring'` に限定しない）
+  directionlessPrimary: rows.filter((r) => directionless(r) && r.tier === 'primary').length,
   // **向きを変えて届いた行の数**（`switches` が 1 以上の行）。向き変え回数は表示に決まった
   // 根拠経路の属性なので、選び直しが組み上げた経路は walk の探索予算（1 回）を超えることがある
   // （実測 fixture-api で 15 行が 2 回。Astra 裁定 A、`out/review-astra44.log`）。かつては
@@ -2321,9 +2388,13 @@ const provLabel = (p) => ({
   static: '静的', terraform: 'Terraform', llm: '注釈 (LLM)', human: '注釈 (人)',
   merge: 'マージ', 'directory-scanner': '階層', viewer: 'ブラウザ',
 }[p] || p);
+// 向き の表内表記。JSON の `direction` をそのまま出さず日本語のラベルに落とす。
+// `none` は「この表示経路に 向き を決める関係が無い」なので「—」（第 46 ラウンド裁定 (c)）。
+// 継承した in / out は、その一歩の縁自体が動作方向を証明した値ではないことに注意
+const DIR_CELL = { in: '影響を受ける入口', out: '影響する先', none: '—' };
 function mdSection(title, rs, limit) {
   if (!rs.length) return `### ${title}\n\n該当なし\n\n`;
-  const head = `### ${title}\n\n| 着地 | 種別 | 表示経路の段数<br>（最短とは限りません） | 根拠 | 由来 |\n| --- | --- | --- | --- | --- |\n`;
+  const head = `### ${title}\n\n| 着地 | 種別 | 向き | 表示経路の段数<br>（最短とは限りません） | 根拠 | 由来 |\n| --- | --- | --- | --- | --- | --- |\n`;
   const body = rs.slice(0, limit).map((r) => {
     // 経路の根拠（最初に辿れた縁）と、本命にした**動きの縁**を両方出す。後者だけを見て
     // 「経路に無い縁を根拠にしている」とは読ませない
@@ -2331,7 +2402,7 @@ function mdSection(title, rs, limit) {
       ? ` <br>動きの根拠: \`${r.movementEvidence.kind}\`（${provLabel(r.movementEvidence.provenance)}）`
       : '';
     const why = r.unresolvedCorr ? ` <br>${UNRESOLVED_REASON}` : '';
-    return `| ${r.name} | ${r.category} | ${r.hops} | \`${r.evidence.kind}\` ${r.evidence.source.split(':').pop()} → ${r.evidence.target.split(':').pop()}${mv} | ${provLabel(r.evidence.provenance)}${r.correspondence ? '（対応）' : ''}${why} |`;
+    return `| ${r.name} | ${r.category} | ${DIR_CELL[r.direction] ?? r.direction} | ${r.hops} | \`${r.evidence.kind}\` ${r.evidence.source.split(':').pop()} → ${r.evidence.target.split(':').pop()}${mv} | ${provLabel(r.evidence.provenance)}${r.correspondence ? '（対応）' : ''}${why} |`;
   }).join('\n');
   const more = rs.length > limit ? `\n\n（他 ${rs.length - limit} 件は --json 参照）` : '';
   return head + body + '\n' + more + '\n\n';
@@ -2348,7 +2419,7 @@ const siblingEpIds = new Set(siblingRows().filter((r) => !!r.endpoint).map((r) =
 const reachedRealEndpoints = reachedEndpoints.filter((e) => !siblingEpIds.has(e.id));
 const reachedSiblingEndpoints = reachedEndpoints.filter((e) => siblingEpIds.has(e.id));
 const SIBLING_LIST_HINT = '一覧は `--list-siblings`（本数は `--limit`）';
-let md = `# 影響範囲レポート\n\n- グラフ: \`${summary.graph}\`\n- 起点 ${summary.starts} 件（展開後 ${summary.expandedStarts} 件、グラフに無く起点にしなかった変更 ${summary.fallbacks} 件）\n- 探索 ${summary.hops} ホップ（向きの変えは探索中 1 回まで許可、表示経路で向き変えを含む行 ${summary.secondOrder} 件）/ Terraform の定義単位は ${summary.wiringHops} 段まで無方向で閉じる / 階層（parent・contains）は起点の展開にのみ使用\n- 本命: 影響する先 ${summary.primaryOut} / 影響を受ける入口 ${summary.primaryIn} / コード 出口 ${summary.entryOut}・入口 ${summary.entryIn} / 成果物 先 ${summary.artifactsOut}・受 ${summary.artifactsIn} / 定義上の関連 ${summary.wiring} / 同じ API の定義 ${summary.sameApi} / 同じコードを使う別の API ${summary.siblings}（エンドポイント ${summary.siblingEndpointsOnly}・定義ノード ${summary.siblingDefs}）。**「本命」は「最短」を意味しません**\n- 各段数欄は**表示経路の段数**です（起点 0 段、表示経路の関係 1 本を 1 段。表の値と行の経路表示は一致させます）。**最短とは限りません**。経路全体の整合性を保つため、より長い代表経路を表示する場合があります。この段数は影響の強さやレビューの優先度を示しません\n- 根拠の由来: ${Object.entries(summary.byProvenance).map(([k, v]) => `${provLabel(k)} ${v}`).join(' / ') || 'なし'}（**注釈由来 ${summary.annotationRows} 件**は静的解析では決まらない対応付け）\n\n`;
+let md = `# 影響範囲レポート\n\n- グラフ: \`${summary.graph}\`\n- 起点 ${summary.starts} 件（展開後 ${summary.expandedStarts} 件、グラフに無く起点にしなかった変更 ${summary.fallbacks} 件）\n- 探索 ${summary.hops} ホップ（向きの変えは探索中 1 回まで許可、表示経路で向き変えを含む行 ${summary.secondOrder} 件）/ Terraform の定義単位は ${summary.wiringHops} 段まで無方向で閉じる / 階層（parent・contains）は起点の展開にのみ使用\n- 本命: 影響する先 ${summary.primaryOut} / 影響を受ける入口 ${summary.primaryIn} / コード 出口 ${summary.entryOut}・入口 ${summary.entryIn} / 成果物 先 ${summary.artifactsOut}・受 ${summary.artifactsIn} / 定義上の関連 ${summary.wiring} / 同じ API の定義 ${summary.sameApi} / 同じコードを使う別の API ${summary.siblings}（エンドポイント ${summary.siblingEndpointsOnly}・定義ノード ${summary.siblingDefs}）/ 向き を決める関係が無い行 ${summary.directionless}（うち 本命 の資格を持つ行 ${summary.directionlessPrimary}）。**「本命」は「最短」を意味しません**\n- 行の 向き（JSON の direction）は in（影響を受ける入口）/ out（影響する先）/ none（**この表示経路に 向き を決める関係が無い**。Terraform の定義の縁だけを辿った行。一覧の 向き 列では「—」と書きます）。none は「そのノードに他の有向関係が存在しない」意味ではなく、動きの根拠 が無いこと同義でもありません（以前の有向縁から 向き を継承した行があります）。継承した in / out は、その無方向の縁自体が動作方向を証明した値ではありません。none の行は 定義上の関連・同じ API の定義・同じコードを使う別の API に並び、tier（本命の資格）はそのまま保ちます\n- 各段数欄は**表示経路の段数**です（起点 0 段、表示経路の関係 1 本を 1 段。表の値と行の経路表示は一致させます）。**最短とは限りません**。経路全体の整合性を保つため、より長い代表経路を表示する場合があります。この段数は影響の強さやレビューの優先度を示しません\n- 根拠の由来: ${Object.entries(summary.byProvenance).map(([k, v]) => `${provLabel(k)} ${v}`).join(' / ') || 'なし'}（**注釈由来 ${summary.annotationRows} 件**は静的解析では決まらない対応付け）\n\n`;
 if (result.score) {
   const s = result.score;
   md += `## 精度（期待一覧との突き合わせ）\n\n- ケース: ${s.case}（方向 ${s.direction}）\n- 期待 ${s.expected} 件 / 外部リソースへの着地 ${s.landedExternal} 件 / 的中 ${s.hitExternal} 件\n- **再現率 ${s.recall} / 適合率 ${s.precision}**\n- 取りこぼし: ${s.missed.map((x) => `\`${x}\``).join(', ') || 'なし'}\n- 余分な着地: ${s.extraExternal.map((x) => `\`${label(x)}\``).join(', ') || 'なし'}\n- 取りこぼしのうち到達はしていた（定義上の関連に回ったもの）: ${s.wiringOnly} 件\n${s.note ? `\n> ${s.note}\n` : ''}\n`;
@@ -2421,7 +2492,7 @@ const sibEpCount = summary.siblingEndpointsOnly;
 console.log(`API エンドポイント: ${shownEps.slice(0, opts.limit).map((e) => e.name).join(', ') || '該当なし'}`
   + (shownEps.length > opts.limit ? ` / 他のエンドポイント ${shownEps.length - opts.limit} 件` : '')
   + (sibEpCount ? ` / 兄弟ルート ${sibEpCount} 件（${opts.listSiblings ? '下に一覧' : '一覧は --list-siblings'}）` : ''));
-console.log(`起点 ${summary.starts} 件（展開後 ${summary.expandedStarts}）/ 影響する先 ${summary.primaryOut} / 影響を受ける入口 ${summary.primaryIn} / コード 出口 ${summary.entryOut}・入口 ${summary.entryIn} / 成果物 先 ${summary.artifactsOut}・受 ${summary.artifactsIn} / 定義上 ${summary.wiring} / 同じ API の定義 ${summary.sameApi} / 別の API ${summary.siblings}（エンドポイント ${summary.siblingEndpointsOnly}・定義 ${summary.siblingDefs}） / 注釈由来 ${summary.annotationRows}`);
+console.log(`起点 ${summary.starts} 件（展開後 ${summary.expandedStarts}）/ 影響する先 ${summary.primaryOut} / 影響を受ける入口 ${summary.primaryIn} / コード 出口 ${summary.entryOut}・入口 ${summary.entryIn} / 成果物 先 ${summary.artifactsOut}・受 ${summary.artifactsIn} / 定義上 ${summary.wiring} / 同じ API の定義 ${summary.sameApi} / 別の API ${summary.siblings}（エンドポイント ${summary.siblingEndpointsOnly}・定義 ${summary.siblingDefs}） / 向き を決める関係が無い ${summary.directionless}（本命の資格 ${summary.directionlessPrimary}） / 注釈由来 ${summary.annotationRows}`);
 if (primaryTotal === 0 && summary.rows > 0) {
   console.log('本命 0 件は、影響がないことを意味しません。対応未確定の候補を確認してください。');
 }
