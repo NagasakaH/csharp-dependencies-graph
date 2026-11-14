@@ -384,10 +384,13 @@ if (opts.targetKind) {
   for (const r of filtered.slice(0, opts.limit)) console.log(`  ${label(r.id)}  (${r.kind}, ${r.provenance}, ${r.hop} ホップ目)`);
 }
 if (opts.groupBy) {
-  console.log(`\n${opts.groupBy} 単位の集計: ${groups.length} 件`
-    + `（実縁で届いた ${groupReached} 件を ${opts.groupBy} に巻き上げ。表 ${groupsNodes} 件`
-    + ` = ${groupReached} − 起点自身の階層 ${groupSkippedStart} − ${opts.groupBy} の祖先を持たない ${groupSkippedNoAncestor}。`
-    + `実縁の無い ${groupSkippedHierarchy} 件は階層で届いただけなので数えない）`);
+  // 単位を混ぜない: 「件」はグループ（表の行）数、「ノード」は巻き上げ元の到達ノード数。
+  // 表の行は groups.length で、ここに出す groupsNodes はノード数である（17 ノード -> 4 グループ等）
+  console.log(`\n${opts.groupBy} 単位の集計: ${groups.length} グループ（表 ${groups.length} 行）`
+    + `（実縁で届いた ${groupReached} ノードを ${opts.groupBy} へ巻き上げ → 集計対象 ${groupsNodes} ノード。`
+    + `集計対象 ${groupsNodes} = ${groupReached} − 起点自身の ${opts.groupBy} ${groupSkippedStart}`
+    + ` − ${opts.groupBy} の祖先を持たない ${groupSkippedNoAncestor}。`
+    + `実縁の無い ${groupSkippedHierarchy} ノードは階層で届いただけなので数えない）`);
   for (const g of groups.slice(0, opts.limit)) {
     const kd = Object.entries(g.kinds).sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
       .map(([k, v]) => `${k} ${v}`).join(' / ');

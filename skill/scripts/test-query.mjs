@@ -222,9 +222,11 @@ check('集計の除外内訳が JSON に出て表の合計と合う（巻き上�
   && (s20.groupsSkippedNoAncestor || 0) > 0,
   JSON.stringify(s20) + ' / 表合計 ' + sumNodes);
 const txt20 = run('--from', LAMBDA, '--dir', 'both', '--hops', '3', '--group-by', 'file').stdout;
-check('同じ内訳が標準出力の 1 行目にも出る（巻き上げ対象と除外の件数）',
-  txt20.includes(`実縁で届いた ${s20.groupsReached} 件を file に巻き上げ。表 ${sumNodes} 件`)
-  && txt20.includes(`起点自身の階層 ${s20.groupsSkippedStartHierarchy}`)
+const groupCount20 = (r.data?.groups || []).length;
+check('同じ内訳が標準出力の 1 行目にも出る（単位はノード数とグループ数を分けて書く）',
+  txt20.includes(`${groupCount20} グループ（表 ${groupCount20} 行）`)
+  && txt20.includes(`実縁で届いた ${s20.groupsReached} ノードを file へ巻き上げ → 集計対象 ${sumNodes} ノード`)
+  && txt20.includes(`起点自身の file ${s20.groupsSkippedStartHierarchy}`)
   && txt20.includes(`file の祖先を持たない ${s20.groupsSkippedNoAncestor}`),
   txt20.split('\n').find((l) => l.includes('単位の集計')) || '');
 

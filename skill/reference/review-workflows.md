@@ -147,7 +147,7 @@ node $SKILL/scripts/query.mjs --graph out/graph/graph.json \
 実行した実測:
 
 ```
-file 単位の集計: 4 件（実縁で届いた 17 件を file に巻き上げ。表 7 件 = 17 − 起点自身の階層 4 − file の祖先を持たない 6。実縁の無い 14 件は階層で届いただけなので数えない）
+file 単位の集計: 4 グループ（表 4 行）（実縁で届いた 17 ノードを file へ巻き上げ → 集計対象 7 ノード。集計対象 7 = 17 − 起点自身の file 4 − file の祖先を持たない 6。実縁の無い 14 ノードは階層で届いただけなので数えない）
   file:Functions.cs                              参照   2 ノード（calls 3 / accesses 1 / 実縁 4 本）最短 3 段
   file:IOrderRepository.cs                       参照   2 ノード（references 2）最短 2 段
   file:DynamoDbOrderRepository.cs                参照   2 ノード（references 2）最短 2 段
@@ -157,7 +157,7 @@ file 単位の集計: 4 件（実縁で届いた 17 件を file に巻き上げ�
 - `参照 N ノード` はそのファイルに届いた到達ノード数、括弧内は届いた実縁の縁種
   （`実縁 M 本`）。同じ内訳が JSON の `summary` にも出る（`groupsReached` / `groupsNodes` /
   `groupsSkippedStartHierarchy` / `groupsSkippedNoAncestor` / `groupsSkippedHierarchy`）。
-  上の例は **到達 31 = 表 7 + 起点自身の階層 4 + `file` の祖先を持たない 6 + 実縁の無い 14**
+  上の例は **到達 31 = 集計対象 7 ノード（表 4 行）+ 起点自身の file 4 + `file` の祖先を持たない 6 + 実縁の無い 14**。表の行はグループ数、`集計対象` は巻き上げ元のノード数で、単位が違う
   で打ち合わせがつく（`--json` の `summary.reached` が 31。表示される「到達集合の内訳」は
   起点を含むので合計は 1 多い）
 - 集計は「最初に届いた 1 経路」ではなく**そのノードに届いた実縁の全数**で決める。実縁と階縁が
@@ -173,12 +173,12 @@ file 単位の集計: 4 件（実縁で届いた 17 件を file に巻き上げ�
 # 効かない: ファイル起点の逆引き（到達はするが全部階層で届いただけ）
 $ node $SKILL/scripts/query.mjs --graph out/demo/graph.json \
     --from file:src/Orders.Api/Functions.cs --dir in --via-parent --hops 3 --group-by file
-file 単位の集計: 0 件（実縁で届いた 0 件を file に巻き上げ。表 0 件 = 0 − 起点自身の階層 0 − file の祖先を持たない 0。実縁の無い 3 件は階層で届いただけなので数えない）
+file 単位の集計: 0 グループ（表 0 行）（実縁で届いた 0 ノードを file へ巻き上げ → 集計対象 0 ノード。集計対象 0 = 0 − 起点自身の file 0 − file の祖先を持たない 0。実縁の無い 3 ノードは階層で届いただけなので数えない）
 
 # 効く: 型を起点にする（--via-parent 不要）
 $ node $SKILL/scripts/query.mjs --graph out/demo/graph.json \
     --from type:Orders.Domain.IOrderRepository --dir in --hops 2 --group-by file
-file 単位の集計: 3 件（実縁で届いた 5 件を file に巻き上げ。表 5 件 = 5 − 起点自身の階層 0 − file の祖先を持たない 0。実縁の無い 0 件は階層で届いただけなので数えない）
+file 単位の集計: 3 グループ（表 3 行）（実縁で届いた 5 ノードを file へ巻き上げ → 集計対象 5 ノード。集計対象 5 = 5 − 起点自身の file 0 − file の祖先を持たない 0。実縁の無い 0 ノードは階層で届いただけなので数えない）
   file:Functions.cs                              参照   2 ノード（references 2）最短 1 段
   file:NotifyHandler.cs                          参照   2 ノード（references 2）最短 1 段
   file:DynamoDbOrderRepository.cs                参照   1 ノード（implements 1）最短 1 段
@@ -193,7 +193,7 @@ file 単位の集計: 3 件（実縁で届いた 5 件を file に巻き上げ�
 ```
 $ node $SKILL/scripts/query.mjs --graph out/demo/graph.json \
     --from project:src/Orders.Domain/Orders.Domain.csproj --dir both --via-parent --hops 4 --group-by file
-file 単位の集計: 6 件（実縁で届いた 38 件を file に巻き上げ。表 20 件 = 38 − 起点自身の階層 0 − file の祖先を持たない 18。実縁の無い 24 件は階層で届いただけなので数えない）
+file 単位の集計: 6 グループ（表 6 行）（実縁で届いた 38 ノードを file へ巻き上げ → 集計対象 20 ノード。集計対象 20 = 38 − 起点自身の file 0 − file の祖先を持たない 18。実縁の無い 24 ノードは階層で届いただけなので数えない）
   file:Functions.cs                              参照   5 ノード（references 4 / calls 1 / handler 1 / 実縁 6 本）最短 3 段
   file:Order.cs                                  参照   4 ノード（calls 2 / references 2 / accesses 1 / 実縁 5 本）最短 4 段
   file:IOrderRepository.cs                       参照   3 ノード（calls 4 / references 2 / 実縁 6 本）最短 4 段
@@ -232,7 +232,7 @@ console.log(JSON.stringify({ノード数:g.nodes.length, projectを親に持つ�
 ```
 $ node $SKILL/scripts/query.mjs --graph out/elsa/graph.json \
     --from file:core/src/modules/Elsa.Http/Activities/HttpEndpoint.cs --dir both --via-parent --hops 2 --group-by file
-file 単位の集計: 4 件（実縁で届いた 7 件を file に巻き上げ。表 4 件 = 7 − 起点自身の階層 3 − file の祖先を持たない 0。実縁の無い 68 件は階層で届いただけなので数えない）
+file 単位の集計: 4 グループ（表 4 行）（実縁で届いた 7 ノードを file へ巻き上げ → 集計対象 4 ノード。集計対象 4 = 7 − 起点自身の file 3 − file の祖先を持たない 0。実縁の無い 68 ノードは階層で届いただけなので数えない）
   file:HttpEndpointTriggerPayloadValidator.cs    参照   1 ノード（references 1）最短 2 段
   file:Activity.cs                               参照   1 ノード（attribute 1）最短 2 段
   file:Trigger.cs                                参照   1 ノード（inherits 1）最短 2 段
