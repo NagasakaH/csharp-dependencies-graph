@@ -114,5 +114,16 @@ check('module 内の同名アドレスはファイル付き id に分かれて�
   JSON.stringify(modEndpoints) === JSON.stringify(['GET /one', 'GET /two']), JSON.stringify(modEndpoints));
 
 rmSync(dir, { recursive: true, force: true });
+// 値が決まらない属性はノードに正直に書く。リテラルでも参照でもない
+// `%{ if ... }` から実在しない `path` を作らない
+{
+  const res = byName.get('tpl_res');
+  check('テンプレート指令と変数参照はノードの `metadata.unresolved` に出す',
+    !!res && Array.isArray(res.metadata.unresolved)
+    && res.metadata.unresolved.includes('path_part') && res.metadata.unresolved.includes('parent_id')
+    && !(res.metadata.endpoint && res.metadata.endpoint.path),
+    res ? JSON.stringify(res.metadata.unresolved || null) + ' ' + JSON.stringify(res.metadata.endpoint || null) : 'ノードが無い');
+}
+
 console.log(`\n${pass}/${pass + failures.length} 件成功`);
 if (failures.length) { console.log('失敗: ' + failures.join(' / ')); process.exit(1); }

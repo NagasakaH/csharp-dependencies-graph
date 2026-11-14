@@ -138,3 +138,14 @@ resource "aws_api_gateway_method" "counted_get" {
   resource_id = aws_api_gateway_resource.counted_base[0].id
   http_method = "GET"
 }
+
+# テンプレート指令と変数参照。ここから実在しないパスを作ってはいけない
+resource "aws_api_gateway_rest_api" "tpl_api" {
+  name = "tpl-api"
+}
+
+resource "aws_api_gateway_resource" "tpl_res" {
+  rest_api_id = aws_api_gateway_rest_api.tpl_api.id
+  parent_id   = "${var.parent}"
+  path_part   = "%{ if true }dyn%{ endif }"
+}

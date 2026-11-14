@@ -71,6 +71,9 @@ function run2(args, label) {
   return { result: JSON.parse(readFileSync(json, 'utf8')), stdout: proc.stdout, stderr: proc.stderr };
 }
 // すべての行がどれかの欄に入っているか（欄の合計 == 総行数）
+// summary のカウンタ（切り詰前）の合計。一覧は --limit で切れるので不変条件はこっちで見る
+const counterTotal = (s) => s.primaryOut + s.primaryIn + s.entryOut + s.entryIn
+  + s.artifactsOut + s.artifactsIn + s.wiring + s.sameApi + s.siblings;
 const bucketTotal = (r) => r.external.out.length + r.external.in.length
   + r.entries.out.length + r.entries.in.length
   + r.artifacts.out.length + r.artifacts.in.length
@@ -429,6 +432,26 @@ const hopReports = [A, B, lam, proj, fold, foldAll, sh, ne, ch, fl, ar].filter((
 const hopBad = hopReports.flatMap((x) => allRows(x.result)
   .filter((r) => r.hops !== r.path.length - 1).map((r) => `${x.name || ''}${r.id} ${r.hops}/${r.path.length - 1}`));
 check('段数と経路の長さがすべての行で一致する', hopBad.length === 0, hopBad.slice(0, 4).join(' / '));
+
+// 経路は必ず起点から始まる。`via` が循環すると長さ 2 の循環でも `hops === path.length - 1` を
+// 素通りしてしまう（第 18 ラウンド両名: 実プロジェクトの 9 行中 5 行、IAM ポリシー起点の全 15 行）
+const rootBad = hopReports.flatMap((x) => {
+  const starts = new Set(x.result.summary.startIds || []);
+  return allRows(x.result)
+    .filter((r) => r.pathRoot === 'broken' || (r.pathRoot === 'second-stage' && starts.has(r.path[0])))
+    .map((r) => `${x.name || ''}${r.id} ${r.pathRoot} path[0]=${r.path[0]}`);
+});
+check('経路は起点から始まるか、2 段階目として切れた地点から始まる（壊れた経路を出さない）',
+  rootBad.length === 0, rootBad.slice(0, 3).join(' / '));
+
+// 一覧は `--limit` で切れるが、カウンタは切り詰前の値。不変条件はカウンタ側で見る
+const lim = run(['--api', 'POST /orders', '--limit', '1'], 'limit1');
+check('--limit で一覧が切れてもカウンタの不変条件は保たれ、切り詰めが見える',
+  !!lim && lim.result.summary.listTruncated === true && lim.result.summary.limit === 1
+  && counterTotal(lim.result.summary) === lim.result.summary.rows
+  && lim.result.external.out.length <= 1,
+  lim ? JSON.stringify([lim.result.summary.rows, lim.result.summary.listTruncated,
+    lim.result.external.out.length, counterTotal(lim.result.summary)]) : '実行失敗');
 
 rmSync(dir, { recursive: true, force: true });
 console.log(`\n${pass}/${pass + failures.length} 件成功`);

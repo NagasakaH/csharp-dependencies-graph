@@ -82,15 +82,32 @@ node skill/scripts/report.mjs --graph out/demo/graph.json --api "POST /orders"
   出す**（`影響を受ける入口` に並べると「別 API から自分の API へ流入している」と誤読できる）
 - 定義上の関連 — Terraform の `references`（ブロックを文中に書いただけ）
 
-向きは縁の意味で決める。(1) 起点がエンドポイントで、その**実装側**に入ったなら（`exposed-by` や `handler`
-を手前に渡ったところ）そこから先は全部 影響する先。(2) 動きの縁は**矢印の先が下流**（`exposed-by` だけが
-逆で、コード側が下流）。(3) それ以外（定義・静的解析の縁）は実際に辿った向きを使う。だから
-`Step Functions → invokes → この Lambda` は 影響を受ける入口（編成がこの Lambda を呼びにくる）として出る。
+向きは縁の意味で決める。(1) 動きの縁（`triggers` / `invokes` / `handler` / `exposed-by`）で届いていれば
+**矢印の先が下流**（`exposed-by` だけ逆向きで、コード側が下流）。(2) 起点がエンドポイントで、その
+**実装側**に入ったなら（`exposed-by` や `handler` を手前に渡ったところ）そこから先は全部 影響する先。
+ただしこの旗は**自分を呼び出している側へは受け継がない**。(3) それ以外（定義・静的解析の縁）は実際に
+辿った向きを使う。だから `Step Functions → invokes → この Lambda` は 影響を受ける入口（この Lambda を
+呼びにくる側）として出る。コードを変更したときはそのコードが公開しているエンドポイントも
+影響を受ける入口に出る（`exposed-by` の矢印はコード側を向く）。
+
+各行は根拠経路 `path` と、その経路がどこから始まっているかの `pathRoot` を持つ。`start` は起点まで
+辿れた行、`definition-seed` は起点と同じ API を定義しているノードから始まる行、`second-stage` は
+根拠経路が循環しそうな所でそこを新しい出発点として切った行で、`broken`（`via` が宙を指す）は
+出てはいけない。`summary.pathsByRoot` と `summary.startIds` / `summary.seedRoots` で外から確かめられる。
 
 「IAM ロールだけを共有する別の Lambda」経由で、その Lambda 専用の integration や handler まで本命に
 伝播することはない。`references` をまたいで伝播できる資格は **起点 / 本命として届いたノード / 起点と同じ API を定義する
 ノード**だけを持ち、しかも**参照している側へ進む一歩**にだけ受け継がれる（自分が使っているものへ渡った
 先は資格を失う）。
+
+JSON の一覧はすべて `--limit`（既定 200）で切り詰める。切り詰めたときは `summary.listTruncated` が
+true になり、`summary` の各欄の数は**切り詰め前**のままなので「欄の合計 == 総行数」は常にカウンタ側で
+確かめる。
+
+既知の限界として、Terraform の **module をまたぐアドレス衝突**はファイル付きの id
+（`tf:<file>#<address>`）に退避して衝突を避けるが、module 展開はしない。1 つの module を複数ファイルに
+分けて同じアドレスを打つと、そのアドレス同士の参照とエンドポイントは結ばれない（未解決の属性は
+ノードの `metadata.unresolved` に出て、推測した値は作らない）。
 
 `--expect` に期待する着地を書くと再現率・適合率が出る。**期待リストは自分の手で確認した列を
 書き写したもの**で、正解データではなく「前回と変わったかを見る整合の測定」だと思っている。
@@ -100,7 +117,7 @@ node skill/scripts/report.mjs --graph out/demo/graph.json --api "POST /orders"
 | --- | --- | --- | --- | --- | --- |
 | demo: `src/Orders.Domain/Order.cs` | 12 | 11 | 11 | 0.917 | 1 |
 | demo: `README.md`（グラフに無い変更） | 0 | 0 | 0 | 1 | 1 |
-| demo: `infra/main.tf`（Terraform 全部） | 0 | 3 | 0 | 1 | 0 |
+| demo: `infra/main.tf`（Terraform 全部） | 0 | 2 | 0 | 1 | 0 |
 | 実プロジェクト: `--api "POST /messages"` | 1 | 1 | 1 | 1 | 1 |
 | 実プロジェクト: `cs/ExampleLambdaApi/Handler.cs` | 2 | 2 | 2 | 1 | 1 |
 

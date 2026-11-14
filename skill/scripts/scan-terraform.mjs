@@ -215,9 +215,12 @@ function valueForm(raw) {
   const quoted = /^"([\s\S]*)"$/.exec(v) || /^'([\s\S]*)'$/.exec(v);
   if (quoted) {
     const inner = quoted[1];
-    if (inner.includes('${')) {
+    if (inner.includes('${') || inner.includes('%{')) {
+      // `%{ if ... }` / `%{ for ... }` のテンプレート指令は「リテラルだった部分」が条件で
+      // 消える。値が一つに決まらないのでリテラル扱いしない（実測: `%{ if true }dyn%{ endif }`
+      // から `/dyn` という実在しないパスを作っていた）
       const one = /^\$\{\s*([^{}]+?)\s*\}$/.exec(inner.trim());
-      return one ? { kind: 'ref', expr: one[1] } : { kind: 'unknown' };   // 混合補間は未解決
+      return one ? { kind: 'ref', expr: one[1] } : { kind: 'unknown' };   // 混合補間・指令は未解決
     }
     return { kind: 'literal', text: inner };                              // 引用されたリテラル
   }
@@ -297,6 +300,22 @@ function gatewayResourcePath(node, guard = new Set()) {
   pathCache.set(node.id, path);
   return path;
 }
+// パス組み立てに使う属性のうち、**値が決まらないもの**をノードに書く。決まらない属性から
+// 推測した値は作らない設計なので、「どこを見れば復元できるか」をノード側に残す
+const PATH_ATTRS = ['path', 'path_part', 'parent_id', 'rest_api_id', 'http_method'];
+const unresolvableForm = (form) => {
+  if (!form) return false;
+  if (form.kind === 'unknown') return true;
+  if (form.kind !== 'ref') return false;
+  return /^(var|local|each|count|module|data)\b/.test(form.expr) || form.expr.includes('(');
+};
+for (const node of nodes) {
+  const raws = rawValues.get(node.id);
+  if (!raws || !node.metadata) continue;
+  const bad = PATH_ATTRS.filter((a) => raws[a] !== undefined && unresolvableForm(valueForm(raws[a])));
+  if (bad.length) node.metadata.unresolved = bad;
+}
+
 for (const node of nodes) {
   const meta = node.metadata;
   if (!meta) continue;
