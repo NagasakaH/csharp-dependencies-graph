@@ -25,6 +25,10 @@ open out/graph/graph.html
 | [elsa-core](https://github.com/elsa-workflows/elsa-core) | 51,179 / 53,521（C# 解析 3 秒、HTML 20MB） | 336 csproj、6,754 個の `.cs`（ファイル計 7,207）、8,223 型、32,572 メンバ、calls 14,607 / accesses 13,788 / references 15,633、898 ファイルが AWS/DB シグナル、1,010 ファイル（1,260 名）が「張れなかった同名候補」の記録あり |
 | `demo/orders-api-lambda` | 74 / 66（静的 27 / Terraform 27 / 注釈 12） | C# Lambda 3 csproj + Terraform 15 リソース + Terraform の handler 解決 2 + 注釈 12 エッジ（RDS をテーブル → カラムまで `parent` で入れ子にした例を含む） |
 
+レポートの性能基準は **1 レポート 1.0 秒（5 回中央値）・最大 RSS 800 MB** で、4 とおりの入力の
+5 回中央値と最大・測定環境は [skill/SKILL.md](skill/SKILL.md) の「レポートの性能基準」に実測どおり
+置いてある（`elsa-folder` の最大 1.1055 秒は基準の超過として明記し、時間で切り捨てる対応は採らない）。
+
 検証は 2 系統あり、どちらも対象プロジェクト非依存で動く。
 
 ```sh
@@ -33,11 +37,11 @@ node skill/scripts/test-report.mjs                            # 影響範囲レ�
 node skill/scripts/test-query.mjs                             # 逆引き・影響範囲の照会（17 項目、.NET 不要）
 node skill/scripts/test-merge.mjs                             # Lambda handler の解決規則（12 項目、.NET 必要）
 node skill/scripts/test-terraform.mjs                         # API Gateway のパス組み立てと HTTP API (v2) の `target`（46 項目、.NET 不要）
-node skill/scripts/verify.mjs --html out/graph/graph.html --shots out/shots   # ブラウザ実操作（25 項目）
+node skill/scripts/verify.mjs --html out/graph/graph.html --shots out/shots   # ブラウザ実操作（26 項目）
 ```
 
 `verify.mjs` は検査対象を `graph.json` から自動選択するので、どのプロジェクトにもそのまま使える
-（今の実測: demo 25/25、elsa-core 23/23。Terraform ノードが無い対象は該当 2 項目を省略する）。
+（今の実測: demo 26/26、elsa-core 24/24。Terraform ノードが無い対象は該当 2 項目を省略する）。
 静的解析テストは「出てはいけないエッジ」と「消えてはいけないエッジ」の両方を見る。
 名前が型メンバを隠す構文（ラムダ引数・ローカル関数・兄弟ブロックの同名 var）と、
 `var` / `foreach` の型推論の回帰、型解決（型引数の数、`using` / `global using` による到達性、戻り値型を

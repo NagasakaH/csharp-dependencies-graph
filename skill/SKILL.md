@@ -254,6 +254,53 @@ node $SKILL/scripts/report.mjs --graph out/graph/graph.json --api "POST /orders"
 実測値は README の表にある（demo の `Order.cs` 変更で 再現率 0.917 / 適合率 1、
 `infra/main.tf` 変更は 外部着地 2 件の適合率 0、実プロジェクト 1.000 / 1.000）。
 
+## レポートの性能基準
+
+**基準は 1 レポート 1.0 秒（5 回中央値）と 最大 RSS 800 MB**。前の 0.6 秒 / 640 MB と
+「前値比 ×1.25」ゲートは、第 40 ラウンドの裁定（`out/loop/r40-astra.md`、2026-11-14）で
+引き直した。裁定は正しさを優先したので上限が上がり、**保証するのは 5 回中央値と 最大 RSS だけ**。
+ここでは最大応答時間の保証は書かない。
+
+実測（`out/tmp-r26/perf-r40v.json`、2026-11-14 計測、commit `03d9c48`。4 とおりとも 失敗 0）:
+
+| 入力 | 5 回中央値 | 最大 | 最大 RSS | 基準との関係 |
+| --- | --- | --- | --- | --- |
+| demo-api | 0.0363 秒 | 0.0387 秒 | 52.7 MB | どちらも基準内 |
+| elsa-50 | 0.255 秒 | 0.2626 秒 | 391.8 MB | どちらも基準内 |
+| elsa-folder | 0.7332 秒 | **1.1055 秒** | 601.8 MB | 中央値と RSS は基準内。**最大は 1.0 秒を超過** |
+| v2-mix | 0.2259 秒 | 0.2281 秒 | 184.1 MB | どちらも基準内 |
+
+`elsa-folder` の最大 1.1055 秒は基準の 1.0 秒を超えている。**超過はここに書いて隠さない**。
+中央値は基準内なので、この入力を「遅いから」と理由に打ち切ることはしない。
+
+4 とおりの入力とコマンド（`node $SKILL/scripts/report.mjs` の引数。JSON は破棄して実行した）:
+
+| 名前 | 入力の実測サイズ | コマンドの引数 |
+| --- | --- | --- |
+| demo-api | `out/demo/graph.json` 74 ノード / 66 縁 | `--graph out/demo/graph.json --api POST /orders` |
+| elsa-50 | `out/elsa/graph.json` 51,179 ノード / 53,521 縁（48.5 MB）、変更 50 件 | `--graph out/elsa/graph.json --changed out/review-agy17/elsa-50.txt` |
+| elsa-folder | 上のグラフで `folder:.` 起点、`--limit 100000`（既定の `--limit 200` を上げている） | `--graph out/elsa/graph.json --from folder:. --limit 100000` |
+| v2-mix | `out/tmp-r26/v2-big.graph.json` 2,727 ノード / 5,800 縁（HTTP API v2 40 × 20 route） | `--graph out/tmp-r26/v2-big.graph.json --api POST /v2/a7/r3` |
+
+測定環境: macOS 26.3（ビルド 25D125）、Apple M4（`Mac16,10`）・16 GB・arm64、Node v26.5.0。
+測定方法: `bash out/tmp-r26/perf-run.sh r40v`（実体は `out/tmp-r26/perf.py`）。4 とおりを交互に
+5 ラウンド回し、1 とおりにつきウォームアップ 1 回のあと 5 回実行して中央値と最大を取る
+（1 とおり 25 実行）。集計は ラウンド中央値の中央値 を 5 回中央値、ラウンド最大の最大 を 最大
+として出し、RSS は `getrusage(RUSAGE_CHILDREN)` の最大を使う（同じプロセスで複数とおりを測ると
+後勝ちになるので 1 とおり 1 プロセス）。
+
+**保証する表**: 同じ入力・設定・ツール版なら、縁の列挙順が違っても同じ表が出る（出力は ID 順に
+整列して書き、断片と `graph.json` は `generatedAt` を除くバイト列が一致する。`test-analyzer.mjs` の
+決定性検査はソート比較ではなくバイト比較でこれを確かめている）。表示する行は本命・参考を問わず
+起点まで辿れる単一の連鎖のまま出す。
+
+**時間で切り捨てない**: 速くするために候補や探索を途中で打ち切って、実行ごとに違う表を出すことは
+しない（第 40 ラウンド裁定で却下）。表示する行は起点まで辿れる単一の連鎖のまま保証する。
+待たせる側は表示で認める — ビューアは表の計算・描画が始まるとヘッダに「レポートを生成中」を
+出す（`skill/viewer/template.html` の `#busy`。CSS と `requestAnimationFrame` だけで動き、
+外部 JS・CDN に依存しない）。表示が消えるのは選択と並び順が確定した表が DOM へ入りきったあとで、
+半途の表を見せない。
+
 ## 検証する
 
 ### 静的解析の精度（ブラウザ不要）
@@ -330,9 +377,9 @@ v2 の `$default` のように**未解決の式からエンドポイントを作
 node $SKILL/scripts/verify.mjs --html out/graph/graph.html --shots out/shots
 ```
 
-ヘッドレス Chromium で実際にクリックし、25 項目を確かめる。検査対象は `graph.json`
+ヘッドレス Chromium で実際にクリックし、26 項目を確かめる。検査対象は `graph.json`
 から自動選択するので、どのプロジェクトにもそのまま効く（Terraform ノードが無い場合は
-該当チェックを省略して 23 項目）。主な確認項目:
+該当チェックを省略して 24 項目）。主な確認項目:
 
 - ルート 1 段だけの初期表示／クリックしたフォルダだけの子展開
 - `.cs` クリック → 型 → メンバ（メソッド）の段階展開、ロールアップ値
@@ -344,7 +391,16 @@ node $SKILL/scripts/verify.mjs --html out/graph/graph.html --shots out/shots
   メタデータは書き出しでマージされる
 - UI で作った新しい edge kind がチップに登録され、表示フィルタを通過して描画される
   （900 本上限で絞られる場合はその旨を検査が許容する）
+- 表の計算・描画が始まるときヘッダに「レポートを生成中」が出ること（`#busy`。`role=status` と
+  `aria-live=polite` を持ち、発火直後に表示中、確定した表のあとは非表示）。第 40 ラウンド裁定
+  `out/loop/r40-astra.md` の待ち時間の表示
 - コンソールエラーゼロ
+
+`#busy` は CSS と `requestAnimationFrame` だけで動き、外部 JS・CDN に依存しない。合図を出してから
+2 フレーム待って計算に入り、表示が消えるのは確定した表が DOM へ入りきったあとなので半途の表を
+見せない。待ち時間が長くなる実測（elsa-core 51,179 ノード / HTML 20.4 MB）での検査と、表示中のみかけ
+の状態を撮ったスクリーンショットは `out/tmp-r41-viewer/` に置いてある（`check-busy.mjs` 11/11、
+`check-busy-large.mjs` 3/3、`busy-appearance.png`）
 
 `--shots` にスクリーンショット（`01-root.png` ほか）が出るので、目でも確かめる。
 `--query <メソッド名>` で検索対象をそのプロジェクトらしい名前に変える。

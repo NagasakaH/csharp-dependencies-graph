@@ -383,6 +383,31 @@ const deep = await selectedId();
 record('ディープリンクで同じ展開状態を開ける', deep === memberTarget.id, `${deep}`);
 await shot('08-deeplink.png');
 
+// 9. 計算・描画の始まりに「レポートを生成中」が出る（第 40 ラウンド裁定 out/loop/r40-astra.md）。
+//    発火を待たずに合図だけ見て、計算が終わったあと表示が消え、表が確定したことを確かめる。
+const nodesBeforeBusy = await page.locator('#nodes .gnode').count();
+const busy = await page.evaluate(() => {
+  const b = document.getElementById('busy');
+  if (!b) return null;
+  const starts = window.__csdg.busyStarts ? window.__csdg.busyStarts() : -1;
+  document.getElementById('btn-collapse').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  return {
+    text: b.textContent.trim(), role: b.getAttribute('role'), live: b.getAttribute('aria-live'),
+    shown: !b.hidden, starts,
+  };
+});
+await page.waitForTimeout(600);
+const busyAfter = await page.evaluate(() => ({
+  shown: window.__csdg.busyShown ? window.__csdg.busyShown() : null,
+  starts: window.__csdg.busyStarts ? window.__csdg.busyStarts() : -1,
+}));
+const nodesAfterBusy = await page.locator('#nodes .gnode').count();
+record('計算の始まりに「レポートを生成中」が出て、確定した表のあとは消える',
+  !!busy && busy.text === 'レポートを生成中' && busy.role === 'status' && busy.live === 'polite'
+  && busy.shown === true && busyAfter.shown === false && busyAfter.starts === busy.starts + 1,
+  busy ? `発火直後 ${busy.text}（${busy.role} / ${busy.live}）/ 開始 ${busy.starts} → ${busyAfter.starts} / ノード ${nodesBeforeBusy} → ${nodesAfterBusy}` : 'HTML に #busy が無い（ビューアを再生成してください）');
+await shot('09-after-collapse.png');
+
 record('ブラウザコンソールエラーなし', errors.length === 0, errors.slice(0, 3).join(' | '));
 await browser.close();
 

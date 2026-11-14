@@ -105,6 +105,20 @@
   
   #status { color: var(--dim); font-size: 11px; }
   .notice { color: #ffcf6b; font-size: 11px; }
+  /* 「レポートを生成中」: 表の計算・描画が始まったことを利用者へ示す合図（第 40 ラウンド裁定
+     out/loop/r40-astra.md）。外部 JS・CDN 無しで動く（CSS と requestAnimationFrame のみ）。 */
+  #busy {
+    display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto;
+    background: var(--accent); color: #0f1115; border-radius: 20px;
+    padding: 3px 10px; font-size: 11px; font-weight: 600;
+  }
+  #busy[hidden] { display: none; }
+  #busy::before {
+    content: ''; width: 8px; height: 8px; border-radius: 50%; background: #0f1115;
+    animation: csdg-busy 1s steps(2, jump-none) infinite;
+  }
+  @keyframes csdg-busy { 0%, 49% { opacity: 1; } 50%, 100% { opacity: .25; } }
+  @media (prefers-reduced-motion: reduce) { #busy::before { animation: none; } }
 </style>
 </head>
 <body>
@@ -128,6 +142,7 @@
   <button id="btn-link">表示を共有</button>
   <button id="btn-fit">画面に合わせる</button>
   <button id="btn-collapse">1 階層に戻る</button>
+  <span id="busy" role="status" aria-live="polite">レポートを生成中</span>
   <span id="status"></span>
 </header>
 <main>
@@ -143,7 +158,12 @@
 <script>
 (() => {
   const DATA = window.__CSDG__;
-  if (!DATA) { document.getElementById('detail-body').textContent = 'グラフデータが埋め込まれていません。'; return; }
+  if (!DATA) {
+    // データが無いのに「レポートを生成中」を出し続けない
+    document.getElementById('busy').hidden = true;
+    document.getElementById('detail-body').textContent = 'グラフデータが埋め込まれていません。';
+    return;
+  }
 
   const KIND = DATA.nodeKinds, EDGE_KINDS = DATA.edgeKinds, PROV = DATA.provenances, DETAILS = DATA.details;
   const KIND_COLOR = { folder: '#d9a441', solution: '#9c7bff', project: '#6ea8fe', file: '#58c39a', type: '#f2777a', member: '#e0a4d0', resource: '#2fd6c3' };
@@ -277,6 +297,29 @@
     return { pos, depth, maxDepth, capped };
   }
 
+  // ---- 「レポートを生成中」表示（第 40 ラウンド裁定 out/loop/r40-astra.md）
+  // 表（詳細パネルの一覧）とグラフの計算・描画が始まったことを利用者へ示す。ヘッダの
+  // `#busy` は HTML に最初から出していて、データ埋め込みの解析中から表示される。
+  // beginBusy は合図を出してから 2 フレーム待って計算に入るので、合図が 1 度も描画されない
+  // まま計算に飲み込まれない。計算は時間や件数で候補を切り捨てない（実行ごとに違う表に
+  // ならない）ので、表示される表は毎回同じ。DOM へ入れるのは選択と並び順が確定した表だけ
+  // で、計算の途中の表は見せない（各所の replaceChildren で確定した一覧を一括で置き換える）。
+  // 外部 JS・CDN への依存なし。requestAnimationFrame と hidden 属性だけを使う。
+  const busyEl = document.getElementById('busy');
+  let busyToken = 0, busyStarts = 0;
+  function beginBusy(work) {
+    const token = ++busyToken;
+    busyStarts++;
+    busyEl.hidden = false;
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      try { work(); }
+      finally { if (token === busyToken) busyEl.hidden = true; }
+    }));
+  }
+  // ボタンなどのイベントハンドラ用の巻き付け。発火から 2 フレーム後の実行になるため、
+  // ハンドラ内の状態変更は遅延の中で完結させる（遅延をスキップすると操作そのものが失われる）
+  const withBusy = (fn) => (ev) => beginBusy(() => fn(ev));
+
   // ---- 描画
   const svg = document.getElementById('svg'), vp = document.getElementById('vp'), gEdges = document.getElementById('edges'), gNodes = document.getElementById('nodes');
   const NS = 'http://www.w3.org/2000/svg';
@@ -337,7 +380,7 @@
       const sub = subtitle(n, kids);
       g.appendChild(el('text', { x: 9, y: 25, class: 'sub' }, sub));
       if (kids) g.appendChild(el('text', { x: p.w - 14, y: 19, class: 'twist' }, state.expanded.has(i) ? '−' : '+'));
-      g.addEventListener('click', (ev) => { ev.stopPropagation(); onSelect(i, ev); });
+      g.addEventListener('click', withBusy((ev) => { ev.stopPropagation(); onSelect(i, ev); }));
       gNodes.appendChild(g);
     }
     clampLabels(gNodes);
@@ -438,7 +481,7 @@
       row.append(tw, dot, label);
       const badge = treeBadge(n);
       if (badge) { const b = document.createElement('span'); b.className = 'badge'; b.textContent = badge; row.appendChild(b); }
-      row.addEventListener('click', () => { state.expanded.has(i) && kids.length ? state.expanded.delete(i) : state.expanded.add(i); state.selected = i; render(); centerOn(i); });
+      row.addEventListener('click', withBusy(() => { state.expanded.has(i) && kids.length ? state.expanded.delete(i) : state.expanded.add(i); state.selected = i; render(); centerOn(i); }));
       container.appendChild(row);
       if (state.expanded.has(i)) {
         const sorted = kids.slice().sort((a, b) => nodes[a].kind !== nodes[b].kind ? kindRank(nodes[a].kind) - kindRank(nodes[b].kind) : nodes[a].name.localeCompare(nodes[b].name, 'ja'));
@@ -518,7 +561,7 @@
       const pr = document.createElement('span'); pr.className = 'badge'; pr.textContent = e.prov === 'static' ? '' : e.prov;
       row.append(k, n, c, pr);
       row.title = e.detail || '';
-      row.addEventListener('click', () => { reveal(other.i); });
+      row.addEventListener('click', withBusy(() => { reveal(other.i); }));
       box.appendChild(row);
     }
     if (sorted.length > 60) { const more = document.createElement('div'); more.className = 'badge'; more.textContent = `… 他 ${sorted.length - 60} 件`; box.appendChild(more); }
@@ -705,7 +748,7 @@
       label.textContent = owner + n.name;
       const path = document.createElement('span'); path.className = 'path'; path.textContent = n.path || (n.parent != null ? nodes[n.parent].name : '');
       row.append(k, label, path);
-      row.addEventListener('click', () => { results.classList.remove('open'); reveal(i); });
+      row.addEventListener('click', withBusy(() => { results.classList.remove('open'); reveal(i); }));
       results.appendChild(row);
     }
     if (!resultIndex.length) { const row = document.createElement('div'); row.className = 'row'; row.textContent = '該当なし'; results.appendChild(row); }
@@ -717,11 +760,11 @@
     const active = results.children[cursor];
     if (active) active.scrollIntoView({ block: 'nearest' });
   }
-  qInput.addEventListener('input', doSearch);
+  qInput.addEventListener('input', withBusy(doSearch));
   qInput.addEventListener('keydown', (ev) => {
     if (ev.key === 'ArrowDown') { cursor = Math.min(cursor + 1, resultIndex.length - 1); highlightResult(); ev.preventDefault(); }
     else if (ev.key === 'ArrowUp') { cursor = Math.max(cursor - 1, 0); highlightResult(); ev.preventDefault(); }
-    else if (ev.key === 'Enter') { if (resultIndex.length) { results.classList.remove('open'); reveal(resultIndex[cursor]); } }
+    else if (ev.key === 'Enter') { if (resultIndex.length) { results.classList.remove('open'); withBusy(() => reveal(resultIndex[cursor]))(ev); } }
     else if (ev.key === 'Escape') results.classList.remove('open');
   });
   document.addEventListener('click', (ev) => { if (!ev.target.closest('#search')) results.classList.remove('open'); });
@@ -778,18 +821,18 @@
       const chip = document.createElement('button'); chip.className = 'chip ' + p + (state.prov.has(p) ? '' : ' off');
       chip.textContent = `${p} ${PROV.length > 1 ? '' : ''}`;
       chip.title = `由来 ${p} の表示切替`;
-      chip.addEventListener('click', () => { state.prov.has(p) ? state.prov.delete(p) : state.prov.add(p); renderToolbar(); render(); });
+      chip.addEventListener('click', withBusy(() => { state.prov.has(p) ? state.prov.delete(p) : state.prov.add(p); renderToolbar(); render(); }));
       toolbar.appendChild(chip);
     }
     for (const k of EDGE_KINDS) {
       if (k === 'contains' || k === 'project-reference') continue;
       const chip = document.createElement('button'); chip.className = 'chip' + (state.filters.has(k) ? '' : ' off');
       chip.textContent = k; chip.style.borderColor = EDGE_COLOR[k] || '';
-      chip.addEventListener('click', () => { state.filters.has(k) ? state.filters.delete(k) : state.filters.add(k); renderToolbar(); render(); });
+      chip.addEventListener('click', withBusy(() => { state.filters.has(k) ? state.filters.delete(k) : state.filters.add(k); renderToolbar(); render(); }));
       toolbar.appendChild(chip);
     }
   }
-  function mkBtn(text, fn, cls) { const b = document.createElement('button'); if (cls) b.className = cls; b.textContent = text; b.addEventListener('click', fn); return b; }
+  function mkBtn(text, fn, cls) { const b = document.createElement('button'); if (cls) b.className = cls; b.textContent = text; b.addEventListener('click', withBusy(fn)); return b; }
   function setStatus(text) { document.getElementById('status').textContent = text; setTimeout(() => { if (document.getElementById('status').textContent === text) document.getElementById('status').textContent = ''; }, 6000); }
   function renderStatus(vis, drawn) {
     document.getElementById('stats').textContent = `node ${nodes.length} / edge ${edges.length} / 表示 ${vis.size} / 描画エッジ ${drawn.length}`;
@@ -815,6 +858,8 @@
   window.__csdg = {
     state, nodes, edges, byId, reveal, focusNeighbors, render, collectAnnotations,
     applyAnnotation, exportable, storedAnnotations: readStoredAnnotations,
+    // 「レポートを生成中」表示の状態（検査用。表示中かどうかと、開始した回数）
+    busyShown: () => !busyEl.hidden, busyStarts: () => busyStarts,
   };
   document.getElementById('btn-link').addEventListener('click', async () => {
     const url = location.href.split('#')[0] + currentHash();
@@ -822,7 +867,7 @@
     catch { setStatus(url); }
   });
   document.getElementById('btn-fit').addEventListener('click', fit);
-  document.getElementById('btn-collapse').addEventListener('click', () => { state.expanded = new Set([ROOT.i]); state.ghost.clear(); state.links.clear(); state.selected = null; render(); });
+  document.getElementById('btn-collapse').addEventListener('click', withBusy(() => { state.expanded = new Set([ROOT.i]); state.ghost.clear(); state.links.clear(); state.selected = null; render(); }));
   document.getElementById('btn-anno').addEventListener('click', () => {
     downloadAnnotations();
     setStatus(exportable.length ? 'annotations.json をダウンロードしました（merge.mjs に渡すと恒久化）' : 'まだブラウザ内で追加した注釈はありません');
@@ -835,8 +880,13 @@
   for (const file of readStoredAnnotations()) { applyAnnotation(file); exportable.push(file); }
 
   const preselected = applyHashState();
-  render();
-  if (preselected) centerOn(preselected.i); else fit();
+  // 初期表示も同じ順で出す（合図 → 計算・描画 → 選択と並び順が確定した表）。
+  // データ埋め込みの大きい graph.html では解析だけで時間がかかるので、ヘッダの
+  // 「レポートを生成中」がまず描画され、計算はその後に入る
+  beginBusy(() => {
+    render();
+    if (preselected) centerOn(preselected.i); else fit();
+  });
 })();
 </script>
 </body>
