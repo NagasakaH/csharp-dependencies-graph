@@ -1416,8 +1416,8 @@ check('--limit で一覧が切れてもカウンタの不変条件は保たれ�
 // 決める基準にはなっていない。比較不能な対（`chain` マスク 12・予算 2 と `elig|apiTail`
 // マスク 10・予算 1）と同位（同じマスク・同じ予算）の対は先着（あるいは後着）が勝っていた
 // ため、縁の並び順だけで `direction` が反転した（再現 out/tmp-r37/repro-direction.py）。
-// 直し: 実経路の候補を全部保持し、`repCmp` の全順序（昇格止めの経路 → 根付き → 定義上の
-// 関連候補 → 予算 → 段数 → apiTail → chain → 縁 id 辞書順）で代表を決める。
+// 直し: 実経路の候補を全部保持し、`repCmp` の全順序（昇格止めの経路 → 根付き → 予算 →
+// 段数 → apiTail → chain → 縁 id 辞書順）で代表を決める。
 //  shuffled した縁順で 欄・向き・tier・段数・根拠の縁まで一致することを固定する
 {
   // 疑似ランダムだが決定的な並べ順（線形合同法）。シードを変えて複数並べ順を作る
@@ -1437,7 +1437,8 @@ check('--limit で一覧が切れてもカウンタの不変条件は保たれ�
     ['artifacts.out', r.artifacts.out], ['artifacts.in', r.artifacts.in],
     ['wiring', r.wiring], ['sameApi', r.sameApi], ['siblingEndpoints', r.siblingEndpoints]]
     .flatMap(([b, rs]) => (rs || []).map((x) => `${b}|${x.id}=${x.tier}/${x.direction}/h${x.hops}`
-      + `/evidence:${x.evidence.kind}:${x.evidence.source}->${x.evidence.target}`));
+      + `/evidence:${x.evidence.kind}:${x.evidence.source}->${x.evidence.target}`
+      + `/movement:${x.movementEvidence ? x.movementEvidence.id : '-'}`));
 
   // (1) codex 双人レビューの反例。`chain` 一本の経路（`l_out → x1 → target`、向き out）と
   // `elig|apiTail` の経路（`i → b ← target`、向き in）が比較不能で着く。仕様どおり
@@ -1509,6 +1510,70 @@ check('--limit で一覧が切れてもカウンタの不変条件は保たれ�
     bOrders.map(([name, out]) => `${name}: ` + (out
       ? `target=${bTarget(out) ? `${bTarget(out).tier}/${bTarget(out).direction}/h${bTarget(out).hops}` : '無し'}`
       : '実行失敗')).join(' | '));
+}
+
+// ---- 第 38 ラウンド: 循環判定は実際の経路だけを読む（双人レビュー第 37 ラウンド両名指摘）----
+// 旧実装は `wiringMap` の**選んだ代表**の連鎖で循環を見ていたので、ある経路が切れるか
+// どうかが届く順で変わり、候補集合そのものが揺れた（再現 out/tmp-review37/repro.py:
+// `target` が orig で 3 段/new9、rev で 2 段/e3 に化けた）。直し: 循環判定は待ち行列状態の
+// `parent` 連鎖（実際の経路）だけで行い、候補集合は提示された実経路を全部保つ
+// （挿入ゲート廃止）。縁の反転・ノードの反転でも段数・根拠・動きの根拠まで揺れないこと
+// を固定する
+{
+  const shuffled = (xs, seed) => {
+    const ys = [...xs];
+    let s = seed >>> 0;
+    const rnd = () => { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff; };
+    for (let i = ys.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(rnd() * (i + 1));
+      [ys[i], ys[j]] = [ys[j], ys[i]];
+    }
+    return ys;
+  };
+  const fullShape = (r) => [['external.out', r.external.out], ['external.in', r.external.in],
+    ['entries.out', r.entries.out], ['entries.in', r.entries.in],
+    ['artifacts.out', r.artifacts.out], ['artifacts.in', r.artifacts.in],
+    ['wiring', r.wiring], ['sameApi', r.sameApi], ['siblingEndpoints', r.siblingEndpoints]]
+    .flatMap(([b, rs]) => (rs || []).map((x) => `${b}|${x.id}=${x.tier}/${x.direction}/h${x.hops}`
+      + `/evidence:${x.evidence.kind}:${x.evidence.source}->${x.evidence.target}`
+      + `/movement:${x.movementEvidence ? x.movementEvidence.id : '-'}`));
+  const pcNodes = [
+    synNode('tf:aws_lambda_function.s', 'resource', { resourceType: 'aws_lambda_function' }),
+    synNode('tf:aws_s3_bucket.x1', 'resource', { resourceType: 'aws_s3_bucket' }),
+    synNode('tf:aws_api_gateway_integration.i', 'resource', { resourceType: 'aws_api_gateway_integration', category: 'apigateway' }),
+    synNode('tf:aws_lambda_function.b', 'resource', { resourceType: 'aws_lambda_function' }),
+    synNode('tf:aws_dynamodb_table.target', 'resource', { resourceType: 'aws_dynamodb_table' }),
+  ];
+  const pcEdges = [
+    synEdge('references', 'tf:aws_s3_bucket.x1', 'tf:aws_dynamodb_table.target'),
+    synEdge('references', 'tf:aws_api_gateway_integration.i', 'tf:aws_lambda_function.b'),
+    synEdge('triggers', 'tf:aws_lambda_function.s', 'tf:aws_api_gateway_integration.i'),
+    synEdge('triggers', 'tf:aws_dynamodb_table.target', 'tf:aws_lambda_function.b'),
+    synEdge('triggers', 'tf:aws_lambda_function.s', 'tf:aws_s3_bucket.x1'),
+  ];
+  const pcOrders = [['orig', pcNodes, pcEdges], ['rev', pcNodes, [...pcEdges].reverse()],
+    ['revNodes', [...pcNodes].reverse(), [...pcEdges].reverse()]]
+    .concat([2, 7, 43].map((sd) => [`shuf${sd}`, pcNodes, shuffled(pcEdges, sd)]))
+    .map(([name, nodes, edges]) => [name,
+      runSyn(`r38pc-${name}`, { nodes, edges },
+        ['--from', 'tf:aws_lambda_function.s'], `r38pc-${name}`)]);
+  const pcRow = (out, id) => (out ? allRows(out.result).find((x) => x.id === id) : null);
+  check('path-counter 反例: 縁の反転・ノードの反転で 段数・根拠・動きの根拠まで一致（target=in/primary/1段/new9、b=out）',
+    pcOrders.every(([, out]) => {
+      if (!out) return false;
+      const t = pcRow(out, 'tf:aws_dynamodb_table.target');
+      const b = pcRow(out, 'tf:aws_lambda_function.b');
+      return !!t && !!b && t.direction === 'in' && t.tier === 'primary' && t.hops === 1
+        && t.evidence.id === 'triggers:tf:aws_dynamodb_table.target->tf:aws_lambda_function.b'
+        && !!t.movementEvidence && t.movementEvidence.id === t.evidence.id
+        && b.direction === 'out' && b.tier === 'primary';
+    })
+    && new Set(pcOrders.map(([, out]) => JSON.stringify(out ? fullShape(out.result) : null))).size === 1,
+    pcOrders.map(([name, out]) => {
+      if (!out) return `${name}: 実行失敗`;
+      const t = pcRow(out, 'tf:aws_dynamodb_table.target');
+      return `${name}: target=${t ? `${t.direction}/${t.tier}/h${t.hops}/${(t.evidence || {}).kind}/${(t.movementEvidence || {}).id || '-'}` : '無し'}`;
+    }).join(' | '));
 }
 
 rmSync(dir, { recursive: true, force: true });

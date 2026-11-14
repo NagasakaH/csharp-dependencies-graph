@@ -392,37 +392,59 @@ const startApiGroups = new Set(starts.map((x) => apiGroupOf(byId.get(x.id))).fil
 const combined = new Map();
 const wiringMap = new Map();
 // **表示する代表経路**の候補集合。id -> 非支配の実経路 [{ mask, budget, rec }]。
-// 支配は展開側の予算表（`expandedAt`）と同じ包含 × 予算非増。展開側の支配は**枝刈り**として
-// そのまま残り、こちらは「表示する代表経路を一意に決める」ために使う。包含支配だけでは
-// 比較不能な対（`chain` のマスク 12・予算 2 と `elig|apiTail` のマスク 10・予算 1 など）と
-// 同位（同じマスク・同じ予算）の対が残るので、候補を全部保持し `repCmp` の全順序で勝者を
-// 決める（双人レビュー第 36 ラウンド両名指摘、仕様 out/loop/r37-decision.md）
+// 展開側の枝刈り（`expandedAt` の予算表）とは**別物**で、この集合と `wiringMap` の中身は
+// 表示の根拠を選ぶためだけに存在する。循環判定・`cut`・旗の決定・受理は展開中の実経路
+// （キュー状態の `parent` 連鎖）だけで決まり、ここは読まない（第 37 ラウンド指摘 1。
+// 仕様 out/loop/r38-decision.md）
 const repCands = new Map();
-// 真の支配。同位（同じマスク・同じ予算）は支配と数えないので両方が候補に残り、
-// `repCmp` が決める（第 36 ラウンド agy 指摘 2: 支配を `<=` 込みで/reflexive にすると
-// 同位の後着が常に勝って `direction` が並べ順で反転した）
-const repDominates = (a, b) => (a.mask & b.mask) === b.mask && a.budget <= b.budget
-  && (a.mask !== b.mask || a.budget !== b.budget);
-// **代表経路の全順序**（仕様 out/loop/r37-decision.md、原則 4）。比較不能・同位の候補にだけ
-// 適用する。縁の到着順はどこにも入らない。並べた順に比較し、次で切る:
-//  1. 昇格を止められていない経路（`wiring !== true`）を先に（旧 `promoteTo` の意図）
-//  2. 根付き（`cut === false`）を先に（旧 `shorter` / `recoverCut` の意図。挿入でも防ぐ）
-//  3. 本命ノードへの定義上の関連候補（`demote`）を最後に
-//  4. 定義段数 `budget` が小さい順（近い実経路を先に）
-//  5. 記録段数 `rec.hops` が小さい順
-//  6. `apiTail` 旗（API の定義を越えて届いた）を持つ経路を先に（旧 `carryTail` の意図。
-//     着地まで運んだ経路が代表になれないと 2 段目の種が育たない系列が最優先)
-//  7. `chain` 旗（起点の実装関係で結ばれた連鎖）を持つ経路を先に
-//  8. 根拠の縁 id → 親 id (`via`) の辞書順（最終タイブレーク。向きは選考基準でなく
+// **代表の選び方は展開・循環・旗の決定に一切影響しない**（仕様 out/loop/r38-decision.md、
+// 原則 4）。候補集合はこの 2 つの関数だけで形が決まる。
+//  - `repDominates`: 支配。比較項目は `repCmp` の接頭辞（第 1〜6 項）とまったく同じで、
+//    すべての項目で劣らず 1 つ以上でstrict に優れる候補が他を捨てる。**接頭辞で負けた候補は
+//    最終タイブレークまで行けない**ので、支配で捨てられる候補が代表になることはなく、
+//    集合の形も代表も加える順に依らない（第 37 ラウンド agy 指摘 3-1: 支配と到着順の
+//    挿入ゲート（旧 `demote` / `shorter`）が同値でないと、`cut: true, apiTail` 付きと
+//    `cut: false` の対決が到着順で割れた）
+//  - `repCmp`: 全順序。到着順は入らない。旧 `demote`（定義上の関連を最後に）と
+//    旧 `shorter`（根付きを先に）は挿入ゲートではなくこの順序の第 1・2 項として持つ。
+//    旧ゲートはどちらか一方でも当たれば候補を止めていたので、実測で両立しない対
+//    （根付きの定義上の関連 vs 途中で切れた実経路）が起きた。根が起点でない経路は
+//    代表の土台に立たない方を先にした（第 37 ラウンドの v1 突合で `IAM ポリシー →
+//    role → notify` の根付き経路が、根が `order_process` の経路に追い出された）
+// 真の支配（`repCmp` の接頭辞を項目ごとに比べ、ひとつも劣らず 1 つ以上strict に良い）
+const repDominates = (a, b) => {
+  const wa = a.rec.wiring === true ? 1 : 0; const wb = b.rec.wiring === true ? 1 : 0;
+  if (wa > wb) return false; const s1 = wa < wb;
+  const ca = a.rec.cut ? 1 : 0; const cb = b.rec.cut ? 1 : 0;
+  if (ca > cb) return false; const s2 = ca < cb;
+  if (a.budget > b.budget) return false; const s3 = a.budget < b.budget;
+  if (a.rec.hops > b.rec.hops) return false; const s4 = a.rec.hops < b.rec.hops;
+  const ta = (a.mask & CLOSURE_API_TAIL) ? 0 : 1; const tb = (b.mask & CLOSURE_API_TAIL) ? 0 : 1;
+  if (ta > tb) return false; const s5 = ta < tb;
+  const cha = (a.mask & CLOSURE_CHAIN) ? 0 : 1; const chb = (b.mask & CLOSURE_CHAIN) ? 0 : 1;
+  if (cha > chb) return false; const s6 = cha < chb;
+  return s1 || s2 || s3 || s4 || s5 || s6;
+};
+// **代表経路の全順序**。並べた順に比較し、差が出たところで切る:
+//  1. 昇格を止められていない経路（`wiring !== true`）を先に（旧 `promoteTo` / `demote` の意図。
+//     定義上の関連の記録が本命の記録を塗り替えない）
+//  2. 根付き（`cut === false`）を先に（旧 `shorter` / `recoverCut` の意図。根が起点でない
+//     経路を代表にしない）
+//  3. 定義段数 `budget` が小さい順（近い実経路を先に。双人レビュー（agy）が提案した
+//     「予算 → 段数」の順序をそのまま採用）
+//  4. 記録段数 `rec.hops` が小さい順（同じ資格なら短い経路が読める）
+//  5. `apiTail` 旗（API の定義を越えて届いた）を持つ経路を先に（旧 `carryTail` の意図。
+//     着地まで運んだ経路が代表になれないと 2 段目の種が育たない系列が最優先）
+//  6. `chain` 旗（起点の実装関係で結ばれた連鎖）を持つ経路を先に
+//  7. 根拠の縁 id → 親 id (`via`) の辞書順（最終タイブレーク。向きは選考基準でなく
 //     経路の結果なのでここでの介入はない）
+// 旧 `repCmp` の第 3 項（`demote` の `dma`/`dmb`）は同一ノードの候補同士では第 1 項が
+// 同値なら必ず同値になる不死の比較だったので削除した（第 37 ラウンド agy 指摘 3-3）
 const repCmp = (a, b) => {
   const wa = a.rec.wiring === true ? 1 : 0; const wb = b.rec.wiring === true ? 1 : 0;
   if (wa !== wb) return wa - wb;
   const ca = a.rec.cut ? 1 : 0; const cb = b.rec.cut ? 1 : 0;
   if (ca !== cb) return ca - cb;
-  const dma = (a.rec.wiring === true && bestState.get(a.id) && bestState.get(a.id).primary) ? 1 : 0;
-  const dmb = (b.rec.wiring === true && bestState.get(b.id) && bestState.get(b.id).primary) ? 1 : 0;
-  if (dma !== dmb) return dma - dmb;
   if (a.budget !== b.budget) return a.budget - b.budget;
   if (a.rec.hops !== b.rec.hops) return a.rec.hops - b.rec.hops;
   const ta = (a.mask & CLOSURE_API_TAIL) ? 0 : 1; const tb = (b.mask & CLOSURE_API_TAIL) ? 0 : 1;
@@ -436,7 +458,11 @@ const repCmp = (a, b) => {
 // 候補集合へ 1 経路加える。除くのは**自分から見て真に支配されている既存候補**だけ。
 // 代表は常に `repCmp` の最小なので、加える順に依らず集合と代表は同じになる
 const addRepCandidate = (id, mask, budget, rec) => {
-  const cand = { id, mask, budget, rec };
+  // `rec` は浅いコピーを持つ。代表が `combined` へ入った後は `promote` が同じオブジェクトを
+  // 変更する（`wiring` / `via` / `cut`）ので、候補が同じ実体だと「後から来た候補との比較」が
+  // マージの順番に左右される（双人レビュー第 37 ラウンド agy 指摘 3-2）。候補は加わった時点の
+  // 経路の事実だけを見ていればよい
+  const cand = { id, mask, budget, rec: { ...rec } };
   const kept = (repCands.get(id) || []).filter((c) => !repDominates(cand, c));
   if (!kept.some((c) => repDominates(c, cand))) kept.push(cand);
   repCands.set(id, kept);
@@ -460,6 +486,31 @@ const onChain = (fromId, id, extra, cap = 64) => {
     if (seen.has(cur.id)) return false;
     seen.add(cur.id);
     cur = cur.via ? recOf(cur.via, extra) : null;
+  }
+  return false;
+};
+// 閉包の循環境避。**展開中のキュー状態が実際に届いた経路**（`parent` で辿る実経路と、
+// その種の walk 記録の `via` 連鎖）だけを見て、次の一歩が同じノードへ戻るものかどうかを
+// 決める。`wiringMap` は表示の代表を選ぶ途中で書き換わるので**読まない**。読むと
+// 「代表の選び方」が循環判定 → `cut` / `apiTail` → 候補の合否へ逆流し、候補集合そのものが
+// 縁の到着順で変わった（双人レビュー第 37 ラウンド指摘 1、両名。再現
+// out/tmp-r38/path-counter.json: `s → x1 → target` の 2 段実経路が、`b` の代表に選ばれた
+// `s → x1 → target → b` の経路に `target` が居たせいで循環と誤判定され、候補から落ちた）
+// 起点の walk 記録は `combined` にあり、ラウンドの途中で書き換わらないので祖先として見てよい
+const onPath = (state, id, cap = 64) => {
+  let s = state;
+  for (let i = 0; s && i < cap; i += 1) {
+    if (s.id === id) return true;
+    if (!s.parent) {
+      let rec = combined.get(s.id);
+      rec = rec && rec.via ? combined.get(rec.via) : null;
+      for (let j = 0; rec && j < cap; j += 1) {
+        if (rec.id === id) return true;
+        rec = rec.via ? combined.get(rec.via) : null;
+      }
+      return false;
+    }
+    s = s.parent;
   }
   return false;
 };
@@ -724,6 +775,8 @@ function promote(cur, rec) {
     primary: rec.wiring !== true && rec.chain !== false,
     elig: rec.wiring !== true, chain: rec.chain !== false,
     down: rec.down, reachedByInvokes: rec.reachedByInvokes, edge: rec.edge,
+    // 循環境避で切った一歩の縁は到着ではない（閉包側と同じ規約）
+    edgeIsArrival: !rec.cut,
     apiTail: rec.apiTail,
   });
   if (rec.reachedByInvokes) cur.reachedByInvokes = true;
@@ -747,7 +800,21 @@ function promote(cur, rec) {
   if (cur.wiring === true && rec.wiring !== true
     && (MOVEMENT.has(kind) || CORRESPONDENCE.has(prov))) {
     cur.wiring = false;
-    if (MOVEMENT.has(kind)) cur.movementEvidence = rec.edge || cur.movementEvidence || null;
+    // 記録側の動きの根拠も先着保持にしない（`movementWins` の辞書順最小。閉包側の
+    // `bestState` があるときはそれが先に読まれるが、ないときのフォールバックが
+    // 到着順で変わらないようにする）。循環境避で切った一歩の縁は到着ではないので候補にしない
+    if (MOVEMENT.has(kind)) {
+      // 記録側も同じ 4 枠（`movementWins` の辞書順最小で、到着順に依らない）
+      const rCorr = FLIP_INTO_IMPL.has(kind);
+      const rArr = !rec.cut;
+      const rs = (name) => movementWins(cur[name] || null, rec.edge || null);
+      if (rCorr && rArr) cur.movementEvidenceAC = rs('movementEvidenceAC');
+      else if (rCorr) cur.movementEvidenceCC = rs('movementEvidenceCC');
+      else if (rArr) cur.movementEvidenceAF = rs('movementEvidenceAF');
+      else cur.movementEvidenceCF = rs('movementEvidenceCF');
+      cur.movementEvidence = cur.movementEvidenceAC || cur.movementEvidenceCC
+        || cur.movementEvidenceAF || cur.movementEvidenceCF;
+    }
   }
 }
 function mergeRecords(found) {
@@ -873,6 +940,35 @@ const isSiblingEndpointNode = (id) => {
   return !(st ? st.reachedByInvokes : false);
 };
 const bestState = new Map();   // id -> { budget, primary, elig, down, reachedByInvokes, movementEvidence }
+// 動きの根拠縁の選び方（双人レビュー第 37 ラウンド指摘 2、両名。再現
+// `out/tmp-review37/closure-counter.json`: 経路・段数・根拠が同じまま、動きの縁の先着保持で
+// `external.in` / `external.out` が並び順により反転した）。先着保持をやめ、**縁 id の
+// 辞書順で最小のものを保つ**。向き（矢印が自分を指すか）は選考基準にしない。向きの
+// 判断は `directionOf` の読む規約（「自分へ向いている矢印があればそっちを読む」）が
+// 代表の縁とこの根拠の 2 件に対して行うので、ここで向きを基準にすると同じ規約が
+// 2 重に効いて、到着順では決まらなかった向きが事実層で先に決まってしまう
+// （実測: v1 監査の `demo-order` などで Lambda の向きが in → out に反転した）。
+// 最小値は入る順に依らないので、届く順に関係なく同じ縁が残る。集めるプールは 4 つの
+// 枠に分けて、この優先順で読む（上の枠がある限り下の枠は読まない）:
+//  1. 到着 × 対応縁（`handler` / `exposed-by`）
+//  2. 切った一歩 × 対応縁
+//  3. 到着 × 流れの縁（`invokes` / `triggers`）
+//  4. 切った一歩 × 流れの縁
+// 対応縁が流れの縁より先: 対応縁は「このノードが誰のコードを載せるか」を表し、向きの
+// 土台になる。第三者の呼び込み（`Step Functions → invokes → notify`）の矢印が後から
+// 届いても、自分の `handler` を載せる Lambda が 影響する先 へ反転してはならない
+// （実測: プロジェクト起点の `demo-proj` の `notify` が in → out した）。
+// 同じ枠の中は 到着が切り位置より先: 循環境避で切った一歩は代表経路の一歩ではない。
+// ReportImpact の integration は 循環で切った method 由来の `invokes`（自分を指す矢印）を
+// 拾うと 影響する先 へ反転した（上流の法線は代表経路の到着縁が持つ）。逆に
+// `arrow-priority` の 呼びにくる側 は出ていく縁が循環境避の一歩でしか観測されないので、
+// 枠が空のときは切り位置の縁でも根拠にする（4 の枠）
+const movementWins = (a, b) => {
+  if (!a) return b;
+  if (!b) return a;
+  const ia = a.id || ''; const ib = b.id || '';
+  return ia <= ib ? a : b;
+};
 // **受理した事実（本命か / 動きの根拠 / 旗）はここ、経路（`via` と表示する縁）は記録側**に置く。
 // 両方を記録に持たせていたため、経路を循環境避で切ったときに受理済みの本命情報まで捨てた
 // （双人レビュー P1: タグ参照が 1 本増えただけで実際の `invokes` が定義上の関連へ落ちた）
@@ -897,8 +993,16 @@ const expandedAt = new Map();   // id -> { primary, gen, budgets: [8] }
 let apiGen = 0;
 function noteFacts(id, f) {
   const prev = bestState.get(id)
-    || { primary: false, elig: false, down: false, reachedByInvokes: false, chain: false, apiTail: false, movementEvidence: null };
+    || { primary: false, elig: false, down: false, reachedByInvokes: false, chain: false, apiTail: false, movementEvidence: null, movementAC: null, movementCC: null, movementAF: null, movementCF: null };
   const kind = f.edge ? f.edge.kind : null;
+  const fMove = MOVEMENT.has(kind) ? f.edge : null;
+  const fArr = f.edgeIsArrival === false ? null : fMove;
+  const isCorr = FLIP_INTO_IMPL.has(kind);
+  const slot = (name, edge) => movementWins(prev[name] || null, edge);
+  const mvAC = fArr && isCorr ? slot('movementAC', fArr) : prev.movementAC || null;
+  const mvCC = fMove && isCorr && !fArr ? slot('movementCC', fMove) : prev.movementCC || null;
+  const mvAF = fArr && !isCorr ? slot('movementAF', fArr) : prev.movementAF || null;
+  const mvCF = fMove && !isCorr && !fArr ? slot('movementCF', fMove) : prev.movementCF || null;
   bestState.set(id, {
     ...prev,
     primary: prev.primary || !!f.primary,
@@ -912,8 +1016,13 @@ function noteFacts(id, f) {
     // 定義の縁だけで届いた一歩が先着しても、後から `apiTail` を立てて届いた事実を捨てない
     // （双人レビュー第 31 ラウンド agy 指摘 1）
     apiTail: prev.apiTail || !!f.apiTail,
-    movementEvidence: prev.movementEvidence
-      || f.movementEvidence || (MOVEMENT.has(kind) ? f.edge : null) || null,
+    // 動きの根拠は先着保持にしない。4 枠のプールを `movementWins`（id 辞書順の最小）で
+    // 選び直すので、届く順に関係なく同じ縁が残る（双人レビュー第 37 ラウンド指摘 2）
+    movementAC: mvAC,
+    movementCC: mvCC,
+    movementAF: mvAF,
+    movementCF: mvCF,
+    movementEvidence: mvAC || mvCC || mvAF || mvCF,
   });
 }
 // closure の状態は (段数, 定義の縁の残り予算, 本命か, 動きを伝播してよいか)。
@@ -934,6 +1043,8 @@ function runClosure(seedIds) {
     noteFacts(state.id, {
       primary: state.primary, elig: state.elig, down: state.down, reachedByInvokes: state.reachedByInvokes,
       chain: state.chain, apiTail: state.apiTail, edge: state.rec ? state.rec.edge : null,
+      // 循環境避で切った一歩は「このノードへ着地した一歩」ではない
+      edgeIsArrival: !(state.rec && state.rec.cut),
     });
     // 展開するのは (a) 今の世代ではまだ展開していない、(b) 初めて本命として展開する、
     // (c) 同じ `(chain, elig, down, apiTail)` の資格で前回より小さい予算で届いた、のいずれかのとき。
@@ -947,28 +1058,16 @@ function runClosure(seedIds) {
     // `API グループ数 + 1` なので有限に止まる
     const mask = (state.chain ? CLOSURE_CHAIN : 0) | (state.elig ? CLOSURE_ELIG : 0)
       | (state.down ? CLOSURE_DOWN : 0) | (state.apiTail ? CLOSURE_API_TAIL : 0);
-    // **表示する代表経路の候補集合**（仕様 out/loop/r37-decision.md、原則 4）。加えるか決める
-    // のは r36 と同じ 2 つの防止条件だけ。
-    // (1) 本命として受理済みのノードへ、定義上の関連の経路を既存候補があるのに加えない
-    //     （旧 `demote`。受理事実 `bestState.primary` は単調）
-    // (2) 循環境避で切った経路を、根付きの候補があるノードに加えない（旧 `shorter`。
-    //     根無しの候補しかないときは加える。後から根付きが来れば `repCmp` の 2 番目が勝つ）
-    if (state.rec) {
-      const cands = repCands.get(state.id) || [];
-      const demote = cands.length > 0 && bestState.get(state.id).primary && state.rec.wiring === true;
-      const shorter = state.rec.cut && cands.some((c) => !c.rec.cut);
-      if (!demote && !shorter) {
-        // 実経路は**展開に受理されたか否かに関わらず**候補に加える。受理の枝刈り
-        // （`better`）をこの下に残すのは展開を増やさないためで、表示の代表は別問題。
-        // r36 は「支配・昇格・cut 復旧・旗運びのときだけ後着で上書き、それ以外は先着を
-        // 保つ」で、比較不能な対は先着、同位（同じマスク・同じ予算）は支配の反射性で
-        // 後着が勝っていた（双人レビュー第 36 ラウンド両名指摘。再現
-        // `out/tmp-r37/repro-direction.py`）。受理されなかった経路も実際に届いた一歩の
-        // 連鎖であり、候補に加えても展開は 1 歩も増えない。候補はすべて実在の経路で、
-        // 旗だけを合成した架空の経路にはならない
-        addRepCandidate(state.id, mask, state.budget, state.rec);
-      }
-    }
+    // **表示する代表経路の候補集合**（仕様 out/loop/r38-decision.md、原則 4）。
+    // 届いた実経路は**展開に受理されたか否か・`cut`・`wiring`・受理済み事実に関わらず**
+    // すべて加える。r37 までここに有った 2 つの到着順ゲート（旧 `demote` / `shorter`）は
+    // 削除した。ゲートは「既に何が候補に入っているか」と「`bestState` の到着順の旗」を
+    // 読むので、同じ経路でも加わる順で合否が変わり、支配関係との非対称性を作って
+    // いた（双人レビュー第 37 ラウンド agy 指摘 3-1）。旧ゲートの意図（定義上の関連を
+    // 最後に、根付きを先に）は `repDominates` と `repCmp` の第 1・2 項が同じ比較項目で
+    // 持っているので、代表の選び方は変わらない。受理の枝刈り（下の `better`）は
+    // 展開を増やさないためだけで、候補の合否には無関係
+    if (state.rec) addRepCandidate(state.id, mask, state.budget, state.rec);
     const prevBudget = fresh ? Infinity : done.budgets[mask];
     const better = fresh || (state.primary && !done.primary) || state.budget < prevBudget;
     if (!better) return false;
@@ -1023,13 +1122,15 @@ function runClosure(seedIds) {
     // 「昇格を止められていないが連鎖外」の記録（実装が呼ぶ `Shared()` から見た呼び出し元など）が
     // 閉包の種になった瞬間に本命へ昇格し、その先 200 件が 影響を受ける入口 の本命に並んだ
     const primary = chain && (st ? st.primary : rec.wiring !== true);
+    // `parent` は実経路の親（キュー状態）。循環境避（`onPath`）はこれだけを辿る。
+    // 種の歩みは walk 記録（`combined`）にあり、ラウンド途中で書き換わらない
     const state = {
       id, hops: rec.hops, budget: 0, down: st ? st.down : !!rec.down,
       reachedByInvokes: rec ? !!rec.reachedByInvokes : false,
       primary, elig: primary || inTouchedApiGroup(id),
       chain,
       apiTail: !!rec.apiTail,
-      via: null, rec,
+      via: null, rec, parent: null,
     };
     if (offer(state)) queue.push(state);
   }
@@ -1039,7 +1140,11 @@ function runClosure(seedIds) {
     for (const { to, edge } of tfAdj.get(cur.id) || []) {
       // 段数の上限は「Terraform の定義単位をどこまで閉じるか」なので、予算を課すのは
       // `references`（定義を辿る縁）だけ。**動きの縁を越えたところでは数え直す**
-      const back = onChain(cur.id, to, wiringMap);   // 循環させる一歩は出発点を切り直す
+      // 循環境避は**展開中の実経路**（`onPath`。キュー状態の `parent` 連鎖と種の walk 記録）
+      // だけで決める。表示の代表が入る `wiringMap` を読むと、代表の選び方が循環判定 →
+      // `cut` / `apiTail` → 候補の合否へ逆流して候補集合自体が到着順で変わる
+      // （双人レビュー第 37 ラウンド指摘 1。仕様 out/loop/r38-decision.md）
+      const back = onPath(cur, to);   // 循環させる一歩は出発点を切り直す
       const movement = MOVEMENT.has(edge.kind);
       const budget = movement ? 0 : cur.budget + 1;
       if (budget > opts.wiringHops) continue;
@@ -1092,7 +1197,7 @@ function runClosure(seedIds) {
       const state = {
         id: to, hops: rec.hops, budget, primary, elig, via: rec.via, rec, chain,
         down: rec.down, reachedByInvokes: rec.reachedByInvokes, sibBlocked: rec.sibBlocked,
-        apiTail: !!rec.apiTail,
+        apiTail: !!rec.apiTail, parent: cur,
       };
       // メンバ（`handler` の届く先）では展開しない。コード側の縁を辿るのは本命の walk だけにさせる
       if (offer(state) && (byId.get(to) || {}).kind === 'resource') queue.push(state);
