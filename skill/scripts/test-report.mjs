@@ -73,6 +73,7 @@ function run2(args, label) {
 // すべての行がどれかの欄に入っているか（欄の合計 == 総行数）
 const bucketTotal = (r) => r.external.out.length + r.external.in.length
   + r.entries.out.length + r.entries.in.length
+  + r.artifacts.out.length + r.artifacts.in.length
   + r.wiring.length + r.sameApi.length + r.siblingEndpoints.length;
 
 // ---- 変更ファイル起点 ----
@@ -215,10 +216,16 @@ check('根拠の経路に `null` が混ざらない（起点まで辿れる）',
 check('同じ Lambda を使う**別 API** のエンドポイントが既定の段数で兄弟に出る',
   B.siblingEndpoints.some((r) => r.endpoint === 'GET /users'),
   JSON.stringify(B.siblingEndpoints.map((r) => r.endpoint)));
-check('別 API の rest_api / resource / deployment を「起点と同じ API」に混ぜない',
+check('別 API の rest_api / resource / deployment は「起点と同じ API」でも「定義上」でもなく兄弟欄に出す',
   !ids(B.sameApi).some((id) => /admin/.test(id))
-  && ids(B.wiring).includes('tf:aws_api_gateway_rest_api.admin_api'),
-  JSON.stringify({ sameApi: ids(B.sameApi), wiring: ids(B.wiring) }));
+  && ids(B.siblingEndpoints).includes('tf:aws_api_gateway_rest_api.admin_api')
+  && !ids(B.wiring).includes('tf:aws_api_gateway_rest_api.admin_api')
+  && !ids(B.external.in).includes('tf:aws_api_gateway_integration.get_users')
+  && !ids(B.external.out).includes('tf:aws_api_gateway_integration.get_users'),
+  JSON.stringify({
+    sameApi: ids(B.sameApi), wiring: ids(B.wiring),
+    sib: ids(B.siblingEndpoints), ext: ids(B.external.in).concat(ids(B.external.out)),
+  }));
 const lam = run2(['--from', LAMBDA], 'lam');
 check('IAM ロールだけを共有する別 Lambda を本命に昇格させない（昇格の循環）',
   !!lam && !ids(lam.result.external.out).includes('tf:aws_lambda_function.notify')
@@ -248,6 +255,172 @@ check('`folder:.` 起点でも着地が全部消えない（判定対象はフ�
     + rootFold.result.summary.wiring) >= 0
   && rootFold.result.summary.starts > 0,
   rootFold ? JSON.stringify(rootFold.result.summary) : '実行失敗');
+
+// ---- 双人レビューで出た反例を、出た形のまま固定する ----
+// ここでは graph.json を手で組み立てる（report.mjs が実際に読む情報だけを持つ）
+function runSyn(name, graph, args, label) {
+  const file = join(dir, `${name}.graph.json`);
+  writeFileSync(file, JSON.stringify(graph));
+  const json = join(dir, `${label}.json`);
+  const proc = spawnSync(process.execPath, [join(HERE, 'report.mjs'), '--graph', file, ...args, '--json', json],
+    { cwd: root, encoding: 'utf8' });
+  if (proc.status !== 0) { console.error((proc.stdout || '') + (proc.stderr || '')); return null; }
+  return { result: JSON.parse(readFileSync(json, 'utf8')), stdout: proc.stdout };
+}
+const synNode = (id, kind, metadata) => ({ id, kind, name: id.split(':').pop(), ...(metadata ? { metadata } : {}) });
+const synEdge = (kind, source, target, provenance = 'terraform') => ({
+  id: `${kind}:${source}->${target}`, kind, source, target, provenance,
+});
+const allRows = (r) => [...r.external.out, ...r.external.in, ...r.entries.out, ...r.entries.in,
+  ...r.artifacts.out, ...r.artifacts.in, ...r.wiring, ...r.sameApi, ...r.siblingEndpoints];
+const tierOf = (r, id) => {
+  const hit = allRows(r).find((y) => y.id === id);
+  return hit ? hit.tier : null;
+};
+
+// 反例 1: IAM ロールだけを共有する別 Lambda。ロールは「Lambda が使っているもの」なので、
+// そこを渡って先（別 Lambda の handler が書くテーブル）まで影響範囲にしない
+const shared = {
+  nodes: [
+    synNode('tf:aws_lambda_function.a', 'resource', { resourceType: 'aws_lambda_function', category: 'lambda' }),
+    synNode('tf:aws_lambda_function.b', 'resource', { resourceType: 'aws_lambda_function', category: 'lambda' }),
+    synNode('tf:aws_iam_role.shared', 'resource', { resourceType: 'aws_iam_role', category: 'iam' }),
+    synNode('tf:aws_api_gateway_integration.b', 'resource', { resourceType: 'aws_api_gateway_integration', category: 'api-gateway' }),
+    synNode('member:B.Handle', 'member'),
+    synNode('ext:rds-table/db.public.b', 'external'),
+  ],
+  edges: [
+    synEdge('references', 'tf:aws_lambda_function.a', 'tf:aws_iam_role.shared'),
+    synEdge('references', 'tf:aws_lambda_function.b', 'tf:aws_iam_role.shared'),
+    synEdge('triggers', 'tf:aws_api_gateway_integration.b', 'tf:aws_lambda_function.b'),
+    synEdge('handler', 'tf:aws_lambda_function.b', 'member:B.Handle'),
+    synEdge('writes', 'member:B.Handle', 'ext:rds-table/db.public.b', 'human'),
+  ],
+};
+const sh = runSyn('shared', shared, ['--from', 'tf:aws_lambda_function.a'], 'syn-shared');
+check('共有 IAM ロールから先の別 Lambda・handler・その書くテーブルを本命にしない',
+  !!sh && ['tf:aws_lambda_function.b', 'member:B.Handle'].every((id) => tierOf(sh.result, id) === 'wiring')
+  && sh.result.external.out.length === 0 && sh.result.external.in.length === 0
+  && tierOf(sh.result, 'ext:rds-table/db.public.b') !== 'primary',
+  sh ? JSON.stringify(allRows(sh.result).map((x) => [x.id, x.tier])) : '実行失敗');
+
+// 反例 2: 呼び出した API の先まで往復して届く。A のコードが API B を `invokes` で呼ぶなら、
+// B の Lambda → handler → その handler が書くテーブルまで影響範囲
+const nested = {
+  nodes: ['tf:method.a', 'tf:integration.a', 'tf:lambda.a', 'member:Handler.A', 'tf:method.b',
+    'tf:integration.b', 'tf:lambda.b', 'member:Handler.B', 'tf:table.b']
+    .map((id) => synNode(id, id.startsWith('member:') ? 'member' : 'resource')),
+  edges: [
+    synEdge('references', 'tf:integration.a', 'tf:method.a'),
+    synEdge('triggers', 'tf:integration.a', 'tf:lambda.a'),
+    synEdge('handler', 'tf:lambda.a', 'member:Handler.A'),
+    synEdge('invokes', 'member:Handler.A', 'tf:method.b', 'human'),
+    synEdge('references', 'tf:integration.b', 'tf:method.b'),
+    synEdge('triggers', 'tf:integration.b', 'tf:lambda.b'),
+    synEdge('handler', 'tf:lambda.b', 'member:Handler.B'),
+    synEdge('writes', 'member:Handler.B', 'tf:table.b', 'human'),
+  ],
+};
+const ne = runSyn('nested', nested, ['--from', 'tf:method.a'], 'syn-nested');
+check('呼び出した API の Lambda・handler・その書くテーブルまで届く（第二段の handler も往復する）',
+  !!ne && ['tf:lambda.b', 'tf:table.b'].every((id) => (tierOf(ne.result, id) || '') === 'primary')
+  && ne.result.external.out.some((x) => x.id === 'tf:table.b')
+  && ne.result.entries.out.some((x) => x.id === 'member:Handler.B'),
+  ne ? JSON.stringify(allRows(ne.result).map((x) => [x.id, x.direction, x.tier])) : '実行失敗');
+
+// 反例 3: 縁の並び順が違うだけのグラフで着地が変わらない（定義の段数打ち切りに順序が効かない）
+const budNodes = ['tf:aws_lambda_function.y', 'tf:aws_iam_role.x', 'tf:aws_iam_role.z',
+  'tf:aws_kms_key.v', 'tf:aws_s3_bucket.u', 'tf:aws_api_gateway_integration.start']
+  .map((id) => synNode(id, 'resource'));
+const budEdges = [
+  synEdge('references', 'tf:aws_lambda_function.y', 'tf:aws_iam_role.x'),
+  synEdge('references', 'tf:aws_lambda_function.y', 'tf:aws_iam_role.z'),
+  synEdge('references', 'tf:aws_iam_role.z', 'tf:aws_kms_key.v'),
+  synEdge('references', 'tf:aws_lambda_function.y', 'tf:aws_s3_bucket.u'),
+  synEdge('triggers', 'tf:aws_api_gateway_integration.start', 'tf:aws_lambda_function.y'),
+];
+const budSet = (g) => {
+  const r = runSyn('bud', g, ['--from', 'tf:aws_lambda_function.y'], 'bud-' + Math.random().toString(36).slice(2, 8));
+  return r ? allRows(r.result).filter((x) => x.kind === 'resource').map((x) => x.id).sort() : null;
+};
+const budA = budSet({ nodes: budNodes, edges: budEdges });
+const budB = budSet({ nodes: [...budNodes].reverse(), edges: [...budEdges].reverse() });
+check('縁とノードの並び順を逆にしても着地するリソースが変わらない',
+  !!budA && !!budB && budA.length > 0 && JSON.stringify(budA) === JSON.stringify(budB),
+  JSON.stringify([budA, budB]));
+
+// 反例 4: `--hops` は呼び出し連鎖の実測した段数で効く（切り替え回数の消費で勝手に伸びない）
+const chainNodes = Array.from({ length: 6 }, (_, i) => synNode(`member:C.M${i}`, 'member'));
+const chainEdges = Array.from({ length: 5 }, (_, i) => synEdge('calls', `member:C.M${i}`, `member:C.M${i + 1}`, 'static'));
+const ch = runSyn('chain', { nodes: chainNodes, edges: chainEdges },
+  ['--from', 'member:C.M0', '--hops', '2'], 'syn-chain');
+check('`--hops 2` の呼び出し連鎖は 2 段まで（3 段目は出ない）',
+  !!ch && ch.result.entries.out.length === 2
+  && ids(ch.result.entries.out).includes('member:C.M2')
+  && !allRows(ch.result).some((x) => x.id === 'member:C.M3'),
+  ch ? JSON.stringify(allRows(ch.result).map((x) => [x.id, x.hops])) : '実行失敗');
+
+// 反例 5: 起点がエンドポイントのとき、実装側は矢印の向きとかかわらず 影響する先。
+// `Step Functions → invokes → Lambda` は矢印が手前を向くので、これを「影響を受ける入口」にしない
+const epMeta = (t, cat, api) => ({ resourceType: t, category: cat, rest_api_id: api });
+const flip = {
+  nodes: [
+    synNode('tf:aws_api_gateway_method.post_x', 'resource', epMeta('aws_api_gateway_method', 'api-gateway', 'tf:aws_api_gateway_rest_api.g')),
+    synNode('tf:aws_api_gateway_integration.post_x', 'resource', epMeta('aws_api_gateway_integration', 'api-gateway', 'tf:aws_api_gateway_rest_api.g')),
+    synNode('tf:aws_lambda_function.x', 'resource', epMeta('aws_lambda_function', 'lambda', null)),
+    synNode('tf:aws_sfn_state_machine.p', 'resource', epMeta('aws_sfn_state_machine', 'step-functions', null)),
+    synNode('member:X.Handle', 'member'),
+  ],
+  edges: [
+    synEdge('references', 'tf:aws_api_gateway_integration.post_x', 'tf:aws_api_gateway_method.post_x'),
+    synEdge('triggers', 'tf:aws_api_gateway_integration.post_x', 'tf:aws_lambda_function.x'),
+    synEdge('handler', 'tf:aws_lambda_function.x', 'member:X.Handle'),
+    // handler が Step Functions を**呼びに出す**（実装の下流）
+    synEdge('invokes', 'member:X.Handle', 'tf:aws_sfn_state_machine.p', 'human'),
+    // 別の上流の Step Functions がこの Lambda を**呼んでいる**（実装の上流）
+    synEdge('invokes', 'tf:aws_sfn_state_machine.up', 'tf:aws_lambda_function.x'),
+  ],
+};
+flip.nodes.push(synNode('tf:aws_sfn_state_machine.up', 'resource', epMeta('aws_sfn_state_machine', 'step-functions', null)));
+const fl = runSyn('flip', flip, ['--api', 'POST /orders', '--from', 'tf:aws_api_gateway_method.post_x'], 'syn-flip');
+check('エンドポイント起点では呼びに出した先が「影響する先」で、自分を呼ぶ上流は「影響を受ける入口」',
+  !!fl && fl.result.external.out.some((x) => x.id === 'tf:aws_sfn_state_machine.p')
+  && fl.result.external.in.some((x) => x.id === 'tf:aws_sfn_state_machine.up')
+  && fl.result.entries.out.some((x) => x.id === 'member:X.Handle'),
+  fl ? JSON.stringify(allRows(fl.result).map((x) => [x.id, x.direction, x.tier])) : '実行失敗');
+
+// 反例 6: `project:` / `file:` は「定義上の関連」ではなく**成果物**（ビルドし直しが必要な範囲）として数える
+const art = {
+  nodes: [
+    synNode('project:P.csproj', 'project'),
+    synNode('tf:aws_lambda_function.x', 'resource', { resourceType: 'aws_lambda_function', category: 'lambda' }),
+    synNode('tf:aws_api_gateway_integration.i', 'resource', { resourceType: 'aws_api_gateway_integration', category: 'api-gateway' }),
+  ],
+  edges: [
+    synEdge('deploys', 'project:P.csproj', 'tf:aws_lambda_function.x', 'llm'),
+    synEdge('triggers', 'tf:aws_api_gateway_integration.i', 'tf:aws_lambda_function.x'),
+  ],
+};
+const ar = runSyn('art', art, ['--from', 'tf:aws_lambda_function.x'], 'syn-art');
+check('届いた `project:` は成果物として数え、定義上の関連に混ぜない（欄の合計も保つ）',
+  !!ar && ar.result.artifacts.in.some((x) => x.id === 'project:P.csproj')
+  && !ids(ar.result.wiring).includes('project:P.csproj')
+  && bucketTotal(ar.result) === ar.result.summary.rows,
+  ar ? JSON.stringify([ar.result.artifacts, ids(ar.result.wiring), ar.result.summary.rows]) : '実行失敗');
+
+// 反例 7: リポジトリ直下（`folder:.`）を起点にしたとき、そこに含まれる endpoint のせいで
+// 「起点がエンドポイント」とみなして向きを反転させない
+const foldAll = run2(['--from', 'folder:.'], 'rootfold2');
+check('`folder:.` 起点では「起点がエンドポイント」とみなさない（向きを反転させない）',
+  !!foldAll && foldAll.result.summary.startIsEndpoint === false
+  && foldAll.result.summary.startEndpoints.length === 0
+  && foldAll.result.summary.siblings === 0,
+  foldAll ? JSON.stringify({ ep: foldAll.result.summary.startIsEndpoint, se: foldAll.result.summary.startEndpoints.length }) : '実行失敗');
+
+// どの欄にも属さない行がないことを、合成グラフでも確かめる
+check('合成グラフでも欄の合計 == 総行数',
+  [sh, ne, ch, fl, ar].every((x) => x && bucketTotal(x.result) === x.result.summary.rows),
+  [sh, ne, ch, fl, ar].map((x) => x && [x.result.summary.rows, bucketTotal(x.result)]).join(' '));
 
 rmSync(dir, { recursive: true, force: true });
 console.log(`\n${pass}/${pass + failures.length} 件成功`);

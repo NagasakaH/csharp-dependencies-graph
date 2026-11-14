@@ -72,9 +72,10 @@ check('補間で組み立てた `path_part` はパスを決めない',
   meta('interp_part').apiPath === undefined, `apiPath=${meta('interp_part').apiPath}`);
 check('`route_key = var.route_key` は endpoint を張らない',
   meta('var_key').endpoint === undefined, `endpoint=${meta('var_key').endpoint}`);
-check('`$default` は catch-all のリテラルなので残し、既定ルートだと分かる旗を付ける',
-  meta('default_key').endpoint === '* /$default' && meta('default_key').defaultRoute === true,
-  JSON.stringify([meta('default_key').endpoint, meta('default_key').defaultRoute]));
+check('`$default` は endpoint にしない（catch-all は実在の HTTP パスではない）。旗だけ残す',
+  meta('default_key').endpoint === undefined && meta('default_key').apiPath === undefined
+    && meta('default_key').defaultRoute === true,
+  JSON.stringify([meta('default_key').endpoint, meta('default_key').apiPath, meta('default_key').defaultRoute]));
 check('リテラルで正しく書けば決まる（上の検査が空振りしていない）',
   meta('literal_ok').apiPath === '/health', `apiPath=${meta('literal_ok').apiPath}`);
 check('`"${...root_resource_id}"` のような単一の補間は解決する（実プロジェクトの大半この形）',
@@ -82,6 +83,35 @@ check('`"${...root_resource_id}"` のような単一の補間は解決する（�
   JSON.stringify([meta('quoted_ref').apiPath, meta('quoted_get').endpoint]));
 check('data ソースは `dataSource: true`（レポートが既定で除外できる）',
   meta('current').dataSource === true, JSON.stringify(meta('current')));
+
+// ---- 値全体がその形でなければ未解決（部分一致で参照を拾わない） ----
+for (const [name, why] of [
+  ['cond_parent', '三項式（分岐が未解決）'],
+  ['join_parent', 'join() で組み立てている'],
+  ['mixed_interp_parent', 'リテラルと補間の混合'],
+  ['ssm_part', '他のリソースの属性（値が分からない）'],
+]) {
+  check(`${why} の parent_id / path_part はパスを決めない（${name}）`,
+    meta(name).apiPath === undefined, `apiPath=${meta(name).apiPath}`);
+}
+check('引用されたリテラルは点を含んでいても決まる（`path_part = "local.segment"`）',
+  meta('dotted_literal').apiPath === '/local.segment' && meta('dotted_get').endpoint === 'GET /local.segment',
+  JSON.stringify([meta('dotted_literal').apiPath, meta('dotted_get').endpoint]));
+check('`resource_id` が三項式なら endpoint を張らない（パスは決まっている）',
+  meta('cond_id').endpoint === undefined && meta('cond_id').apiPath === undefined,
+  JSON.stringify([meta('cond_id').apiPath, meta('cond_id').endpoint]));
+check('`http_method = var.verb` から endpoint を作らない',
+  meta('cond_verb').endpoint === undefined, `endpoint=${meta('cond_verb').endpoint}`);
+check('`count` の添字付き参照は同じパスなので解決する',
+  meta('counted_get').endpoint === 'GET /base', `endpoint=${meta('counted_get').endpoint}`);
+
+// ---- module をまたぐ同名アドレス（id 衝突で endpoint が黙って消えない） ----
+const modEndpoints = graph.nodes
+  .filter((n) => (n.metadata || {}).file && n.metadata.file.startsWith('modules/') && n.metadata.endpoint)
+  .map((n) => n.metadata.endpoint)
+  .sort();
+check('module 内の同名アドレスはファイル付き id に分かれて両方の endpoint が残る',
+  JSON.stringify(modEndpoints) === JSON.stringify(['GET /one', 'GET /two']), JSON.stringify(modEndpoints));
 
 rmSync(dir, { recursive: true, force: true });
 console.log(`\n${pass}/${pass + failures.length} 件成功`);

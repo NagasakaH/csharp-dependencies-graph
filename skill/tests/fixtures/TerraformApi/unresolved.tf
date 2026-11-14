@@ -47,14 +47,14 @@ resource "aws_api_gateway_resource" "interp_part" {
 }
 
 # HTTP API の route_key。`var.route_key` は未解決、`$default` は catch-all のリテラル
-resource "aws_apigatewayv2_api" "http" { name = "http-api" }
+resource "aws_apigatewayv2_api" "http_unresolved" { name = "http-api" }
 variable "route_key" { default = "x" }
 resource "aws_apigatewayv2_route" "var_key" {
-  api_id    = aws_apigatewayv2_api.http.id
+  api_id    = aws_apigatewayv2_api.http_unresolved.id
   route_key = var.route_key
 }
 resource "aws_apigatewayv2_route" "default_key" {
-  api_id    = aws_apigatewayv2_api.http.id
+  api_id    = aws_apigatewayv2_api.http_unresolved.id
   route_key = "$default"
 }
 
@@ -76,5 +76,65 @@ resource "aws_api_gateway_resource" "quoted_ref" {
 resource "aws_api_gateway_method" "quoted_get" {
   rest_api_id = "${aws_api_gateway_rest_api.admin_api.id}"
   resource_id = "${aws_api_gateway_resource.quoted_ref.id}"
+  http_method = "GET"
+}
+
+# 式の途中に正しい参照が含まれていても、**値全体がその形でなければ未解決**とする。
+# 部分一致で判定していた頃は、これらから実在しない `GET /orders` が生まれていた
+variable "suffix" { default = "x" }
+variable "verb" { default = "GET" }
+resource "aws_api_gateway_resource" "cond_parent" {
+  rest_api_id = aws_api_gateway_rest_api.admin_api.id
+  parent_id   = var.use_root ? aws_api_gateway_rest_api.admin_api.root_resource_id : aws_api_gateway_resource.literal_ok.id
+  path_part   = "cond"
+}
+resource "aws_api_gateway_resource" "join_parent" {
+  rest_api_id = aws_api_gateway_rest_api.admin_api.id
+  parent_id   = join("", [aws_api_gateway_rest_api.admin_api.root_resource_id, var.suffix])
+  path_part   = "joined"
+}
+resource "aws_api_gateway_resource" "mixed_interp_parent" {
+  rest_api_id = aws_api_gateway_rest_api.admin_api.id
+  parent_id   = "${aws_api_gateway_rest_api.admin_api.root_resource_id}-${var.suffix}"
+  path_part   = "mixed"
+}
+# 値が分からない**他のリソースの属性**を path_part に置いてもパスにはしない
+resource "aws_api_gateway_resource" "ssm_part" {
+  rest_api_id = aws_api_gateway_rest_api.admin_api.id
+  parent_id   = aws_api_gateway_rest_api.admin_api.root_resource_id
+  path_part   = aws_ssm_parameter.segment.value
+}
+# 逆に、引用されたリテラルは**点を含んでいてもリテラル**なので決まる
+resource "aws_api_gateway_resource" "dotted_literal" {
+  rest_api_id = aws_api_gateway_rest_api.admin_api.id
+  parent_id   = aws_api_gateway_rest_api.admin_api.root_resource_id
+  path_part   = "local.segment"
+}
+resource "aws_api_gateway_method" "dotted_get" {
+  rest_api_id = aws_api_gateway_rest_api.admin_api.id
+  resource_id = aws_api_gateway_resource.dotted_literal.id
+  http_method = "GET"
+}
+# `resource_id` と `http_method` が未解決なら endpoint を張らない（パスだけは決まる）
+resource "aws_api_gateway_method" "cond_id" {
+  rest_api_id = aws_api_gateway_rest_api.admin_api.id
+  resource_id = var.use_root ? aws_api_gateway_resource.literal_ok.id : var.other_resource_id
+  http_method = "POST"
+}
+resource "aws_api_gateway_method" "cond_verb" {
+  rest_api_id = aws_api_gateway_rest_api.admin_api.id
+  resource_id = aws_api_gateway_resource.literal_ok.id
+  http_method = var.verb
+}
+# `count` の添字は同じパスのインスタンスなので解決してよい
+resource "aws_api_gateway_resource" "counted_base" {
+  count       = 2
+  rest_api_id = aws_api_gateway_rest_api.admin_api.id
+  parent_id   = aws_api_gateway_rest_api.admin_api.root_resource_id
+  path_part   = "base"
+}
+resource "aws_api_gateway_method" "counted_get" {
+  rest_api_id = aws_api_gateway_rest_api.admin_api.id
+  resource_id = aws_api_gateway_resource.counted_base[0].id
   http_method = "GET"
 }

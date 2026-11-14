@@ -36,6 +36,7 @@ git diff --name-only origin/main... | node skill/scripts/report.mjs \
 | 影響を受ける入口 | 変更を使う呼び出し元と、その経路にある Lambda / API Gateway | 同上（逆向き） |
 | 影響を受けるコード側の入口 / 出口 | 上の 2 つのうちコード（メソッド・型）のもの。出口は「起点から実際に届くコード」 | `calls` `accesses` `references`（コード内）`handler` |
 | 同じ API の定義 / 同じコードを使う別エンドポイント | 起点がエンドポイントのとき、起点自身を定義するノードと、同じ Lambda を共有する兄弟 | 起点の数に含めない |
+| リポジトリ内の成果物 | 経路上にあった `.csproj` / `.cs` / フォルダ / solution。触るかもしれないビルド単位 | 動きの証拠ではない。レビューの分担に使う |
 | 定義上の関連 | Terraform の `references`（そのブロックを文中に書いた）。**値が動くとは限らないが、定義を書き換えたら効く範囲** | IAM・rest_api・deployment など見直しの候補 |
 
 段数の数え方は「**定義の縁（`references`）だけ数えて、動きの縁（`triggers` / `invokes` / `handler`）を
