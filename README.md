@@ -16,6 +16,7 @@ open out/graph/graph.html
 - データ契約（ノード/エッジ/ID/注釈スキーマ）: [skill/reference/schema.md](skill/reference/schema.md)
 - コードレビュー・設計レビューでの使い方（影響範囲・逆引きの実測レシピ）: [skill/reference/review-workflows.md](skill/reference/review-workflows.md)
 - 判断の記録と実測値: [docs/decisions.md](docs/decisions.md)
+- いま進めているゴールと完了条件（条件の追加・緩和はここを書き換える）: [GOAL.md](GOAL.md)
 
 ## 試した対象と実測
 
