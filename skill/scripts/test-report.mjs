@@ -1601,6 +1601,129 @@ check('--limit で一覧が切れてもカウンタの不変条件は保たれ�
     }).join(' | '));
 }
 
+// ---- (17) 第 41 ラウンド: walk が届けた行も、縁の並び順で 段数・根拠 が揺れない ----
+// 第 40 ラウンドで閉包（Terraform の定義）側は「不受理の到着も候補に残して代表を選び直す」
+// 形で直した。walk（コード歩き）側は `found` の**先着**が表示のままだったので、同じ資格の
+// 別経路が後から届くと縁の並び順だけで 段数・根拠・行の並び が変わっていた
+// （実測 out/tmp-r41/wobble-before.txt: `r34-fixture` / `demo-order` / `fixture-api` の 3 件）。
+// ここは walk の到着も候補へ加えて収束後に選び直す（仕様 out/loop/r41-decision.md）。
+// 表の signature は 欄・id・向き・tier・段数・向き変え回数・根拠の縁 id・動きの根拠・
+// 直前のノード・表示経路を**欄の中の並び順ごと**見る
+{
+  const shapeOf = (r) => [['external.out', r.external.out], ['external.in', r.external.in],
+    ['entries.out', r.entries.out], ['entries.in', r.entries.in],
+    ['artifacts.out', r.artifacts.out], ['artifacts.in', r.artifacts.in],
+    ['wiring', r.wiring], ['sameApi', r.sameApi], ['siblingEndpoints', r.siblingEndpoints]]
+    .flatMap(([b, rs]) => (rs || []).map((x) => `${b}|${x.id}=${x.tier}/${x.direction}`
+      + `/h${x.hops}/sw${x.switches}`
+      + `/e${x.evidence ? x.evidence.id : '-'}`
+      + `/mv${x.movementEvidence ? x.movementEvidence.id : '-'}`
+      + `/via:${x.via || '-'}/path:${(x.path || []).join('>')}`));
+  // 疑似乱数でノードと縁を並べ替える（試行ごとに同じ並びになるよう種を固定する）
+  const shuffle = (arr, seed) => {
+    const a = [...arr];
+    let x = seed >>> 0 || 1;
+    const rnd = () => {
+      x ^= x << 13; x >>>= 0;
+      x ^= x >>> 17;
+      x ^= x << 5; x >>>= 0;
+      return x / 4294967296;
+    };
+    for (let i = a.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(rnd() * (i + 1)); const t = a[i]; a[i] = a[j]; a[j] = t;
+    }
+    return a;
+  };
+  const ordersOf = (nodes, edges) => [['元', nodes, edges], ['縁逆', nodes, [...edges].reverse()],
+    ['ノード逆', [...nodes].reverse(), edges],
+    ...[1, 2, 3, 4].map((k) => [`入替${k}`, shuffle(nodes, 97 * k + 11), shuffle(edges, 131 * k + 7)])];
+  const runOrders = (tag, nodes, edges, args) => ordersOf(nodes, edges).map(([name, n, e], i) => [
+    name, runSyn(`${tag}-${i}`, { nodes: n, edges: e }, args, `${tag}-${i}`)]);
+
+  // A. 第 33 ラウンドの fixture。統合 `i` の注釈 `invokes` 3 本と `Mid → C` の折り返しが
+  //    同じ資格で `member:C` に届く形で、`calls` 側（`chain` が入った連鎖）に決まることを固定する
+  const waNodes = [
+    synNode('tf:aws_lambda_function.a', 'resource', { resourceType: 'aws_lambda_function' }),
+    synNode('tf:aws_api_gateway_integration.i', 'resource', {
+      resourceType: 'aws_api_gateway_integration', category: 'apigateway' }),
+    synNode('member:Mid', 'member'), synNode('member:C', 'member'), synNode('member:V', 'member'),
+    synNode('tf:aws_lambda_function.b', 'resource', { resourceType: 'aws_lambda_function' }),
+    synNode('member:B.Handle', 'member'),
+    synNode('ext:rds-table/orders', 'resource', { resourceType: 'aws_dynamodb_table' }),
+  ];
+  const waEdges = [
+    synEdge('references', 'tf:aws_api_gateway_integration.i', 'tf:aws_lambda_function.a'),
+    synEdge('invokes', 'member:Mid', 'tf:aws_lambda_function.a', 'human'),
+    synEdge('invokes', 'tf:aws_api_gateway_integration.i', 'member:C', 'human'),
+    synEdge('calls', 'member:Mid', 'member:C', 'static'),
+    synEdge('invokes', 'tf:aws_api_gateway_integration.i', 'member:V', 'human'),
+    synEdge('handler', 'tf:aws_lambda_function.b', 'member:V'),
+    synEdge('handler', 'tf:aws_lambda_function.b', 'member:B.Handle'),
+    synEdge('writes', 'member:B.Handle', 'ext:rds-table/orders', 'human'),
+  ];
+  const wRunsA = runOrders('r41a', waNodes, waEdges, ['--from', 'tf:aws_lambda_function.a']);
+  const wRowA = (out, id) => (out ? allRows(out.result).find((x) => x.id === id) : null);
+  check('walk 側も候補から選び直し、注釈 invokes を複数持つ統合の形で段数・根拠・行順が 1 通り（第 41 ラウンド）',
+    wRunsA.every(([, out]) => !!out && !!wRowA(out, 'member:C')
+      && wRowA(out, 'member:C').evidence.id === 'calls:member:Mid->member:C'
+      && wRowA(out, 'member:C').hops === 2
+      && !!wRowA(out, 'ext:rds-table/orders')
+      && wRowA(out, 'ext:rds-table/orders').tier === 'primary')
+    && new Set(wRunsA.map(([, out]) => JSON.stringify(out ? shapeOf(out.result) : null))).size === 1,
+    wRunsA.map(([name, out]) => `${name}: ${out
+      ? `C=${((wRowA(out, 'member:C') || {}).evidence || {}).id}/h${(wRowA(out, 'member:C') || {}).hops}`
+      : '実行失敗'}`).join(' | '));
+
+  // B. 実測 `demo-order` / `fixture-api` と同じ形。同じ親から分かれた 2 本の連鎖が
+  //    同じ資格（同じ段数・同じ旗）で `member:D` へ届く。先着だと縁の並び順で
+  //    `accesses` と `references` が入れ替わった。選び直しは根から並べた縁 id の辞書順で
+  //    `accesses:...P1->D` 側へ決まる
+  const wbNodes = [
+    synNode('tf:aws_lambda_function.s', 'resource', { resourceType: 'aws_lambda_function' }),
+    synNode('member:E', 'member'), synNode('member:P1', 'member'),
+    synNode('member:P2', 'member'), synNode('member:D', 'member'),
+  ];
+  const wbEdges = [
+    synEdge('handler', 'tf:aws_lambda_function.s', 'member:E'),
+    synEdge('calls', 'member:E', 'member:P1', 'static'),
+    synEdge('calls', 'member:E', 'member:P2', 'static'),
+    synEdge('accesses', 'member:P1', 'member:D', 'static'),
+    synEdge('references', 'member:P2', 'member:D', 'static'),
+  ];
+  const wRunsB = runOrders('r41b', wbNodes, wbEdges, ['--from', 'tf:aws_lambda_function.s']);
+  const wRowB = (out) => (out ? allRows(out.result).find((x) => x.id === 'member:D') : null);
+  check('同じ資格で同段に届く 2 経路の行は、根から並べた縁 id の順で決まり 段数・根拠が 1 通り（第 41 ラウンド）',
+    wRunsB.every(([, out]) => !!out && !!wRowB(out)
+      && wRowB(out).evidence.id === 'accesses:member:P1->member:D'
+      && wRowB(out).via === 'member:P1' && wRowB(out).hops === 3
+      && (wRowB(out).path || []).join(' ') === ['tf:aws_lambda_function.s', 'member:E',
+        'member:P1', 'member:D'].join(' '))
+    && new Set(wRunsB.map(([, out]) => JSON.stringify(out ? shapeOf(out.result) : null))).size === 1,
+    wRunsB.map(([name, out]) => `${name}: ${out
+      ? `D=${((wRowB(out) || {}).evidence || {}).id}/h${(wRowB(out) || {}).hops}` : '実行失敗'}`).join(' | '));
+
+  // C. 実測 `fixture-folder` と同じ形。同じ親から同じ先ノードへ `creates` と `references` の
+  //    2 本の縁が並行して伸びる形。第 40 ラウンドまでは先着で向きが変わり、入替 12 通中 3 通で
+  //    `creates` へ揺れた。選び直しは縁 id の辞書順で `creates` 側へ決まる
+  const wcNodes = [
+    synNode('tf:aws_lambda_function.s', 'resource', { resourceType: 'aws_lambda_function' }),
+    synNode('member:E', 'member'), synNode('member:T', 'member'),
+  ];
+  const wcEdges = [
+    synEdge('handler', 'tf:aws_lambda_function.s', 'member:E'),
+    synEdge('creates', 'member:E', 'member:T', 'static'),
+    synEdge('references', 'member:E', 'member:T', 'static'),
+  ];
+  const wRunsC = runOrders('r41c', wcNodes, wcEdges, ['--from', 'tf:aws_lambda_function.s']);
+  const wRowC = (out) => (out ? allRows(out.result).find((x) => x.id === 'member:T') : null);
+  check('同じ親から同じ先への並行する縁も 1 通り（縁 id の辞書順で creates に決まる。第 41 ラウンド）',
+    wRunsC.every(([, out]) => !!out && !!wRowC(out)
+      && wRowC(out).evidence.id === 'creates:member:E->member:T' && wRowC(out).hops === 2)
+    && new Set(wRunsC.map(([, out]) => JSON.stringify(out ? shapeOf(out.result) : null))).size === 1,
+    wRunsC.map(([name, out]) => `${name}: ${out
+      ? `T=${((wRowC(out) || {}).evidence || {}).id}/h${(wRowC(out) || {}).hops}` : '実行失敗'}`).join(' | '));
+}
+
 rmSync(dir, { recursive: true, force: true });
 console.log(`\n${pass}/${pass + failures.length} 件成功`);
 if (failures.length) { console.log('失敗: ' + failures.join(' / ')); process.exit(1); }

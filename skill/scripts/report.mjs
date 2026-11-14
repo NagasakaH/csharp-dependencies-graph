@@ -440,7 +440,8 @@ const repDominates = (a, b) => {
 //     経路の結果なのでここでの介入はない）
 // 旧 `repCmp` の第 3 項（`demote` の `dma`/`dmb`）は同一ノードの候補同士では第 1 項が
 // 同値なら必ず同値になる不死の比較だったので削除した（第 37 ラウンド agy 指摘 3-3）
-const repCmp = (a, b) => {
+// 接頭辞の 6 項目は表示の確定（`coreCmp`）でもそのまま使うので関数に分けた
+const coreCmp = (a, b) => {
   const wa = a.rec.wiring === true ? 1 : 0; const wb = b.rec.wiring === true ? 1 : 0;
   if (wa !== wb) return wa - wb;
   const ca = a.rec.cut ? 1 : 0; const cb = b.rec.cut ? 1 : 0;
@@ -451,6 +452,11 @@ const repCmp = (a, b) => {
   if (ta !== tb) return ta - tb;
   const cha = (a.mask & CLOSURE_CHAIN) ? 0 : 1; const chb = (b.mask & CLOSURE_CHAIN) ? 0 : 1;
   if (cha !== chb) return cha - chb;
+  return 0;
+};
+const repCmp = (a, b) => {
+  const d = coreCmp(a, b);
+  if (d !== 0) return d;
   const ka = `${a.rec.edge ? a.rec.edge.id : ''}\u0000${a.rec.via || ''}`;
   const kb = `${b.rec.edge ? b.rec.edge.id : ''}\u0000${b.rec.via || ''}`;
   return ka < kb ? -1 : (ka > kb ? 1 : 0);
@@ -505,6 +511,64 @@ const addRepCandidate = (id, mask, budget, rec) => {
   // （双人レビュー第 38 ラウンド agy 指摘 P2 / codex 指摘 P2。実測 `fixture-api` で候補 4 件の
   // `wiring` が書き換わった。検査 out/tmp-review38/check-mutation.py）
   wiringMap.set(id, { ...entry.best.rec });
+};
+// ---- walk の到着も表示候補として数える（仕様 out/loop/r41-decision.md）----
+// 第 40 ラウンドまで候補集合（`repCands`）へ乗っていたのは**閉包の到着だけ**だった。walk は
+// `found` の**先着**で `via` / 根拠の縁 / 段数 を決めていたため、同じ資格の別経路が後から
+// 届いても表示は縁の並び順で決まった（実測 `out/tmp-r41/wobble-before.txt`: `r34-fixture` /
+// `demo-order` / `fixture-api` の 3 件が段数・根拠込みで 2 通り）。閉包でやったのと同じ
+// 「到着順を代表選びに使わない」を walk へも及ぼす。
+// ここは表示のためだけの集合で、探索（`found` の受理・展開・循環カット・旗・`bestState`）は
+// ここを一切読まない（第 38 ラウンド不変原則 4 のまま。受理表・予算・支配の意味も不変）。
+// 閉包の候補と同じ `repCands` へは入れない — `addRepCandidate` は `wiringMap` にも書き、
+// `wiringMap` は循環判定（`recOf`）が読むので、walk の候補を混ぜると探索そのものが変わる
+const walkCands = new Map();
+// 保存は (親 `via`, 根拠の縁 id) ごとの 1 件だけの**並び**。同じ親・同じ縁の一歩は `via` と根拠が
+// 同一で、表示と選考が見る残りの項目（段数・昇格資格・切り旗・2 つの旗・向き変え回数）は
+// `repCmp` と `switches` で比べるので、それだけ違う到着は表示に差が出ない（同一視できる
+// 到着を数え直さないための絞り込みで、選考の基準は変えない）
+const addWalkCandidate = (id, rec, cur) => {
+  // **循環境避で切った一歩（`cut`）も、表示候補では実際の一歩として数える**。`back` は walk が
+  // `found` の先着で作った連鎖を見て立つので縁の並び順で変わり、それを候補のままにすると
+  // 候補集合そのものが並び順で変わった（実測 `out/tmp-r41/pool-dump.py`: `r34-fixture` の
+  // `tf:aws_api_gateway_integration.i` にTrial 3 だけ `via=member:C` の候補が現れる）。
+  // 表示を循環させない保証はここではなく確定の段で持つ — `settlePool` は「親が確定済みの
+  // 候補だけ」を選ぶので、親がまだ未確定の時点で自分に指す候補は選されない。
+  // `apiTail` は `crossesApiTail` が `back` を見るので、切っていない一歩として数え直す
+  const src = rec.cut
+    ? { ...rec, via: cur.id, cut: false, apiTail: !!cur.apiTail || crossesApiTail(cur, false) }
+    : rec;
+  const mask = (src.chain ? CLOSURE_CHAIN : 0) | (src.apiTail ? CLOSURE_API_TAIL : 0);
+  // walk の一歩は Terraform の定義段数を数えないので `budget` は 0。walk の候補は同じノードの
+  // 閉包の候補と同じ集合で比べない（walk が根付かせた行は walk の候補から選び、walk が
+  // 根付かせられなかった行だけ第 40 ラウンドどおり閉包の候補から選ぶ）ので、`repCmp` の
+  // 第 3 項は walk の中では常に同値になる
+  // 候補の実体をそのまま握らない。この一歩の記録は `mergeRecords` が `combined` へ入れると
+  // 同じ実体になり、後から `promote` が `wiring` / `down` / `cut` などを書き換えるので、
+  // 比較の材料が到着順で変わる（第 38 ラウンド agy 指摘 P2 と同じ型。検査
+  // out/tmp-review38/check-mutation.py）
+  const list = walkCands.get(id);
+  if (!list) { walkCands.set(id, [{ id, mask, budget: 0, rec: { ...src } }]); return; }
+  // 同じ (親, 縁) の一歩は表示も選考も見るところが同じで 1 件で足りる。キーの文字列を
+  // 組み直すより先に並びを調べて、同じ一歩の実体コピーを作らない（実測 elsa-folder で
+  // 到着 157,300 件のうち同じ一歩の再到着が 78,650 件。表示候補のためだけに実体を
+  // 倍作って実行時間が 0.1 秒伸びた）
+  for (const best of list) {
+    if (best.rec.via !== src.via || best.rec.edge !== src.edge) continue;
+    // 同じ親・同じ縁の一歩なので `repCmp` の最終項目は同値。選考が見る残り（昇格資格・
+    // 切り旗・定義段数・段数・2 つの旗）も同じなら、`switches`（向き変え回数。行の並び順と
+    // 「一段 / 二段」の区別に使う）の小さい方を残すだけで同じ結果になる。親の経路が違えば
+    // 同じ縁でも回数が違うので、到着順ではなく少ない方を選ぶ。比較の材料を作るのを
+    // 省けるので到着の多いグラフ（実測 elsa-folder で 78,650 件の再到着）で効く
+    const sameCore = best.rec.hops === src.hops && best.rec.cut === src.cut
+      && (best.rec.wiring === true) === (src.wiring === true)
+      && !!best.rec.apiTail === !!src.apiTail && !!best.rec.chain === !!src.chain;
+    const d = sameCore ? (src.switches < best.rec.switches ? -1 : 1)
+      : repCmp({ id, mask, budget: 0, rec: src }, best);
+    if (d < 0) { best.rec = { ...src }; best.mask = mask; }
+    return;
+  }
+  list.push({ id, mask, budget: 0, rec: { ...src } });
 };
 // 閉包の出発点として**根になったノード**（起点そのものではないが、起点の定義グループなので
 // 経路の先頭として出してよい）。
@@ -750,6 +814,10 @@ function walkWithSwitch(seedIds, first) {
                 && flipAmbiguous(e.kind, cur.id))
               && !refCutsChain(e, cur.id, to),
           };
+          // 表示候補には**受理されたかどうかで見ずに**全ての到着を数える（閉包の
+          // `noteArrival` と同じ型）。先に `found` の先着で打ち切ると、同じ資格の別経路が
+          // 後から届いても表示が縁の並び順で決まる（第 41 ラウンド）
+          addWalkCandidate(to, rec, cur);
           const prevRec = found.get(to);
           if (!prevRec) {
             found.set(to, rec);
@@ -1456,17 +1524,41 @@ if (pending) {
   process.stderr.write(`[report] 警告: 探索が収束する前にラウンド上限 ${maxRounds} に達しました（結果は不完全です）\n`);
 }
 
-// ---- 表示経路を「起点まで遡れる単一の連鎖」に確定する（仕様 out/loop/r40-decision.md）----
-// 探索の受理・循環カット・旗・代表の選び方は一切変えない（第 38 ラウンド不変原則 4）。
-// ここは収束後の表示だけを見る。`combined` の `via` 連鎖が起点まで遡れないノード
-// （打ち切り・循環）だけを `repCands` から選び直す。選び直しは**親が確定済みの候補だけ**が
-// 対象で、確定済み親を持つ候補のうち `repCmp` 最小を全グラフで一番小さいものから順に
-// 確定していく（親の確定順）。選び直した一歩は常に「確定済み親の確定経路 + 1 縁」なので、
-// 後から何が確定しても連鎖は閉じない。候補集合は到着順に依らず（第 38 ラウンド）、
-// `repCmp` は全順序で、同一候補が並ぶ最後のタイブレークはノード id。よって結果は
-// 縁の並び順・到着順に依らない（第 39 ラウンド Astra 裁定「決定論性は絶対」）。
-// 探索中の `wiringMap` / `combined` の中身は触らないので、欄・向き・本命区分の判定材料
-// （`bestState`）も不変。表示の根拠縁と段数だけがこの経路から決まる
+// ---- 表示経路を「起点まで遡れる単一の連鎖」に確定する（仕様 out/loop/r40-decision.md、
+//      walk の到着を候補へ加えた改修は out/loop/r41-decision.md）----
+// 探索の受理・循環カット・旗・`bestState` は一切変えない（第 38 ラウンド不変原則 4）。
+// ここは収束後の表示だけを見る。代表は 2 つの候補集合から選ぶ:
+//  - `walkCands`（walk の到着。第 41 ラウンドで追加）… walk が起点まで遡れる連鎖で届けた
+//    行の代表。ここまでの walk の行は `found` の**先着**がそのまま表示され、同じ資格の
+//    別経路が後から届いても縁の並び順で段数と根拠が変わった（実測
+//    `out/tmp-r41/wobble-before.txt` の `r34-fixture` / `demo-order` / `fixture-api`）
+//  - `repCands`（閉包の到着）… walk が起点まで遡れる連鎖で届けられなかった行の代表
+//    （第 40 ラウンドまでの役割のまま）
+// 選び方は両集合で同じ — **親が確定済みの候補だけ**を対象に、確定済み親を持つ候補の
+// うち最小をグラフ全体で一番小さいものから順に確定していく（親の確定順）。選び直した
+// 一歩は常に「確定済み親の確定経路 + 1 縁」なので、後から何が確定しても連鎖は閉じない。
+// 比較の順は:
+//  1. walk の候補同士では**段数**（`heapLtWalk`）。閉包の候補は第 40 ラウンドどおり資格順
+//  2. `coreCmp`（`repCmp` の接頭辞 6 項目。昇格資格 → 根付き → 定義段数 → 段数 →
+//     `apiTail` 旗 → `chain` 旗）
+//  3. **根から並べた縁 id の連鎖の辞書順**。第 40 ラウンドまでの第 7 項「根拠の縁 id →
+//     親 id」を経路全体へ広げたもの。最後の縁だけを見ると、親のたどりまで同じ候補が
+//     並んだときだけ決め手になり、親のたどりが違う同値な対では最後の縁が決め手の資格を
+//     持たない（実測 `fixture-api` の `type:ReportImpact.Order`: 最後の縁 id だけだと
+//     `Order.Create --creates--> Order` が勝つが、根から並べると
+//     `calls:...Handler.Handle->...IOrderRepository.Save` が `calls:...->...Order.Create`
+//     より先なので `IOrderRepository.Save --references--> Order` に決まる）
+//  4. 向き変え回数 `switches` が少ない順（行の並び順と「一段 / 二段」の区別に合わせる）
+//  5. ノード id
+// 候補集合は到着順に依らず（第 38 ラウンド）、この比較は全順序で、最後にノード id が
+// 来る。よって結果は縁の並び順・到着順に依らない（第 39 ラウンド Astra 裁定
+// 「決定論性は絶対」）。探索中の `wiringMap` の中身は触らないので、欄・向き・本命区分の
+// 判定材料（`bestState`）も不変。表示の根拠縁と段数だけがこの経路から決まる。
+// walk の選び直した一歩が**閉包の候補にも同じ一歩（同じ親・同じ縁）である**ときは
+// 閉包側の記録を表示へ使う（`dir` の値だけが食い違うため。向き変え回数 `switches` は
+// walk の値を残す。閉包の候補集合は支配の生き残りで到着順に依存して中身が変わるので、
+// `switches` をそこから拾うと行の並び順が揺れた。実測 第 33 ラウンド fixture の
+// `member:C` と `member:V` の並び）
 const rooted = new Set();
 const isRooted = (id) => {
   if (rooted.has(id)) return true;
@@ -1485,34 +1577,85 @@ const isRooted = (id) => {
   return ok;
 };
 for (const id of combined.keys()) isRooted(id);
-const byParent = new Map();
-for (const [id, entry] of repCands) {
-  if (rooted.has(id)) continue;
-  for (const list of entry.groups.values()) {
-    for (const c of list) {
-      // 循環境避で切った一歩（`via = null`）は起点へ遡れないので確定の土台にしない
-      if (!c.rec.via) continue;
-      if (!byParent.has(c.rec.via)) byParent.set(c.rec.via, []);
-      byParent.get(c.rec.via).push([id, c]);
-    }
-  }
-}
-const settled = new Set(rooted);
-const tentative = new Map();
+// 表示の根そのもの（起点など、`via` 無しで着いた記録）は動かさない。ここを候補で
+// 選び直すと「起点 → A → 起点」のように親と子が互いを指して `via` が循環する
+const isRootRecord = (id) => {
+  const rec = combined.get(id);
+  return !!rec && !rec.via && !rec.cut;
+};
+// 確定済みのノードの「根から並べた縁 id の連鎖」。比較の 2 項目目（辞書順）の材料で、
+// 確定は常に「確定済み親 + 1 縁」で進むので親の連鎖を継ぐだけでできる
+const picked = new Map();
+const chainMemo = new Map();
+const chainOf = (id) => {
+  const hit = chainMemo.get(id);
+  if (hit !== undefined) return hit;
+  const rec = picked.get(id) || combined.get(id);
+  let acc = '';
+  if (rec && rec.via) acc = chainOf(rec.via);
+  if (rec && rec.edge) acc += `\u0000${rec.edge.id}`;
+  chainMemo.set(id, acc);
+  return acc;
+};
 // 選ぶたびに候補集合を全スキャンすると候補の数千件で二乗のコストになる（実測の主要因）。
-// 二分ヒープで保つ。取り出し順は全スキャンと同じ — `repCmp` は全順序で、同値のときは
-// ノード ID が小さい順。より良い候補に差し替えられた古い条目は取り出し時に捨てる
+// 二分ヒープで保つ。取り出し順は全スキャンと同じ — 上の比較を小さい順に、取り出し時に
+// より良い候補へ差し替えられた古い条目を捨てる
 const heap = [];
+// ヒープの並びに使う比較。`settlePool` が入るときにその回の比較へ差し替える（walk の
+// 候補と閉包の候補で先に置く項目が違う。下の `heapLt` と `heapLtWalk`）
+let heapCmp = null;
 const heapLt = (a, b) => {
-  const d = repCmp(a.c, b.c);
-  return d !== 0 ? d < 0 : a.id < b.id;
+  const d = coreCmp(a.c, b.c);
+  if (d !== 0) return d < 0;
+  const ca = itemChain(a); const cb = itemChain(b);
+  if (ca !== cb) return ca < cb;
+  const sa = a.c.rec.switches || 0; const sb = b.c.rec.switches || 0;
+  if (sa !== sb) return sa < sb;
+  return a.id < b.id;
+};
+// walk の候補同士は**段数が短い順**を先に置く。行の並び順（`switches` → 段数 → id）と
+// 「表示する段数は経路の長さ」という表示の意味を先に守るためで、資格順（`coreCmp`）を
+// 先に読むと 第 40 ラウンドまで 1 段だった行が 3 段へ伸びた（実測 `demo-api` の
+// `tf:aws_api_gateway_integration.post_order`: 1 段 `references` の行が 3 段 `triggers` へ）。
+// 閉包の候補は第 40 ラウンドの資格順（`coreCmp` が先）のままとする
+const heapLtWalk = (a, b) => {
+  const ha = a.c.rec.hops || 0; const hb = b.c.rec.hops || 0;
+  if (ha !== hb) return ha < hb;
+  const d = coreCmp(a.c, b.c);
+  if (d !== 0) return d < 0;
+  const ca = itemChain(a); const cb = itemChain(b);
+  if (ca !== cb) return ca < cb;
+  const sa = a.c.rec.switches || 0; const sb = b.c.rec.switches || 0;
+  if (sa !== sb) return sa < sb;
+  return a.id < b.id;
+};
+// `from` から確定済みの `via` を辿った先に `target` があるか。確定は常に「確定済み親 + 1 縁」
+// で進むので、親の連鎖を見れば循環を確かめられる
+const chainCap = Math.max(opts.hops, opts.wiringHops) + 2;
+const onPickedChain = (from, target) => {
+  let node = from;
+  for (let i = 0; node && i < chainCap; i++) {
+    if (node === target) return true;
+    const rec = picked.get(node) || combined.get(node);
+    node = rec ? rec.via : null;
+  }
+  return false;
+};
+// 比較の 3 項目目（根から並べた縁 id の連鎖）の文字列は、`coreCmp` が決着をつけたら
+// 要らない。アイテムを作るときに組み立てると候補の件数ぶん（実測 elsa-folder で
+// 4 万件超）の文字列確保になるので、比較で必要になったとき に 1 回だけ組んで覚える
+const itemChain = (it) => {
+  if (it.chain === undefined) {
+    it.chain = `${chainOf(it.c.rec.via)}\u0000${it.c.rec.edge ? it.c.rec.edge.id : ''}`;
+  }
+  return it.chain;
 };
 const hpush = (item) => {
   heap.push(item);
   let i = heap.length - 1;
   while (i > 0) {
     const p = (i - 1) >> 1;
-    if (!heapLt(heap[i], heap[p])) break;
+    if (!heapCmp(heap[i], heap[p])) break;
     const t = heap[p]; heap[p] = heap[i]; heap[i] = t; i = p;
   }
 };
@@ -1525,31 +1668,137 @@ const hpop = () => {
     for (;;) {
       const l = 2 * i + 1; const r = l + 1;
       let m = i;
-      if (l < heap.length && heapLt(heap[l], heap[m])) m = l;
-      if (r < heap.length && heapLt(heap[r], heap[m])) m = r;
+      if (l < heap.length && heapCmp(heap[l], heap[m])) m = l;
+      if (r < heap.length && heapCmp(heap[r], heap[m])) m = r;
       if (m === i) break;
       const t = heap[m]; heap[m] = heap[i]; heap[i] = t; i = m;
     }
   }
   return top;
 };
-const considerCand = (id, c) => {
-  const cur = tentative.get(id);
-  if (!cur || repCmp(c, cur) < 0) { tentative.set(id, c); hpush({ id, c }); }
+// `items` は [ノード id, 候補の並び]。`settled` は確定済み（土台）のノードで、選び直して
+// はいけないノードは呼び出し側が `items` から除いてある。ここは確定済みの親を持つ候補
+// だけを見て、確定のたびに子を見に行く（第 40 ラウンドと同じ形）
+const settlePool = (items, settled, lt) => {
+  heapCmp = lt;
+  const byParent = new Map();
+  for (const [id, list] of items) {
+    if (settled.has(id)) continue;
+    for (const c of list) {
+      // 循環境避で切った一歩（`via = null`）は起点へ遡れないので確定の土台にしない
+      if (!c.rec.via) continue;
+      if (!byParent.has(c.rec.via)) byParent.set(c.rec.via, []);
+      byParent.get(c.rec.via).push([id, c]);
+    }
+  }
+  const tentative = new Map();
+  const considerCand = (id, c) => {
+    // 親の確定経路に自分自身が既にいる候補は使わない。循環境避で切った一歩も表示候補へ
+    // 数えるので（上の `addWalkCandidate`）、この対が起こり得る。通すと `via` が循環して
+    // 起点へ遡れなくなる。連鎖の長さは walk が `opts.hops`、閉包が `opts.wiringHops` で
+    // 打ち切るので、それより長くなることは無い（超えたら壊れている = 使わない）
+    if (onPickedChain(c.rec.via, id)) return;
+    const item = { id, c };   // 連鎖の文字列は比較で必要になった時に組む（`itemChain`）
+    const cur = tentative.get(id);
+    if (!cur || lt(item, cur)) { tentative.set(id, item); hpush(item); }
+  };
+  const picks = new Map();
+  for (const [p, entries] of byParent) {
+    if (settled.has(p)) for (const [id, c] of entries) if (!settled.has(id)) considerCand(id, c);
+  }
+  while (heap.length) {
+    const item = hpop();
+    if (tentative.get(item.id) !== item) continue;   // より良い候補に差し替え済みの古い条目
+    tentative.delete(item.id);
+    if (settled.has(item.id)) continue;
+    settled.add(item.id);
+    picks.set(item.id, item.c.rec);
+    picked.set(item.id, item.c.rec);
+    for (const [nid, nc] of byParent.get(item.id) || []) if (!settled.has(nid)) considerCand(nid, nc);
+  }
+  return picks;
 };
-for (const [p, entries] of byParent) {
-  if (settled.has(p)) for (const [id, c] of entries) if (!settled.has(id)) considerCand(id, c);
+
+// ---- 1. walk が起点まで遡れる連鎖で届けた行を、walk の到着から選び直す ----
+// 選び直さないノード（walk の候補に親のある一歩が無いノード。閉包の記録だけで着いたノード
+// など）は、起点まで遡れるなら土台としてそのまま残す。walk の候補は `repCands` と違って
+// 定義段数を持たないので、閉包の候補と同じ集合で比べることはない
+// 選び直し対象は「今 `combined` に乗っている一歩が walk の到着として候補にあるノード」。
+// 自分の現レコードの一歩が候補に無いノード（レコードを Terraform の閉包や 2 段目の種が
+// 作ったノード）は walk の候補では再現できないので土台にし、現レコードを残す
+// （実測 `fixture-api` の `member:ReportImpact.Handler.Handle`: 2 段目の種で、候補は自分の
+// 子たちから戻ってくる一歩だけ。ここを土台にすると子 12 ノードが軒並み選び直しできなく
+// なった。検査 out/tmp-r41/pool-dump2.py）
+const repKey = (rec) => `${rec.via || ''}\u0000${rec.edge ? rec.edge.id : ''}`;
+const walkItems = [];
+for (const [id, list] of walkCands) {
+  // 候補が 1 件なら選び直しても今と同じ一歩が選ばれるだけなので対象外（土台のまま）。
+  // 実測 elsa-folder で 21,455 ノード中 3,935 ノードだけが候補 2 件以上だった
+  if (list.length < 2) continue;
+  const rec = combined.get(id);
+  if (!rec || !rec.via || !rooted.has(id)) continue;
+  // 今の表示の一歩が walk の到着に無いノード（Terraform の閉包や 2 段目の種が作った記録）は
+  // walk の候補では再現できないので土台にし、現レコードを残す
+  if (!list.some((c) => c.rec.via === rec.via && c.rec.edge === rec.edge)) continue;
+  walkItems.push([id, list]);
 }
-const displayPick = new Map();
-while (heap.length) {
-  const { id, c } = hpop();
-  if (tentative.get(id) !== c) continue;   // より良い候補に差し替え済みの古い条目
-  tentative.delete(id);
-  if (settled.has(id)) continue;
-  settled.add(id);
-  displayPick.set(id, c.rec);
-  for (const [nid, nc] of byParent.get(id) || []) if (!settled.has(nid)) considerCand(nid, nc);
+// 土台（選び直さないノード）は「根そのもの」と上記のノード。加えて、候補の連鎖がどの土台へも
+// 届かないノードを土台へ足す固定点を取る。届かないノードを土台にせず残すと、その子が親を
+// 待てずに選び直せず、子の子へ波及する。土台は `combined` の現レコード（起点まで遡れる）を
+// そのまま使うので表示は壊れない。選び直しできない行は第 40 ラウンドどおり閉包の候補に任せる
+const walkRepick = new Set(walkItems.map(([id]) => id));
+const settledWalk = new Set();
+for (const id of rooted) if (!walkRepick.has(id)) settledWalk.add(id);
+for (;;) {
+  const reach = new Set(settledWalk);
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const [id, list] of walkItems) {
+      if (reach.has(id)) continue;
+      if (list.some((c) => !!c.rec.via && reach.has(c.rec.via))) { reach.add(id); grew = true; }
+    }
+  }
+  const add = [...rooted].filter((id) => !reach.has(id));
+  if (!add.length) break;
+  for (const id of add) settledWalk.add(id);
 }
+const baseWalk = new Set(settledWalk);
+const walkPick = settlePool(walkItems, settledWalk, heapLtWalk);
+for (const [id, rec] of walkPick) {
+  // walk の選び直した一歩（同じ親・同じ縁）が閉包の候補にもあるなら、**閉包側の記録**を
+  // 表示に使う。経路は同じなのに walk 側は `dir`（表示の向き）だけ違う値を持つからで、
+  // walk は 2 段目の種から同じ定義へ入り直すと「辿った向き」を持つ（実測 v1 との差分
+  // `demo-api` の `tf:aws_api_gateway_resource.orders_path` / `tf:aws_api_gateway_rest_api.orders`:
+  // 1 段 `references` の 向き が in → out へ動いた）。閉包側に無い一歩（コードを歩いた行）は
+  // walk の記録がそのまま表示になる
+  const key = repKey(rec);
+  let alt = null;
+  for (const group of (repCands.get(id) || { groups: [] }).groups.values()) {
+    for (const c of group) {
+      if (repKey(c.rec) !== key) continue;
+      const d = alt ? coreCmp(c, alt) : -1;
+      if (d < 0 || (d === 0 && (c.rec.dir || '') < (alt.rec.dir || ''))) alt = c;
+    }
+  }
+  combined.set(id, alt ? { ...alt.rec, switches: rec.switches } : { ...rec });
+}
+const walkMiss = walkItems.filter(([id]) => !baseWalk.has(id) && !walkPick.has(id)).length;
+if (walkMiss) {
+  // walk の候補に親のある一歩があり、土台でもないのに起点へ繋がらなかった行。第 40 ラウンドの
+  // `stranded` と同じく黙って打ち切らない（検査 out/tmp-r40/via-cycle.py が失敗するので隠れない）
+  process.stderr.write(`[report] 警告: ${walkMiss} ノードの walk 経路を起点へ繋げませんでした\n`);
+}
+
+// ---- 2. walk が起点まで遡れなかった行を、閉包の到着から選び直す（第 40 ラウンドまでと同じ）----
+const closureItems = [];
+for (const [id, entry] of repCands) {
+  if (rooted.has(id)) continue;
+  const list = [];
+  for (const group of entry.groups.values()) for (const c of group) list.push(c);
+  closureItems.push([id, list]);
+}
+const displayPick = settlePool(closureItems, new Set(rooted), heapLt);
 const stranded = [];
 for (const [id] of repCands) {
   if (rooted.has(id)) continue;
