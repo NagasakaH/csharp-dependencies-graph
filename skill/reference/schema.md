@@ -2,6 +2,29 @@
 
 `graph.json`・ビューア用ペイロード・ノード/エッジ ID・注釈（annotations.json）の形。
 数値は elsa-core を走らせたときの実出力にあわせてある。
+**レポート出力（`report.mjs --json`）の形は下の「レポート出力」に分けて書く**（このファイルでも
+値域を正本として宣言する。README は読み方の説明）。
+
+## レポート出力（`report.mjs --json`）
+
+出力全体のトップレベルは `{ summary, external, entries, artifacts, sameApi, siblingEndpoints, wiring, ... }`。
+6 つの枠のどれか 1 つに必ず入り、`summary.rows` と各枠の合計が一致する。行の 向き は `direction`。
+
+- `direction` の値域は **`in` / `out` / `none`**（文字列。`null` は使わない）
+  - `in` = 影響を受ける入口、`out` = 影響する先
+  - `none` = **この表示経路に 向き を決める関係が無い**（Terraform の定義の縁だけを辿った行）。
+    「そのノードに他の有向関係が存在しない」意味ではない。動きの根拠が無いこと同義でもない
+    （以前の有向縁から 向き を継承した行もある）
+  - `none` の行は `tier` を保ったまま中立欄（`wiring` / `sameApi` / `siblingEndpoints`）で受ける。
+    Markdown の 向き 列は「—」。Markdown には「無方向」という語を書かない
+- `direction === "none"` と `movementEvidence === null` は同義ではない（無方向の連鎖でも以前の
+  有向縁から 向き を継承して `in` / `out` になる行がある）
+- `summary.directionless` = `direction === "none"` の行数、`summary.directionlessPrimary` =
+  のうち 本命（`tier === "primary"`）の行数。**方向別のカウンタ（`entryIn` / `entryOut` など）は
+  `none` を数えない**ので、`in` と `out` の合計が 総行数より少なくなるのが正しい
+- `--expect` の `direction` は `in` / `out` / `none` / `both` を受ける（既定 `both`）
+- 実測: 保存済み 18 レポート 441 行中 28 行が `none`（同じ API 17 / 定義上の関連 9 / 兄弟 2、
+  うち 本命 2）。レポート出力に `schemaVersion` は無い（v1 の出力契約のまま）
 
 ## graph.json（生成物の本体）
 

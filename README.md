@@ -29,14 +29,14 @@ open out/graph/graph.html
 最低 5 組、組ごとの倍率の中央値で判定）**と 最大 RSS 800 MB（絶対上限）** で、**1.0 秒はゲートではなく
 UX 目標**、最大応答時間はゲートにしない。4 とおりの入力の倍率・最大 RSS・測定環境は
 [skill/SKILL.md](skill/SKILL.md) の「レポートの性能基準」に実測どおり置いてある
-（第 44 ラウンドの実測で 4 とおりすべて適合、重い `elsa-folder` でも倍率中央値 1.07 / 最大 RSS 656.8 MB。
+（第 46 ラウンドの実測で 4 とおりすべて適合、重い `elsa-folder` でも倍率中央値 1.12 / 最大 RSS 642.1 MB。
 かつて 1.67 で超過したときは、結果を 1 バイトも変えない軽量化で収束させ、時間で切り捨てる対応は採っていない）。
 
 検証は 2 系統あり、どちらも対象プロジェクト非依存で動く。
 
 ```sh
 node skill/scripts/test-analyzer.mjs                          # 静的解析の精度（96 項目、ブラウザ不要）
-node skill/scripts/test-report.mjs                            # 影響範囲レポート（102 項目）
+node skill/scripts/test-report.mjs                            # 影響範囲レポート（104 項目）
 node skill/scripts/test-query.mjs                             # 逆引き・影響範囲の照会（28 項目、.NET 不要）
 node skill/scripts/test-merge.mjs                             # Lambda handler の解決規則（12 項目、.NET 必要）
 node skill/scripts/test-terraform.mjs                         # API Gateway のパス組み立てと HTTP API (v2) の `target`（46 項目、.NET 不要）
@@ -121,17 +121,37 @@ v1 の三点組）または統合からメソッドへの直接参照・注釈�
 `unresolvedCorrReason` = `no-method-correspondence`）を立てる。`tier` は内部の昇格状態なので、
 欄の判定は `bucket` を見る。
 
-向きは縁の意味で決める。(1) 動きの縁（`triggers` / `invokes` / `handler` / `exposed-by`）で届いていれば
-**矢印の先が下流**（`exposed-by` だけ逆向きで、コード側が下流）。(2) 起点がエンドポイントで、その
-**実装側**に入ったなら（`exposed-by` や `handler` を手前に渡ったところ）そこから先は全部 影響する先。
-ただしこの旗は**自分を呼び出している側へは受け継がない**。(3) それ以外（定義・静的解析の縁）は実際に
-辿った向きを使う。だから `Step Functions → invokes → この Lambda` は 影響を受ける入口（この Lambda を
-呼びにくる側）として出る。コードを変更したときはそのコードが公開しているエンドポイントも
-影響を受ける入口に出る（`exposed-by` の矢印はコード側を向く）。
+**向き（JSON の `direction`。値域は `in` / `out` / `none`）は、表示に確定した経路を根からフォールドして
+決める**。探索が別経路から寄せた値は読まない（第 45 / 46 ラウンド裁定 `out/review-astra45.log`、
+`out/review-astra46.log`）。起点の 向き は `none` で、表示経路の一歩ごとに次を適用する:
 
-ただし `handler` / `exposed-by` は**実装の対応**を示す縁で、呼び出し元を示さない。起点が API
-エンドポイントのときは、その対応縁で繋がる側（実装を載せた Lambda など）も 影響する先 のままです。
-ここを矢印だけで判断すると、起点のエンドポイント自身の実装 Lambda が「呼びにくる側」に並んだ（実測: demo の `--api "POST /orders"`）。
+1. **動きの縁**（`triggers` / `invokes` / `handler` / `exposed-by`）で届いた一歩 → **矢印の先が下流**
+   （`exposed-by` だけ逆向きで、コード側が下流）。だから `Step Functions → invokes → この Lambda` は
+   影響を受ける入口（この Lambda を呼びにくる側）として出る。ただし `handler` / `exposed-by` は
+   **実装の対応**を示す縁で呼び出し元を示さないので、起点が API エンドポイントのときはその対応縁で
+   繋がる側（実装を載せた Lambda など）も 影響する先 のまま（ここを矢印だけで判断すると、起点自身の
+   実装 Lambda が「呼びにくる側」に並んだ。実測: demo の `--api "POST /orders"`）
+2. **向きを持つ縁**（静的解析と注釈が結んだ `calls` / `writes` / `accesses` / `creates` /
+   `project-reference` / `deploys` など）→ **その縁の矢印で決める**。「実装側に入った」旗より
+   こちらを優先する（実測: `demo-api` の `Orders.Api.csproj` は `project →deploys→ Lambda` を
+   Lambda 側から辿った行なので 影響を受けるリポジトリ内の成果物 が正）
+3. **無方向の定義縁**（Terraform の定義閉包で向きを意味として採用しない縁）→ **直前の 向き をそのまま
+   継ぐ**。無方向の一歩は最初も途中も同じ規則で、端点から 向き を作らない
+
+1 本でも 2 の有向縁を越えるまで `none` のまま残る。`none` の意味は「**この表示経路に 向き を決める
+関係が無い**」であって、「そのノードに他の有向関係が存在しない」意味でもない（有向縁を越えた先で
+`in` / `out` を継承した行もある）。`none` の行は `tier` を保ったまま 定義上の関連 / 同じ API を定義する
+ノード / 同じコードを使う別の API の中立欄で受け、Markdown の 向き 列は「—」。方向を持つ欄
+（外部・コードの入口・成果物の 先 / 受）に並べると `in` / `out` の意味をでっち上げることになるため。
+件数は `summary.directionless`（うち本命は `summary.directionlessPrimary`）に出す（実測: 保存済み
+18 レポート 441 行中 28 行 = 同じ API 17 / 定義上の関連 9 / 兄弟 2、うち本命 2）。`--expect` の
+`direction` は `in` / `out` / `none` / `both` を受け、既定の `both` は 向き で絞らないので `none` の
+着地を取りこぼさない。
+
+**動きの根拠（`movementEvidence`）も同じ表示経路から**決め、表示経路の最終一歩が動きの縁のときだけ
+その縁を立てる（定義の縁なら `null`）。`movementEvidence === null` と `direction === "none"` は
+同義ではない。`correspondence` は表示経路内の注釈縁の論理和、`switches`（向き変え回数）は同じ
+表示経路を端点基準で数え直した値。
 
 各行は根拠経路 `path` と、その経路がどこから始まっているかの `pathRoot` を持つ。`start` は起点まで
 辿れた行、`second-stage` は根拠経路が循環しそうな所でそこを新しい出発点として切った行で、
