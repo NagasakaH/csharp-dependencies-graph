@@ -22,7 +22,6 @@
 #      総行数 == 各欄の合計（`--limit` で一覧が切れていないとき）
 #
 # 使い方: python3 skill/scripts/tools/battery/check-invariants46.py [report.mjs のパス]
-import itertools
 import json
 import os
 import pathlib
@@ -34,8 +33,9 @@ from collections import Counter
 # リポジトリの根・入力の所在・失敗の扱いを `_inputs.py` にまとめた（第 51 ラウンド双人レビュー）
 import _inputs as IN
 
-NOTE = ('（第 51 ラウンドの入力で 219 件。入力が無い日は上の `require` が測る前に落ちる。'
-        ' ここは走り終えた後の見張り番で、条件を組み立てる側が黙って減った日を捕まえる）')
+# 起動条件の数は `required-checks.json` との**集合比較**で決める（`IN.launch_conditions()` が
+# 測る前に落とす）。第 53 ラウンド双人レビューまであった「200 件未満で走り終えたあとに止める」
+# 見張り番は、fixture を 2 本消した日（219 → 201 件）を通したため削除した（両名 P2）
 
 REPO = IN.repo_root()
 REPORT = str(IN.require_script(sys.argv[1] if len(sys.argv) > 1 else 'skill/scripts/report.mjs'))
@@ -51,15 +51,10 @@ ARROW_REVERSED = {'exposed-by'}
 DIRECTIONED_BUCKETS = {'external.in', 'external.out', 'entries.in', 'entries.out',
                        'artifacts.in', 'artifacts.out'}
 
-FIXTURES = sorted((REPO / 'skill' / 'tests' / 'fixtures' / 'ImpactFacts').glob('*.graph.json'))
-if len(FIXTURES) < 10:
-    raise SystemExit(f'tracked の fixture が {len(FIXTURES)} 件しかない '
-                     '(skill/tests/fixtures/ImpactFacts/*.graph.json。0 件で合格にしない)')
-# 掃除対象の `out/tmp-*` は読まない（第 51 ラウンド双人レビュー両名 P2。消えた日に
-# 黙って件数が減って終了 0 になった）。一覧は `_inputs.extra_graphs()` が正本で、
-# `check-battery-inputs.py` も同じ一覧を点検する
-EXTRA = [IN.require(x, '検査のグラフ') for x in IN.extra_graphs(REPO)]
-AUDIT = IN.report_paths(IN.HERE / 'baseline-v1', expect=18, what='v1 基準の 18 条件')
+# 起動条件は `_inputs.launch_conditions()` が組み、`required-checks.json`（追跡下）と集合で
+# 突き合わせる。fixture・検査のグラフ・v1 基準 18 条件のいずれかの一部が欠けた日、
+# ここは**測る前に**終了 1（第 53 ラウンド両名 P2 で集計した）
+CONDS = IN.launch_conditions(REPO)
 
 
 def node_endpoints(doc):
@@ -73,48 +68,7 @@ def node_endpoints(doc):
   return edges, pairs
 
 
-def runs_for(graph_path):
-  """その graph にかける起動条件（--from / --api / --changed）を作る"""
-  doc = json.loads(graph_path.read_text())
-  by_id = {n['id']: n for n in doc['nodes']}
-  out = []
-  # 多次元・独立に --from を足す（複数起点の起動も見る）
-  ids = [n['id'] for n in doc['nodes']]
-  picks = ids[:3] + ids[len(ids) // 2:len(ids) // 2 + 2] + ids[-1:]
-  picks = list(dict.fromkeys(picks))
-  for k in (1, 2):
-    for combo in itertools.islice(itertools.combinations(picks, k), 4):
-      args = []
-      for x in combo:
-        args += ['--from', x]
-      out.append(('from', args))
-  apis = []
-  for n in doc['nodes']:
-    ep = (n.get('metadata') or {}).get('endpoint') or n.get('endpoint')
-    if ep and ep not in apis:
-      apis.append(ep)
-  for ep in apis[:3]:
-    out.append(('api', ['--api', ep]))
-  # 変更ファイル起点（コードのファイルを持つノードから作る）
-  files = []
-  for n in doc['nodes']:
-    f = (n.get('metadata') or {}).get('file') or n.get('file')
-    if f and f not in files:
-      files.append(f)
-  if files:
-    out.append(('changed', ['--changed', make_list(files[:2])]))
-  del by_id
-  return out
-
-
 TMP = tempfile.mkdtemp(prefix='cgd-invariants-')
-
-
-def make_list(files):
-  p = os.path.join(TMP, 'changed-%d.txt' % len(os.listdir(TMP)))
-  with open(p, 'w') as fh:
-    fh.write('\n'.join(files) + '\n')
-  return p
 
 
 def rows_of(result):
@@ -323,32 +277,17 @@ def run_report(graph_path, extra_args):
 
 
 seen_conditions = 0
-for gp in FIXTURES + EXTRA:
-  doc = json.loads(gp.read_text())
-  for kind, args in runs_for(gp):
-    res = run_report(gp, args)
-    seen_conditions += 1
-    check_run(f'{gp.name}[{kind}]', doc, res)
-    check_summary(f'{gp.name}[{kind}]', res)
-
-for cond in AUDIT:
-  doc = json.loads(cond.read_text())
-  s = doc['summary']
-  args = ['--hops', str(s['hops']), '--wiring-hops', str(s['wiringHops']),
-          '--limit', str(s.get('limit') or 100000)]
-  for item in doc['starts']:
-    args += ['--from', item['id']]
-  # 記録パスが掃除で消えたものは移設した実体（`battery/graphs/`）で読む
-  gp = IN.graph_path(s['graph'])
-  res = run_report(gp, args)
+for cond in CONDS:
+  # ラベルは以前と同じ形（`<グラフ名>[<種類>]`。v1 基準の条件はレポート名で出す）
+  label = f'{cond["rel"].split("#")[0]}[{cond["kind"]}]'
+  doc = json.loads(cond['graph'].read_text())
+  res = run_report(cond['graph'], IN.materialize(cond, TMP))
   seen_conditions += 1
-  check_run(f'{cond.name}[audit-full]', json.loads(gp.read_text()), res)
-  check_summary(f'{cond.name}[audit-full]', res)
+  check_run(label, doc, res)
+  check_summary(label, res)
 
-if seen_conditions < 200:
-  raise SystemExit(f'検査した起動条件が {seen_conditions} 件しかない'
-                   f'{NOTE}。0 件合格を作らないためにここで止める')
-print(f'検査した起動条件 {seen_conditions} 件 / 行 {checked["行"]} 件')
+print(f'検査した起動条件 {seen_conditions} 件 / 行 {checked["行"]} 件'
+      f'（要求一覧 required-checks.json と集合一致）')
 print(f'違反合計 {len(violations)} 件')
 for kind, cnt in Counter(v[0] for v in violations).most_common():
   print(f'  - {kind}: {cnt}')

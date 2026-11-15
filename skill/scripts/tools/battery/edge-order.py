@@ -21,7 +21,7 @@ import _inputs as IN
 REPO = IN.repo_root()
 QUERY = IN.require(REPO / 'skill' / 'scripts' / 'query.mjs', 'query.mjs')
 BASE = str(IN.require(pathlib.Path(sys.argv[1]) if len(sys.argv) > 1
-                      else REPO / 'out' / 'demo' / 'graph.json', '実グラフ'))
+                      else REPO / 'out' / 'demo' / 'graph.json', '実グラフ', want_file=True))
 
 CMDS = [
     ['--from', 'file:src/Orders.Domain/Order.cs', '--dir', 'both', '--via-parent', '--hops', '3', '--group-by', 'file'],

@@ -79,12 +79,21 @@ REGEN = {
 }
 
 
-def rel_of_recorded(recorded):
-    """記録されたパスから根のプレフィックスを捨てて `out/...` の相対形を取り出す。
-    作者の根が違う・シンボリックリンクで実体が違うでも同じ形になる"""
-    parts = str(recorded).replace('\\', '/').split('/')
+def rel_of_recorded(recorded, repo=None):
+    """記録されたパスから**今のリポジトリでの相対形**を取り出す。
+    第 53 ラウンド双人レビュー（Codex P2）で、リポジトリの親ディレクトリが `out` という
+    名前だと**最初の** `out` で切れて別物になるのを実測された（`/tmp/out/clone/out/demo/…` →
+    `out/clone/out/demo/…`）。なので順序を決める:
+
+      1. 今のリポジトリの根が前に付いているなら、それ以降（今回の生成物が確実に正しくなる）
+      2. そうでなければ**最後**の `out` からの形（作者環境の歴史的パス・別の場所のクローン）
+    """
+    parts = [x for x in str(recorded).replace('\\', '/').split('/') if x]
+    root = [x for x in str(pathlib.Path(repo or repo_root()).resolve()).split('/') if x]
+    if parts[:len(root)] == root:
+        return '/'.join(parts[len(root):]) or None
     if 'out' in parts:
-        return '/'.join(parts[parts.index('out'):])
+        return '/'.join(parts[len(parts) - 1 - parts[::-1].index('out'):])
     return None
 
 
@@ -93,7 +102,7 @@ def graph_path(recorded, repo=None):
     移設済みは対応表を先に引く（元の一時残骸が生きていても使わない）。
     解けない・実体が無いなら**測る前に**終了 1（0 件合格にしない）"""
     repo = pathlib.Path(repo or repo_root())
-    rel = rel_of_recorded(recorded)
+    rel = rel_of_recorded(recorded, repo)
     if rel in RELOCATED:
         return require(HERE / RELOCATED[rel], f'追跡下へ移設したグラフ（{rel} の実体）')
     if rel is None:
@@ -123,15 +132,24 @@ def extra_graphs(repo=None):
             repo / 'out' / 'perf-inputs' / 'v2-big.graph.json']
 
 
-def require(p, what='入力'):
-    """入力が無いなら**測る前に**終了 1。無いものを無視して 0 件合格を作らない"""
+def require(p, what='入力', want_file=False):
+    """入力が無いなら**測る前に**終了 1。無いものを無視して 0 件合格を作らない。
+    相対パスは**リポジトリの根**から引く（第 53 ラウンド agy P2: v1diff をサブディレクトリから
+    実行すると `skill/scripts/tools/battery/baseline-v1` を見失った。手順書の書き方は
+    リポジトリ相対なので、道具の作業ディレクトリに依存しないほうが正しい）"""
     p = pathlib.Path(p)
+    if not p.is_absolute():
+        p = repo_root() / p
     if not p.exists():
         raise SystemExit(
             f'{what}が無い: {p}\n'
             '  作り直し方は skill/scripts/tools/battery/README.md と '
             'skill/scripts/tools/check-battery-inputs.py に書く。'
             '無いまま続行して 0 件で合格にはしない')
+    if want_file and p.is_dir():
+        # ディレクトリを `read_text()` して IsADirectoryError の山にするより、
+        # 「何を渡すべきか」を出して終了 1 のほうが次の一手が決まる（第 54 ラウンド実測）
+        raise SystemExit(f'{what}はファイル 1 本を渡す（ディレクトリを渡した）: {p}')
     return p
 
 
@@ -164,15 +182,27 @@ def fingerprint(graph):
 
 
 def check_fingerprints(repo=None):
-    """`input-fingerprints.json` に固定した out/ 入力の指紋を確かめ、食い違いを文字列で返す。
-    入力が無い・読みけないは例外（SystemExit）で返す。黙って「一致」にしない"""
+    """`input-fingerprints.json` に固定した out/ 入力の指紋を確かめ、食い違いを**文字列の一覧**で返す。
+    入力が無い・読みけないも不良として返す（点検側が他の項目も続けて見られるようにする。
+    第 53 ラウンド agy P2）。黙って「一致」にしない"""
     repo = pathlib.Path(repo or repo_root())
-    spec = json.loads(require(HERE / 'input-fingerprints.json',
-                              '入力の構造指紋（input-fingerprints.json）').read_text(encoding='utf-8'))
+    spec_path = require(HERE / 'input-fingerprints.json', '入力の構造指紋（input-fingerprints.json）')
+    spec = json.loads(spec_path.read_text(encoding='utf-8'))
     bad = []
     for rel, want in spec['inputs'].items():
-        p = require(repo / rel, f'指紋を確かめる入力（{rel}）')
-        got = fingerprint(p)
+        p = repo / rel
+        if not p.exists():
+            # 第 53 ラウンド agy P2: ここで `require` して SystemExit すると、入力点検が
+            # 「無い物の一覧をまとめて出す」前に止まり、`out/wt-head` の作り直し案内へ
+            # 届かなかった。欠落は不良として数え、他の点検を続けさせる
+            bad.append(f'{rel} が無い（指紋 {want["nodes"]} ノードの基準がある入力）。'
+                       f'作り直し: {REGEN.get(rel, "不明")}')
+            continue
+        try:
+            got = fingerprint(p)
+        except (OSError, ValueError, KeyError) as e:
+            bad.append(f'{rel} が読めない（{e}）')
+            continue
         for k in ('nodes', 'edges', 'ids', 'rels'):
             if got[k] != want[k]:
                 bad.append(f'{rel} の {k} が基準と違う（基準 {want[k]} / 今 {got[k]}。'
@@ -197,3 +227,143 @@ def run_json(script, args, out, repo=None, label=''):
     if p.returncode != 0:
         raise SystemExit(f'report.mjs 失敗 (exit {p.returncode}) {label}:\n{p.stderr[-800:]}')
     return json.loads(pathlib.Path(out).read_text())
+
+
+# ---- 起動条件の正本（第 53 ラウンド双人レビュー両名 P2。Astra 裁定 2 の実装） --------------
+#
+# 以前は `check-invariants46.py` と `self-consistency.py` がそれぞれ fixture を glob で集め、
+# 「10 本以上」「200 条件以上」という**件数の見張り番**だけで走らせていた。fixture を 2 本
+# 消した日（19 → 17 本、219 → 201 条件）は**両方の検査が終了 0**（第 53 ラウンド両名が別クローンで
+# 実測）。件数の下限では「一部だけ減る」を捕まえられないので、**追跡下の要求一覧との集合比較**へ移す。
+#   * `required-checks.json` が必須の fixture と起動条件の一覧（`--emit-required` で人が作る）
+#   * ここが起動条件を組み立て、検査は同じ一覧を読む（組み方が 2 ところに分かれていたのも直す）
+#   * 一覧に無い条件は走らせない。有る条件が消えた日・増えた日は**測る前に終了 1**
+FIXTURE_GLOB = 'skill/tests/fixtures/ImpactFacts/*.graph.json'
+REQUIRED = HERE / 'required-checks.json'
+
+
+def required_spec(repo=None):
+    """起動条件の要求一覧（追跡下の JSON）。無い日は作り直し手順付きで終了 1"""
+    if not REQUIRED.exists():
+        raise SystemExit(
+            f'起動条件の要求一覧が無い: {REQUIRED}\n'
+            '  作り直し: python3 skill/scripts/tools/battery/emit-required.py '
+            'skill/scripts/tools/battery/required-checks.json\n'
+            '  （書き出した一覧を人がレビューしてコミットする。追跡下のファイルなので '
+            'git checkout -- でも戻せる）')
+    return json.loads(REQUIRED.read_text(encoding='utf-8'))
+
+
+def required_fixtures(repo=None):
+    """要求一覧に有る fixture の実体（欠けていれば `require` が終了 1。glob で減らさない）"""
+    repo = pathlib.Path(repo or repo_root())
+    return [require(repo / rel, '追跡下の fixture（required-checks.json が要求）')
+            for rel in required_spec()['fixtures']]
+
+
+def condition_args(doc):
+    """グラフ 1 本にかける起動条件（`--from` / `--api` / `--changed`）を組み立てる。
+    第 53 ラウンドまで `check-invariants46.py` と `self-consistency.py` に**同じ関数が 2 本**
+    あって、一方だけ直す余地が残っていた。ここで一本化する
+    （`--changed` の一覧は一時ファイルのパスにせず `@a,b` の文字列で持つ＝比較に一時パスを入れない）"""
+    import itertools
+    out = []
+    ids = [n['id'] for n in doc['nodes']]
+    picks = ids[:3] + ids[len(ids) // 2:len(ids) // 2 + 2] + ids[-1:]
+    picks = list(dict.fromkeys(picks))
+    for k in (1, 2):
+        for combo in itertools.islice(itertools.combinations(picks, k), 4):
+            args = []
+            for x in combo:
+                args += ['--from', x]
+            out.append(('from', args))
+    apis = []
+    for n in doc['nodes']:
+        ep = (n.get('metadata') or {}).get('endpoint') or n.get('endpoint')
+        if ep and ep not in apis:
+            apis.append(ep)
+    for ep in apis[:3]:
+        out.append(('api', ['--api', ep]))
+    files = []
+    for n in doc['nodes']:
+        f = (n.get('metadata') or {}).get('file') or n.get('file')
+        if f and f not in files:
+            files.append(f)
+    if files:
+        out.append(('changed', ['--changed', '@' + ','.join(files[:2])]))
+    return out
+
+
+def condition_id(rel, kind, args):
+    """起動条件の指紋。リポジトリ内の相対形・種類・引数だけを見る（一時ファイルのパスは入れない）"""
+    body = f'{rel}\0{kind}\0' + '\0'.join(str(a) for a in args)
+    return hashlib.sha256(body.encode('utf-8')).hexdigest()[:16]
+
+
+def audit_condition(report_path, repo=None):
+    """v1 基準の 1 レポートが記録している起動条件を、今のリポジトリの実体で組み直す"""
+    doc = json.loads(pathlib.Path(report_path).read_text(encoding='utf-8'))
+    s = doc['summary']
+    args = ['--hops', str(s['hops']), '--wiring-hops', str(s['wiringHops']),
+            '--limit', str(s.get('limit') or 100000)]
+    for item in doc['starts']:
+        args += ['--from', item['id']]
+    graph = graph_path(s['graph'], repo)
+    rel = rel_of_recorded(s['graph'], repo) or graph.name
+    return {'rel': f'{pathlib.Path(report_path).name}#{rel}', 'graph': graph,
+            'kind': 'audit-full', 'args': args,
+            'id': condition_id(pathlib.Path(report_path).name, 'audit-full', args)}
+
+
+def launch_conditions(repo=None, check_required=True, fixtures=None):
+    """回帰検査が走らせる起動条件の**一覧**。要求一覧と集合で突き合わせてから返すので、
+    条件を組み立てる側が黙って減った日・増えた日は測る前に終了 1（200 件の見張り番は不要になった）。
+    `fixtures` は `emit-required.py`（要求一覧その物を作る道具）だけが渡す。通常は要求一覧が正本"""
+    repo = pathlib.Path(repo or repo_root())
+    if fixtures is None:
+        fixtures = required_fixtures(repo)
+    conds = []
+    for g in list(fixtures) + [require(x, '検査のグラフ') for x in extra_graphs(repo)]:
+        rel = str(pathlib.Path(g).resolve().relative_to(repo.resolve())).replace('\\', '/')
+        doc = json.loads(pathlib.Path(g).read_text(encoding='utf-8'))
+        for kind, args in condition_args(doc):
+            conds.append({'rel': rel, 'graph': pathlib.Path(g), 'kind': kind, 'args': list(args),
+                          'id': condition_id(rel, kind, args)})
+    for rep_ in report_paths(HERE / 'baseline-v1', expect=18, what='v1 基準の 18 条件'):
+        conds.append(audit_condition(rep_, repo))
+    if not check_required:
+        return conds
+    want = required_spec()['conditions']
+    want_ids = {c['id'] for c in want}
+    got_ids = {c['id'] for c in conds}
+    gone, added = sorted(want_ids - got_ids), sorted(got_ids - want_ids)
+    by_id = {c['id']: c for c in want}
+    if gone or added:
+        lines = [f'起動条件が要求一覧（{REQUIRED.name}）と違う: 要求 {len(want_ids)} 件 / '
+                 f'今回 {len(got_ids)} 件（消えた {len(gone)} 件・新規 {len(added)} 件）。'
+                 '入力の欠落なら作り直し、意図して変えたなら '
+                 '`python3 skill/scripts/tools/battery/emit-required.py <このファイル>` で'
+                 '人が作り直してレビューする（自動更新しない）']
+        for i in gone[:12]:
+            c = by_id[i]
+            lines.append(f'  - 消えた {i}: {c["graph"]} [{c["kind"]}] {" ".join(c["args"])[:90]}')
+        for i in added[:12]:
+            c = next(x for x in conds if x['id'] == i)
+            lines.append(f'  + 新規 {i}: {c["rel"]} [{c["kind"]}] {" ".join(str(a) for a in c["args"])[:90]}')
+        raise SystemExit('\n'.join(lines))
+    return conds
+
+
+def materialize(cond, tmpdir):
+    """`--changed @a,b` を一時ファイルへ展開して実行用の引数にする（一覧の文字列は比較対象）"""
+    args = []
+    n = 0
+    for a in cond['args']:
+        if isinstance(a, str) and a.startswith('@'):
+            n += 1
+            f = pathlib.Path(tmpdir) / f'changed-{cond["id"]}-{n}.txt'
+            f.write_text(a[1:].replace(',', '\n') + '\n', encoding='utf-8')
+            args.append(str(f))
+        else:
+            args.append(a)
+    return args

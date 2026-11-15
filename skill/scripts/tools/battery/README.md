@@ -38,6 +38,19 @@
   根拠の縁の種類と summary キーの、変更前と変更後の値）。`v1diff.py --verify-known` がこれと
   完全一致のときだけ終了 0（Astra 裁定。件数だけ的一致は同件数の入れ替わりを通すので使わない）。
   `--emit-known` は人が作り直しを認めたあとの作成手順で、実行結果から自動更新しない
+- `required-checks.json` は回帰検査が走らせる**必須の fixture（19 本）と起動条件（219 件）の
+  要求一覧**。`_inputs.launch_conditions()` が条件を組み立て、この集合と突き合わせて消えた・
+  新規の条件があれば**測る前に終了 1**（第 53 ラウンド双人レビュー両名 P2: fixture を 2 本
+  消した日 219 → 201 件で入力点検も不変条件検査も終了 0 だった。件数の下限では「一部だけ減る」を
+  捕まえられない）。条件の組み方は `_inputs.condition_args()` に一本化した（以前は
+  `check-invariants46.py` と `self-consistency.py` に同じ関数が 2 本あった）。作り直しは
+  `python3 emit-required.py <その JSON>` で人が行う（`--verify-known` と同じ約束）
+- `require()` は**相対パスをリポジトリの根から引く**（手順書の書き方はリポジトリ相対なので、
+  道具をサブディレクトリから実行しても同じ物を見る。第 53 ラウンド agy: `v1diff.py` を
+  `battery/` から走れると基準ディレクトリを見失っていた）。`rel_of_recorded()` は今の
+  リポジトリの根が前に付いていればそれを捨て、そうでなければ**最後**の `out` から取る
+  （親ディレクトリが `out` という名前のリポジトリで最初の `out` から切ると別物になった。
+  第 53 ラウンド Codex が `/tmp/out/clone` で実測）
 
 ## v1 の出力契約を突き合わせる
 
@@ -59,12 +72,15 @@
 | 道具 | 実行例 | 期待する出力 |
 | --- | --- | --- |
 | `check-invariants46.py` | `python3 skill/scripts/tools/battery/check-invariants46.py skill/scripts/report.mjs` | 「検査した起動条件 219 件 / 行 5033 件」「**違反合計 0 件**」 |
+| `emit-required.py` | `python3 skill/scripts/tools/battery/emit-required.py skill/scripts/tools/battery/required-checks.json` | 「fixture 19 本 / 起動条件 219 件を書き出した」。今の入力と組み立て方から**人が作り直す手順**で、差分をレビューしてからコミットする（実行結果からの自動更新はしない） |
 | `self-consistency.py` | `python3 skill/scripts/tools/battery/self-consistency.py skill/scripts/report.mjs` | 「不一致 0 件」（件数の内訳は版で動くので**違反 0** と終了 0 を見る） |
 
 起動条件は `skill/tests/fixtures/ImpactFacts/*.graph.json`（追跡下）+ `_inputs.extra_graphs()`
 （`out/demo/graph.json`・`out/elsa/graph.json`・`out/perf-inputs/v2-big.graph.json`）+
-`baseline-v1/` の 18 条件。掃除対象の `out/tmp-*` は読まない。条件数が極端に減ったら
-（200 件未満）入力が減った日なので走り終えたあとに止める
+`baseline-v1/` の 18 条件。掃除対象の `out/tmp-*` は読まない。一覧その物は
+`required-checks.json`（追跡下）にあり、両検査は**測る前に**集合一致を確かめる
+（第 53 ラウンドまであった「200 件未満なら走り終えたあとに止める」は、fixture 2 本消失を
+通したので廃止。両名 P2）
 
 ## 縁順・入れ替えで表示が変わらないことを確かめる
 

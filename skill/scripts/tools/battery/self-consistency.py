@@ -11,7 +11,6 @@
 #
 # 基準は今のディレクトリの skill/scripts/report.mjs。期待値は 不一致 0 件。
 # 使い方: python3 skill/scripts/tools/battery/self-consistency.py [report.mjs のパス]
-import itertools
 import json
 import os
 import pathlib
@@ -23,8 +22,9 @@ from collections import Counter
 # リポジトリの根・入力の所在・失敗の扱いを `_inputs.py` にまとめた（第 51 ラウンド双人レビュー）
 import _inputs as IN
 
-NOTE = ('（第 51 ラウンドの入力で 219 件。入力が無い日は上の `require` が測る前に落ちる。'
-        ' ここは走り終えた後の見張り番で、条件を組み立てる側が黙って減った日を捕まえる）')
+# 起動条件の数え方は `required-checks.json` との集合比較に置き換えた（`IN.launch_conditions()`）。
+# 「200 件未満で走り終えたあとに止める」見張り番は fixture を 2 本消した日（219 → 201 件）を
+# 通したので削除（第 53 ラウンド双人レビュー両名 P2）
 
 REPO = IN.repo_root()
 REPORT = str(IN.require_script(sys.argv[1] if len(sys.argv) > 1 else 'skill/scripts/report.mjs'))
@@ -32,53 +32,10 @@ MOVEMENT = {'triggers', 'invokes', 'handler', 'exposed-by'}
 BUCKETS = ['external.in', 'external.out', 'entries.in', 'entries.out', 'artifacts.in', 'artifacts.out',
            'sameApi', 'siblingEndpoints', 'wiring']
 
-FIXTURES = sorted((REPO / 'skill' / 'tests' / 'fixtures' / 'ImpactFacts').glob('*.graph.json'))
-if len(FIXTURES) < 10:
-    raise SystemExit(f'tracked の fixture が {len(FIXTURES)} 件しかない '
-                     '(skill/tests/fixtures/ImpactFacts/*.graph.json。0 件で合格にしない)')
-# 掃除対象の `out/tmp-*` は読まない（第 51 ラウンド双人レビュー両名 P2）
-EXTRA = [IN.require(x, '検査のグラフ') for x in IN.extra_graphs(REPO)]
-AUDIT = IN.report_paths(IN.HERE / 'baseline-v1', expect=18, what='v1 基準の 18 条件')
-
 TMP = tempfile.mkdtemp(prefix='cgd-selfcons-')
-
-
-def make_list(files):
-  p = os.path.join(TMP, 'changed-%d.txt' % len(os.listdir(TMP)))
-  with open(p, 'w') as fh:
-    fh.write('\n'.join(files) + '\n')
-  return p
-
-
-def runs_for(graph_path):
-  """check-invariants46.py と同じ起動条件の組み方"""
-  doc = json.loads(graph_path.read_text())
-  out = []
-  ids = [n['id'] for n in doc['nodes']]
-  picks = ids[:3] + ids[len(ids) // 2:len(ids) // 2 + 2] + ids[-1:]
-  picks = list(dict.fromkeys(picks))
-  for k in (1, 2):
-    for combo in itertools.islice(itertools.combinations(picks, k), 4):
-      args = []
-      for x in combo:
-        args += ['--from', x]
-      out.append(('from', args))
-  apis = []
-  for n in doc['nodes']:
-    ep = (n.get('metadata') or {}).get('endpoint') or n.get('endpoint')
-    if ep and ep not in apis:
-      apis.append(ep)
-  for ep in apis[:3]:
-    out.append(('api', ['--api', ep]))
-  files = []
-  for n in doc['nodes']:
-    f = (n.get('metadata') or {}).get('file') or n.get('file')
-    if f and f not in files:
-      files.append(f)
-  if files:
-    out.append(('changed', ['--changed', make_list(files[:2])]))
-  return out
-
+# 起動条件は `_inputs.launch_conditions()` が組み、`required-checks.json` と集合で突き合わせる
+# （条件の組み方が 2 本の道具に分かれていたのもここで一本化した）
+CONDS = IN.launch_conditions(REPO)
 
 def rows_of(result):
   for b in BUCKETS:
@@ -152,25 +109,13 @@ def check_run(label, graph_doc, result):
                            f"子={r['direction']} 期待=none 経路={'|'.join(path)}"))
 
 
-for gp in FIXTURES + EXTRA:
-  doc = json.loads(gp.read_text())
-  for kind, args in runs_for(gp):
-    check_run(f'{gp.name}[{kind}]', doc, run_report(gp, args))
+for cond in CONDS:
+  label = f'{cond["rel"].split("#")[0]}[{cond["kind"]}]'
+  doc = json.loads(cond['graph'].read_text())
+  check_run(label, doc, run_report(cond['graph'], IN.materialize(cond, TMP)))
 
-for cond in AUDIT:
-  doc = json.loads(cond.read_text())
-  s = doc['summary']
-  args = ['--hops', str(s['hops']), '--wiring-hops', str(s['wiringHops']),
-          '--limit', str(s.get('limit') or 100000)]
-  for item in doc['starts']:
-    args += ['--from', item['id']]
-  gp = IN.graph_path(s['graph'])
-  check_run(f'{cond.name}[audit-full]', json.loads(gp.read_text()), run_report(gp, args))
-
-if conditions < 200:
-  raise SystemExit(f'検査した起動条件が {conditions} 件しかない'
-                   f'{NOTE}。0 件合格を作らないためにここで止める')
-print(f'検査した起動条件 {conditions} 件 / 無方向の一歩で親と突き合わせた行 {compared} 件'
+print(f'検査した起動条件 {conditions} 件（要求一覧 required-checks.json と集合一致） / '
+      f'無方向の一歩で親と突き合わせた行 {compared} 件'
       f'（うち 表示経路全体が無方向の行 {undirected_only} 件）')
 print(f'不一致 {len(mismatches)} 件')
 for k, c in notes.most_common():

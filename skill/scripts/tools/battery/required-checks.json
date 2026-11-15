@@ -1,0 +1,2523 @@
+{
+ "note": "回帰検査（`check-invariants46.py` / `self-consistency.py`）が走らせる**起動条件の要求一覧**。`_inputs.launch_conditions()` がこの集合と実際に組み上げた条件の集合を突き合わせ、消えた・新規の条件があれば測る前に終了 1 にする（第 53 ラウンド双人レビュー両名 P2: fixture を 2 本消しても 201 条件で終了 0 だった。200 件の見張り番はこれで不要にした）。作り直しは `python3 skill/scripts/tools/battery/emit-required.py <このファイル>` で人が行う",
+ "fixtures": [
+  "skill/tests/fixtures/ImpactFacts/arrow-priority.graph.json",
+  "skill/tests/fixtures/ImpactFacts/budget-dominance.graph.json",
+  "skill/tests/fixtures/ImpactFacts/budget-min.graph.json",
+  "skill/tests/fixtures/ImpactFacts/budget-normal.graph.json",
+  "skill/tests/fixtures/ImpactFacts/budget-reversed.graph.json",
+  "skill/tests/fixtures/ImpactFacts/budget-through-invokes.graph.json",
+  "skill/tests/fixtures/ImpactFacts/calledout-walk.graph.json",
+  "skill/tests/fixtures/ImpactFacts/code-chain-long.graph.json",
+  "skill/tests/fixtures/ImpactFacts/code-chain.graph.json",
+  "skill/tests/fixtures/ImpactFacts/cut-primary.graph.json",
+  "skill/tests/fixtures/ImpactFacts/down-inherit-record.graph.json",
+  "skill/tests/fixtures/ImpactFacts/down-inherit-seed.graph.json",
+  "skill/tests/fixtures/ImpactFacts/group-cache.graph.json",
+  "skill/tests/fixtures/ImpactFacts/group-late.graph.json",
+  "skill/tests/fixtures/ImpactFacts/preempt.graph.json",
+  "skill/tests/fixtures/ImpactFacts/promote-skip.graph.json",
+  "skill/tests/fixtures/ImpactFacts/six-groups.graph.json",
+  "skill/tests/fixtures/ImpactFacts/touched-api-nocorr.graph.json",
+  "skill/tests/fixtures/ImpactFacts/touched-api.graph.json"
+ ],
+ "conditions": [
+  {
+   "id": "006787c03b3fa572",
+   "graph": "out/demo/graph.json",
+   "kind": "api",
+   "args": [
+    "--api",
+    "GET /orders"
+   ]
+  },
+  {
+   "id": "00a4611ddd7b23c7",
+   "graph": "out/elsa/graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "folder:.",
+    "--from",
+    "member:Elsa.Workflows.Admission.AdmissionAuthorityRegistry/Invocation._authorityTuple"
+   ]
+  },
+  {
+   "id": "020b04fe5089cced",
+   "graph": "skill/tests/fixtures/ImpactFacts/cut-primary.graph.json",
+   "kind": "changed",
+   "args": [
+    "--changed",
+    "@main.tf"
+   ]
+  },
+  {
+   "id": "02792bba0e8ecae9",
+   "graph": "skill/tests/fixtures/ImpactFacts/down-inherit-seed.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_api_gateway_method.m1",
+    "--from",
+    "tf:aws_lambda_function.lam2"
+   ]
+  },
+  {
+   "id": "058e7c458fe86a9a",
+   "graph": "skill/tests/fixtures/ImpactFacts/six-groups.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "s"
+   ]
+  },
+  {
+   "id": "073e5bbbedcd5ed7",
+   "graph": "skill/tests/fixtures/ImpactFacts/budget-min.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "z",
+    "--from",
+    "a"
+   ]
+  },
+  {
+   "id": "0919c26ee944cea1",
+   "graph": "skill/tests/fixtures/ImpactFacts/budget-reversed.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_lambda_function.s",
+    "--from",
+    "tf:aws_lambda_function.b"
+   ]
+  },
+  {
+   "id": "097fce49a4ba3b08",
+   "graph": "skill/tests/fixtures/ImpactFacts/down-inherit-record.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "1"
+   ]
+  },
+  {
+   "id": "09a2eacaf84a71e4",
+   "graph": "out/perf-inputs/v2-big.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "folder:src"
+   ]
+  },
+  {
+   "id": "0c651b67b07ea5d1",
+   "graph": "skill/tests/fixtures/ImpactFacts/code-chain.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_lambda_function.l0"
+   ]
+  },
+  {
+   "id": "0cf0466d71830fe9",
+   "graph": "skill/tests/fixtures/ImpactFacts/arrow-priority.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_api_gateway_integration.post_x"
+   ]
+  },
+  {
+   "id": "0d0180d91048405e",
+   "graph": "skill/tests/fixtures/ImpactFacts/arrow-priority.graph.json",
+   "kind": "api",
+   "args": [
+    "--api",
+    "POST /orders"
+   ]
+  },
+  {
+   "id": "0da25f319babd536",
+   "graph": "skill/tests/fixtures/ImpactFacts/group-cache.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_api_gateway_rest_api.b"
+   ]
+  },
+  {
+   "id": "0e34f2e9c1811b6f",
+   "graph": "skill/tests/fixtures/ImpactFacts/touched-api.graph.json",
+   "kind": "api",
+   "args": [
+    "--api",
+    "POST /b"
+   ]
+  },
+  {
+   "id": "0ea31b56125870c5",
+   "graph": "skill/tests/fixtures/ImpactFacts/group-cache.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_api_gateway_integration.b"
+   ]
+  },
+  {
+   "id": "0fe97915021c7207",
+   "graph": "skill/tests/fixtures/ImpactFacts/arrow-priority.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_api_gateway_method.post_x",
+    "--from",
+    "tf:aws_sfn_state_machine.up"
+   ]
+  },
+  {
+   "id": "1201e38cb2e681a2",
+   "graph": "skill/tests/fixtures/ImpactFacts/touched-api-nocorr.graph.json",
+   "kind": "api",
+   "args": [
+    "--api",
+    "POST /b"
+   ]
+  },
+  {
+   "id": "12c77e8616f2a120",
+   "graph": "out/demo/graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "member:Orders.Domain.Order.MarkValidated"
+   ]
+  },
+  {
+   "id": "12e877fe9cb9cc93",
+   "graph": "skill/tests/fixtures/ImpactFacts/code-chain.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "member:M0",
+    "--from",
+    "tf:aws_lambda_function.l0"
+   ]
+  },
+  {
+   "id": "13ae004ef50d5f3e",
+   "graph": "skill/tests/fixtures/ImpactFacts/cut-primary.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "file:main.tf",
+    "--from",
+    "tf:aws_sfn_state_machine.a"
+   ]
+  },
+  {
+   "id": "152123fa3454f319",
+   "graph": "skill/tests/fixtures/ImpactFacts/six-groups.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "s",
+    "--from",
+    "tf:aws_api_gateway_rest_api.g1"
+   ]
+  },
+  {
+   "id": "179ac54dbafdecbc",
+   "graph": "out/demo/graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "folder:src"
+   ]
+  },
+  {
+   "id": "18459bff3cf782c3",
+   "graph": "fixture-api0.json#out/tmp-r19/ri0/graph.json",
+   "kind": "audit-full",
+   "args": [
+    "--hops",
+    "8",
+    "--wiring-hops",
+    "3",
+    "--limit",
+    "100000",
+    "--from",
+    "tf:aws_api_gateway_method.post_order"
+   ]
+  },
+  {
+   "id": "19973172c613bc14",
+   "graph": "skill/tests/fixtures/ImpactFacts/code-chain.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "member:M5"
+   ]
+  },
+  {
+   "id": "19fbb95a9916818a",
+   "graph": "out/demo/graph.json",
+   "kind": "api",
+   "args": [
+    "--api",
+    "POST /orders"
+   ]
+  },
+  {
+   "id": "1b0218df8d6cf7a8",
+   "graph": "skill/tests/fixtures/ImpactFacts/budget-dominance.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_s3_bucket.r1"
+   ]
+  },
+  {
+   "id": "1c5677be6a7acac0",
+   "graph": "out/demo/graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "folder:.",
+    "--from",
+    "member:Orders.Domain.Order.MarkFulfilled"
+   ]
+  },
+  {
+   "id": "1d873abda0bbb04b",
+   "graph": "skill/tests/fixtures/ImpactFacts/touched-api-nocorr.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_api_gateway_method.b"
+   ]
+  },
+  {
+   "id": "1e729078b02c8aa2",
+   "graph": "out/elsa/graph.json",
+   "kind": "changed",
+   "args": [
+    "--changed",
+    "@apps/src/Elsa.Server.Shared/DatabaseConfiguration.cs,apps/src/Elsa.Studio.BlazorServer/Bootstrap/Backend.cs"
+   ]
+  },
+  {
+   "id": "20cbd08762407331",
+   "graph": "skill/tests/fixtures/ImpactFacts/budget-reversed.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_lambda_function.x"
+   ]
+  },
+  {
+   "id": "2159e7bc43ddb5e9",
+   "graph": "skill/tests/fixtures/ImpactFacts/six-groups.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "m1"
+   ]
+  },
+  {
+   "id": "2270797bf4075fbc",
+   "graph": "skill/tests/fixtures/ImpactFacts/promote-skip.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_lambda_function.start",
+    "--from",
+    "tf:aws_iam_role.r0"
+   ]
+  },
+  {
+   "id": "232b9257f9423382",
+   "graph": "out/perf-inputs/v2-big.graph.json",
+   "kind": "api",
+   "args": [
+    "--api",
+    "POST /v2/a0/r1"
+   ]
+  },
+  {
+   "id": "2452f83bfeddee67",
+   "graph": "skill/tests/fixtures/ImpactFacts/six-groups.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "s",
+    "--from",
+    "l3"
+   ]
+  },
+  {
+   "id": "292917156c7ecc11",
+   "graph": "skill/tests/fixtures/ImpactFacts/six-groups.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "s",
+    "--from",
+    "m4"
+   ]
+  },
+  {
+   "id": "2a1241386261c6ad",
+   "graph": "skill/tests/fixtures/ImpactFacts/code-chain-long.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "s",
+    "--from",
+    "c5"
+   ]
+  },
+  {
+   "id": "2b9e612b524fc3d2",
+   "graph": "skill/tests/fixtures/ImpactFacts/six-groups.graph.json",
+   "kind": "api",
+   "args": [
+    "--api",
+    "POST /3"
+   ]
+  },
+  {
+   "id": "2bb2229825388da5",
+   "graph": "skill/tests/fixtures/ImpactFacts/arrow-priority.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_lambda_function.x"
+   ]
+  },
+  {
+   "id": "2e5716b8a796a3fc",
+   "graph": "skill/tests/fixtures/ImpactFacts/budget-min.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "s"
+   ]
+  },
+  {
+   "id": "3021349564227984",
+   "graph": "out/demo/graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "folder:.",
+    "--from",
+    "folder:infra"
+   ]
+  },
+  {
+   "id": "31d7a2a4e20b5179",
+   "graph": "skill/tests/fixtures/ImpactFacts/budget-through-invokes.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_api_gateway_rest_api.api"
+   ]
+  },
+  {
+   "id": "31df4d64751e0cd7",
+   "graph": "out/demo/graph.json",
+   "kind": "changed",
+   "args": [
+    "--changed",
+    "@src/Orders.Api/Functions.cs,src/Orders.Api/Startup.cs"
+   ]
+  },
+  {
+   "id": "33501632c5980e15",
+   "graph": "out/perf-inputs/v2-big.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "folder:.",
+    "--from",
+    "tf:aws_iam_role.role18"
+   ]
+  },
+  {
+   "id": "33b800ce6906099d",
+   "graph": "skill/tests/fixtures/ImpactFacts/budget-through-invokes.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_api_gateway_rest_api.api",
+    "--from",
+    "tf:aws_lambda_function.lam1"
+   ]
+  },
+  {
+   "id": "358d8234dfc712e1",
+   "graph": "skill/tests/fixtures/ImpactFacts/budget-dominance.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_api_gateway_method.m1",
+    "--from",
+    "tf:aws_lambda_function.lam1"
+   ]
+  },
+  {
+   "id": "3699b482f437754c",
+   "graph": "skill/tests/fixtures/ImpactFacts/touched-api-nocorr.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_lambda_function.a"
+   ]
+  },
+  {
+   "id": "3751e84fc4b793c2",
+   "graph": "demo-order.json#out/demo/graph.json",
+   "kind": "audit-full",
+   "args": [
+    "--hops",
+    "8",
+    "--wiring-hops",
+    "3",
+    "--limit",
+    "100000",
+    "--from",
+    "file:src/Orders.Domain/Order.cs"
+   ]
+  },
+  {
+   "id": "395db3f6cf2294fd",
+   "graph": "skill/tests/fixtures/ImpactFacts/group-cache.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_lambda_function.s",
+    "--from",
+    "tf:aws_api_gateway_integration.b"
+   ]
+  },
+  {
+   "id": "3b832a4f317c2445",
+   "graph": "skill/tests/fixtures/ImpactFacts/touched-api-nocorr.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_lambda_function.a",
+    "--from",
+    "member:A"
+   ]
+  },
+  {
+   "id": "3d1a01c866ccb7f9",
+   "graph": "skill/tests/fixtures/ImpactFacts/preempt.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_lambda_function.s",
+    "--from",
+    "member:S.Handle"
+   ]
+  },
+  {
+   "id": "3d32c9325a321339",
+   "graph": "skill/tests/fixtures/ImpactFacts/down-inherit-record.graph.json",
+   "kind": "api",
+   "args": [
+    "--api",
+    "POST /s"
+   ]
+  },
+  {
+   "id": "3eb34934279c877d",
+   "graph": "skill/tests/fixtures/ImpactFacts/promote-skip.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_lambda_function.start",
+    "--from",
+    "tf:aws_api_gateway_method.m2"
+   ]
+  },
+  {
+   "id": "3f014ee7a1142422",
+   "graph": "skill/tests/fixtures/ImpactFacts/arrow-priority.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_api_gateway_method.post_x",
+    "--from",
+    "tf:aws_api_gateway_integration.post_x"
+   ]
+  },
+  {
+   "id": "42a9bb8191c00e61",
+   "graph": "skill/tests/fixtures/ImpactFacts/calledout-walk.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "member:X.Handle",
+    "--from",
+    "tf:aws_sfn_state_machine.up"
+   ]
+  },
+  {
+   "id": "4374d448d8434293",
+   "graph": "skill/tests/fixtures/ImpactFacts/touched-api.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_lambda_function.a"
+   ]
+  },
+  {
+   "id": "442a7a5433d22e51",
+   "graph": "skill/tests/fixtures/ImpactFacts/budget-through-invokes.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_api_gateway_rest_api.api",
+    "--from",
+    "tf:aws_api_gateway_integration.int1"
+   ]
+  },
+  {
+   "id": "4490feba5d0c24d1",
+   "graph": "skill/tests/fixtures/ImpactFacts/group-cache.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_lambda_function.s",
+    "--from",
+    "tf:aws_lambda_function.b"
+   ]
+  },
+  {
+   "id": "44f0eb9d98cf44db",
+   "graph": "skill/tests/fixtures/ImpactFacts/promote-skip.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_lambda_function.start",
+    "--from",
+    "member:Start.Handle"
+   ]
+  },
+  {
+   "id": "45d378cc82f00a21",
+   "graph": "skill/tests/fixtures/ImpactFacts/arrow-priority.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_lambda_function.y"
+   ]
+  },
+  {
+   "id": "4710ff1142137876",
+   "graph": "fixture-api.json#out/tmp-r19/ri/graph.json",
+   "kind": "audit-full",
+   "args": [
+    "--hops",
+    "8",
+    "--wiring-hops",
+    "3",
+    "--limit",
+    "100000",
+    "--from",
+    "tf:aws_api_gateway_method.post_order"
+   ]
+  },
+  {
+   "id": "474f13d43f44e206",
+   "graph": "skill/tests/fixtures/ImpactFacts/down-inherit-seed.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_s3_bucket.r2"
+   ]
+  },
+  {
+   "id": "4a4666927840c498",
+   "graph": "out/perf-inputs/v2-big.graph.json",
+   "kind": "api",
+   "args": [
+    "--api",
+    "POST /v2/a0/r0"
+   ]
+  },
+  {
+   "id": "4ad7c39d05b6d174",
+   "graph": "skill/tests/fixtures/query/graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "folder:.",
+    "--from",
+    "type:Pay.Retry"
+   ]
+  },
+  {
+   "id": "4b77411c766c47dc",
+   "graph": "skill/tests/fixtures/ImpactFacts/group-late.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_lambda_function.s",
+    "--from",
+    "tf:aws_api_gateway_integration.b"
+   ]
+  },
+  {
+   "id": "4c0693e83988ca4d",
+   "graph": "skill/tests/fixtures/ImpactFacts/budget-through-invokes.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_api_gateway_rest_api.api",
+    "--from",
+    "tf:aws_api_gateway_resource.r1"
+   ]
+  },
+  {
+   "id": "4cb32544ced83eff",
+   "graph": "skill/tests/fixtures/ImpactFacts/code-chain-long.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "s",
+    "--from",
+    "r1"
+   ]
+  },
+  {
+   "id": "4dade7ef9ea3edc0",
+   "graph": "skill/tests/fixtures/ImpactFacts/code-chain.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "member:M0",
+    "--from",
+    "member:M5"
+   ]
+  },
+  {
+   "id": "4e5a96b860c23eb9",
+   "graph": "skill/tests/fixtures/ImpactFacts/down-inherit-seed.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_lambda_function.lam1"
+   ]
+  },
+  {
+   "id": "4f0ab5110eaecb33",
+   "graph": "fixture-folder.json#out/tmp-r19/ri/graph.json",
+   "kind": "audit-full",
+   "args": [
+    "--hops",
+    "8",
+    "--wiring-hops",
+    "3",
+    "--limit",
+    "100000",
+    "--from",
+    "folder:src"
+   ]
+  },
+  {
+   "id": "531abf635cde8018",
+   "graph": "skill/tests/fixtures/ImpactFacts/budget-reversed.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_lambda_function.a"
+   ]
+  },
+  {
+   "id": "533c5fa565ae5b18",
+   "graph": "skill/tests/fixtures/ImpactFacts/budget-normal.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_lambda_function.s",
+    "--from",
+    "tf:aws_lambda_function.a"
+   ]
+  },
+  {
+   "id": "53757bb68997feff",
+   "graph": "skill/tests/fixtures/query/graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "folder:."
+   ]
+  },
+  {
+   "id": "566c4c23c5cc1a67",
+   "graph": "out/perf-inputs/v2-big.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "folder:."
+   ]
+  },
+  {
+   "id": "577bb6db37746510",
+   "graph": "skill/tests/fixtures/ImpactFacts/group-late.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_api_gateway_method.b"
+   ]
+  },
+  {
+   "id": "5824034194ad08d2",
+   "graph": "skill/tests/fixtures/ImpactFacts/code-chain.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "member:M0"
+   ]
+  },
+  {
+   "id": "5a104ecd28840afd",
+   "graph": "skill/tests/fixtures/ImpactFacts/down-inherit-seed.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_api_gateway_method.m1",
+    "--from",
+    "tf:aws_s3_bucket.r2"
+   ]
+  },
+  {
+   "id": "5b32d4896460e45e",
+   "graph": "skill/tests/fixtures/ImpactFacts/budget-dominance.graph.json",
+   "kind": "api",
+   "args": [
+    "--api",
+    "POST /a"
+   ]
+  },
+  {
+   "id": "5fa565f0d898b4d6",
+   "graph": "skill/tests/fixtures/ImpactFacts/budget-min.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "t"
+   ]
+  },
+  {
+   "id": "5fef4081e2c35f1b",
+   "graph": "skill/tests/fixtures/ImpactFacts/group-late.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_lambda_function.s",
+    "--from",
+    "tf:aws_lambda_function.b"
+   ]
+  },
+  {
+   "id": "6579779ccef13382",
+   "graph": "demo-tf.json#out/demo/graph.json",
+   "kind": "audit-full",
+   "args": [
+    "--hops",
+    "8",
+    "--wiring-hops",
+    "3",
+    "--limit",
+    "100000",
+    "--from",
+    "file:infra/main.tf",
+    "--from",
+    "tf:aws_dynamodb_table.orders",
+    "--from",
+    "tf:aws_iam_role.lambda_role",
+    "--from",
+    "tf:aws_iam_role_policy.lambda_dynamo_policy",
+    "--from",
+    "tf:aws_lambda_function.orders_api",
+    "--from",
+    "tf:aws_lambda_function.notify",
+    "--from",
+    "tf:aws_sfn_state_machine.order_process",
+    "--from",
+    "tf:aws_sqs_queue.fulfilment",
+    "--from",
+    "tf:aws_sns_topic.order_events",
+    "--from",
+    "tf:aws_api_gateway_rest_api.orders",
+    "--from",
+    "tf:aws_api_gateway_resource.orders_path",
+    "--from",
+    "tf:aws_api_gateway_method.post_order",
+    "--from",
+    "tf:aws_api_gateway_integration.post_order",
+    "--from",
+    "tf:aws_api_gateway_method.get_order",
+    "--from",
+    "tf:aws_api_gateway_integration.get_order",
+    "--from",
+    "tf:aws_api_gateway_deployment.live"
+   ]
+  },
+  {
+   "id": "67d4eca7803a3e05",
+   "graph": "demo-api.json#out/demo/graph.json",
+   "kind": "audit-full",
+   "args": [
+    "--hops",
+    "8",
+    "--wiring-hops",
+    "3",
+    "--limit",
+    "100000",
+    "--from",
+    "tf:aws_api_gateway_method.post_order"
+   ]
+  },
+  {
+   "id": "68d68c29478b8eb7",
+   "graph": "skill/tests/fixtures/ImpactFacts/promote-skip.graph.json",
+   "kind": "api",
+   "args": [
+    "--api",
+    "POST /m2"
+   ]
+  },
+  {
+   "id": "6aaf79e34fa5f635",
+   "graph": "skill/tests/fixtures/ImpactFacts/six-groups.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_api_gateway_rest_api.g1"
+   ]
+  },
+  {
+   "id": "6b04120f69233f55",
+   "graph": "skill/tests/fixtures/ImpactFacts/budget-min.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "s",
+    "--from",
+    "z"
+   ]
+  },
+  {
+   "id": "6b135da88c6aaa6c",
+   "graph": "out/perf-inputs/v2-big.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "folder:.",
+    "--from",
+    "folder:src"
+   ]
+  },
+  {
+   "id": "6b724deaac32ff63",
+   "graph": "skill/tests/fixtures/ImpactFacts/budget-min.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "s",
+    "--from",
+    "a"
+   ]
+  },
+  {
+   "id": "6c678cf0ee3b2ff1",
+   "graph": "skill/tests/fixtures/ImpactFacts/code-chain-long.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "r1"
+   ]
+  },
+  {
+   "id": "6d66e6c946dba93d",
+   "graph": "skill/tests/fixtures/ImpactFacts/cut-primary.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "file:main.tf",
+    "--from",
+    "tf:aws_lambda_function.d"
+   ]
+  },
+  {
+   "id": "6dee23a6e0ffceb8",
+   "graph": "fixture-lam.json#out/tmp-r19/ri/graph.json",
+   "kind": "audit-full",
+   "args": [
+    "--hops",
+    "8",
+    "--wiring-hops",
+    "3",
+    "--limit",
+    "100000",
+    "--from",
+    "tf:aws_lambda_function.orders_api"
+   ]
+  },
+  {
+   "id": "6edfff6bc092ed37",
+   "graph": "skill/tests/fixtures/ImpactFacts/budget-reversed.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_lambda_function.r"
+   ]
+  },
+  {
+   "id": "73b46e4e96ac244b",
+   "graph": "skill/tests/fixtures/ImpactFacts/group-cache.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_lambda_function.s",
+    "--from",
+    "tf:aws_api_gateway_method.b"
+   ]
+  },
+  {
+   "id": "74cb4f4c983b4fc3",
+   "graph": "skill/tests/fixtures/ImpactFacts/calledout-walk.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_sfn_state_machine.up"
+   ]
+  },
+  {
+   "id": "7770793a5e218330",
+   "graph": "skill/tests/fixtures/ImpactFacts/budget-dominance.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_api_gateway_method.m1",
+    "--from",
+    "tf:aws_api_gateway_integration.int1"
+   ]
+  },
+  {
+   "id": "7ae0350fdc606787",
+   "graph": "skill/tests/fixtures/ImpactFacts/down-inherit-seed.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_api_gateway_method.m1",
+    "--from",
+    "tf:aws_lambda_function.lam1"
+   ]
+  },
+  {
+   "id": "7e6d7069b870ef62",
+   "graph": "skill/tests/fixtures/ImpactFacts/budget-reversed.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_lambda_function.s",
+    "--from",
+    "tf:aws_lambda_function.r"
+   ]
+  },
+  {
+   "id": "7eca88f655cc640c",
+   "graph": "skill/tests/fixtures/ImpactFacts/touched-api-nocorr.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_lambda_function.a",
+    "--from",
+    "tf:aws_api_gateway_rest_api.b"
+   ]
+  },
+  {
+   "id": "81d027ef3ce63fdd",
+   "graph": "skill/tests/fixtures/ImpactFacts/group-late.graph.json",
+   "kind": "api",
+   "args": [
+    "--api",
+    "POST /b"
+   ]
+  },
+  {
+   "id": "820c53c4c296cc65",
+   "graph": "skill/tests/fixtures/ImpactFacts/budget-normal.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_lambda_function.r"
+   ]
+  },
+  {
+   "id": "84755078b835e874",
+   "graph": "out/demo/graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "folder:.",
+    "--from",
+    "member:Orders.Domain.Order.MarkValidated"
+   ]
+  },
+  {
+   "id": "8610d906e81ffb2d",
+   "graph": "skill/tests/fixtures/query/graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "folder:.",
+    "--from",
+    "folder:src"
+   ]
+  },
+  {
+   "id": "86522629844a1c68",
+   "graph": "skill/tests/fixtures/ImpactFacts/code-chain.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "member:M1"
+   ]
+  },
+  {
+   "id": "8723437f5a94b743",
+   "graph": "skill/tests/fixtures/ImpactFacts/promote-skip.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_lambda_function.start"
+   ]
+  },
+  {
+   "id": "88b1f4f161c10341",
+   "graph": "skill/tests/fixtures/ImpactFacts/group-late.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_lambda_function.s"
+   ]
+  },
+  {
+   "id": "8941d324830365d1",
+   "graph": "skill/tests/fixtures/ImpactFacts/touched-api.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_api_gateway_method.b"
+   ]
+  },
+  {
+   "id": "894f3336bd09b9bf",
+   "graph": "elsa-folder.json#out/elsa/graph.json",
+   "kind": "audit-full",
+   "args": [
+    "--hops",
+    "8",
+    "--wiring-hops",
+    "3",
+    "--limit",
+    "100000",
+    "--from",
+    "file:apps/src/Elsa.Server/Program.cs"
+   ]
+  },
+  {
+   "id": "8c7743fe81b7755d",
+   "graph": "skill/tests/fixtures/ImpactFacts/code-chain-long.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "s",
+    "--from",
+    "r5"
+   ]
+  },
+  {
+   "id": "8c8fc57d87e85316",
+   "graph": "skill/tests/fixtures/ImpactFacts/budget-reversed.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_lambda_function.s",
+    "--from",
+    "tf:aws_lambda_function.x"
+   ]
+  },
+  {
+   "id": "8cdc329ee7b416c9",
+   "graph": "skill/tests/fixtures/ImpactFacts/budget-normal.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_lambda_function.s",
+    "--from",
+    "tf:aws_lambda_function.x"
+   ]
+  },
+  {
+   "id": "8cf63c7654094638",
+   "graph": "skill/tests/fixtures/ImpactFacts/preempt.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_lambda_function.s"
+   ]
+  },
+  {
+   "id": "8d9f49b23e02c620",
+   "graph": "skill/tests/fixtures/ImpactFacts/cut-primary.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_sfn_state_machine.b"
+   ]
+  },
+  {
+   "id": "8e71f9cfd275c411",
+   "graph": "skill/tests/fixtures/ImpactFacts/down-inherit-seed.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_api_gateway_method.m1",
+    "--from",
+    "member:X.Handle"
+   ]
+  },
+  {
+   "id": "8e8fd59236e2f452",
+   "graph": "skill/tests/fixtures/ImpactFacts/promote-skip.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_lambda_function.r1"
+   ]
+  },
+  {
+   "id": "918067b3ad518f32",
+   "graph": "skill/tests/fixtures/ImpactFacts/cut-primary.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "file:main.tf"
+   ]
+  },
+  {
+   "id": "91966f531c3758a2",
+   "graph": "skill/tests/fixtures/ImpactFacts/budget-normal.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_lambda_function.s",
+    "--from",
+    "tf:aws_lambda_function.b"
+   ]
+  },
+  {
+   "id": "921f75ffb5551f19",
+   "graph": "out/elsa/graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "folder:."
+   ]
+  },
+  {
+   "id": "927e61502806b800",
+   "graph": "out/demo/graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "folder:infra"
+   ]
+  },
+  {
+   "id": "92f31e73023d7f6e",
+   "graph": "skill/tests/fixtures/ImpactFacts/budget-normal.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_lambda_function.a"
+   ]
+  },
+  {
+   "id": "9406f8c0897277c1",
+   "graph": "skill/tests/fixtures/ImpactFacts/budget-normal.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_lambda_function.x"
+   ]
+  },
+  {
+   "id": "942cc5e0c583903e",
+   "graph": "elsa-50.json#out/elsa/graph.json",
+   "kind": "audit-full",
+   "args": [
+    "--hops",
+    "8",
+    "--wiring-hops",
+    "3",
+    "--limit",
+    "100000",
+    "--from",
+    "file:apps/src/Elsa.Server/Program.cs",
+    "--from",
+    "file:apps/src/Elsa.Server.Shared/DatabaseConfiguration.cs",
+    "--from",
+    "file:apps/src/Elsa.Server.Studio.BlazorServer/Program.cs",
+    "--from",
+    "file:apps/src/Elsa.Server.Studio.BlazorWasm/Program.cs",
+    "--from",
+    "file:apps/src/Elsa.Server.Studio.BlazorWasm.Client/Program.cs",
+    "--from",
+    "file:apps/src/Elsa.Studio.BlazorServer/Bootstrap/Backend.cs",
+    "--from",
+    "file:apps/src/Elsa.Studio.BlazorServer/Bootstrap/Core.cs",
+    "--from",
+    "file:apps/src/Elsa.Studio.BlazorServer/Bootstrap/Diagnostics.cs",
+    "--from",
+    "file:apps/src/Elsa.Studio.BlazorServer/Bootstrap/HealthChecks.cs",
+    "--from",
+    "file:apps/src/Elsa.Studio.BlazorServer/Bootstrap/Login.cs",
+    "--from",
+    "file:apps/src/Elsa.Studio.BlazorServer/Bootstrap/Modules.cs",
+    "--from",
+    "file:apps/src/Elsa.Studio.BlazorServer/Program.cs",
+    "--from",
+    "file:apps/src/Elsa.Studio.BlazorServer/SafeBlazorServerJwtAccessor.cs",
+    "--from",
+    "file:apps/src/Elsa.Studio.BlazorWasm/Program.cs",
+    "--from",
+    "file:apps/src/Elsa.Studio.BlazorWasm.Client/Bootstrap/Backend.cs",
+    "--from",
+    "file:apps/src/Elsa.Studio.BlazorWasm.Client/Bootstrap/Core.cs",
+    "--from",
+    "file:apps/src/Elsa.Studio.BlazorWasm.Client/Bootstrap/Diagnostics.cs",
+    "--from",
+    "file:apps/src/Elsa.Studio.BlazorWasm.Client/Bootstrap/HealthChecks.cs",
+    "--from",
+    "file:apps/src/Elsa.Studio.BlazorWasm.Client/Bootstrap/Login.cs",
+    "--from",
+    "file:apps/src/Elsa.Studio.BlazorWasm.Client/Bootstrap/Modules.cs",
+    "--from",
+    "file:apps/src/Elsa.Studio.BlazorWasm.Client/Program.cs",
+    "--from",
+    "file:apps/src/Shared/Constants/SettingKeys.cs",
+    "--from",
+    "file:apps/src/Shared/Helpers/OptionsHelper.cs",
+    "--from",
+    "file:apps/src/Shared/Options/AuthenticationOptions.cs",
+    "--from",
+    "file:apps/src/Shared/Options/DiagnosticOptionType.cs",
+    "--from",
+    "file:apps/src/Shared/Options/DiagnosticOptions.cs",
+    "--from",
+    "file:apps/src/Shared/Options/HealthCheckEndpointOptions.cs",
+    "--from",
+    "file:apps/src/Shared/Options/HealthCheckOptions.cs",
+    "--from",
+    "file:apps/src/Shared/Options/IdentityOptionType.cs",
+    "--from",
+    "file:apps/src/Shared/Options/IdentityOptions.cs",
+    "--from",
+    "file:apps/src/Shared/Options/ModulesFeaturesOptions.cs",
+    "--from",
+    "file:apps/src/Shared/Options/ModulesOptions.cs",
+    "--from",
+    "file:build/Build.CI.GitHubActions.cs",
+    "--from",
+    "file:build/Build.ReactStudio.cs",
+    "--from",
+    "file:build/Build.cs",
+    "--from",
+    "file:core/experiments/NativeCompensation.E1/Activities.cs",
+    "--from",
+    "file:core/experiments/NativeCompensation.E1/CommitObserver.cs",
+    "--from",
+    "file:core/experiments/NativeCompensation.E1/Journal.cs",
+    "--from",
+    "file:core/experiments/NativeCompensation.E1/Program.cs",
+    "--from",
+    "file:core/src/PackageManifestHints.cs",
+    "--from",
+    "file:core/src/apps/Elsa.ModularServer.Web/Catalog/AssemblyCatalogResponses.cs",
+    "--from",
+    "file:core/src/apps/Elsa.ModularServer.Web/Catalog/IPlugin.cs",
+    "--from",
+    "file:core/src/apps/Elsa.ModularServer.Web/Catalog/PluginCatalog.cs",
+    "--from",
+    "file:core/src/apps/Elsa.ModularServer.Web/Catalog/SampleCatalogEndpointExtensions.cs",
+    "--from",
+    "file:core/src/apps/Elsa.ModularServer.Web/IdentityTokenStartupValidation.cs",
+    "--from",
+    "file:core/src/apps/Elsa.ModularServer.Web/ModularServerHost.cs",
+    "--from",
+    "file:core/src/apps/Elsa.ModularServer.Web/MyPackageObserver.cs",
+    "--from",
+    "file:core/src/apps/Elsa.ModularServer.Web/NuplaneAssemblyProvider.cs",
+    "--from",
+    "file:core/src/apps/Elsa.ModularServer.Web/Program.cs",
+    "--from",
+    "file:core/src/apps/Elsa.ModularServer.Web/RoleManagementE2EFixtures.cs"
+   ]
+  },
+  {
+   "id": "97d084569403a1be",
+   "graph": "skill/tests/fixtures/ImpactFacts/six-groups.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "l3"
+   ]
+  },
+  {
+   "id": "9827311e6164dd43",
+   "graph": "out/perf-inputs/v2-big.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_apigatewayv2_api.api18"
+   ]
+  },
+  {
+   "id": "990ecfc7a99d536f",
+   "graph": "skill/tests/fixtures/query/graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "project:src/Pay.csproj"
+   ]
+  },
+  {
+   "id": "9998334d39985d0c",
+   "graph": "skill/tests/fixtures/ImpactFacts/code-chain.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "member:M0",
+    "--from",
+    "member:M1"
+   ]
+  },
+  {
+   "id": "9ade4d7b9f74af2e",
+   "graph": "skill/tests/fixtures/ImpactFacts/preempt.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_sfn_state_machine.r"
+   ]
+  },
+  {
+   "id": "9b1671c2e26e1a27",
+   "graph": "demo-proj.json#out/demo/graph.json",
+   "kind": "audit-full",
+   "args": [
+    "--hops",
+    "8",
+    "--wiring-hops",
+    "3",
+    "--limit",
+    "100000",
+    "--from",
+    "project:src/Orders.Api/Orders.Api.csproj"
+   ]
+  },
+  {
+   "id": "9b72ff94b979c3a0",
+   "graph": "demo-readme.json#out/demo/graph.json",
+   "kind": "audit-full",
+   "args": [
+    "--hops",
+    "8",
+    "--wiring-hops",
+    "3",
+    "--limit",
+    "100000"
+   ]
+  },
+  {
+   "id": "9d82078e0b87b1e2",
+   "graph": "skill/tests/fixtures/ImpactFacts/preempt.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_lambda_function.s",
+    "--from",
+    "tf:aws_sfn_state_machine.r"
+   ]
+  },
+  {
+   "id": "9e59726db8f67ded",
+   "graph": "skill/tests/fixtures/ImpactFacts/arrow-priority.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_api_gateway_method.post_x",
+    "--from",
+    "tf:aws_lambda_function.x"
+   ]
+  },
+  {
+   "id": "9ff96a4e9d37b7da",
+   "graph": "skill/tests/fixtures/ImpactFacts/budget-min.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "z"
+   ]
+  },
+  {
+   "id": "a0126252a6d94696",
+   "graph": "elsa-1.json#out/elsa/graph.json",
+   "kind": "audit-full",
+   "args": [
+    "--hops",
+    "8",
+    "--wiring-hops",
+    "3",
+    "--limit",
+    "100000",
+    "--from",
+    "file:apps/src/Elsa.Server/Program.cs"
+   ]
+  },
+  {
+   "id": "a2eb7483086c21e7",
+   "graph": "skill/tests/fixtures/ImpactFacts/down-inherit-seed.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_api_gateway_method.m1"
+   ]
+  },
+  {
+   "id": "a3cbf25e86c9205b",
+   "graph": "out/perf-inputs/v2-big.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "folder:.",
+    "--from",
+    "tf:aws_apigatewayv2_api.api18"
+   ]
+  },
+  {
+   "id": "a41c230fde182803",
+   "graph": "real-tf.json#out/tmp-r19/real/graph.json",
+   "kind": "audit-full",
+   "args": [
+    "--hops",
+    "8",
+    "--wiring-hops",
+    "3",
+    "--limit",
+    "100000"
+   ]
+  },
+  {
+   "id": "a6d392f4e150ef3d",
+   "graph": "skill/tests/fixtures/ImpactFacts/group-cache.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_lambda_function.s"
+   ]
+  },
+  {
+   "id": "a6f853a3815d4572",
+   "graph": "skill/tests/fixtures/ImpactFacts/down-inherit-record.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "5"
+   ]
+  },
+  {
+   "id": "a7672753c9a3134f",
+   "graph": "skill/tests/fixtures/ImpactFacts/down-inherit-record.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "0"
+   ]
+  },
+  {
+   "id": "a82cf48c03444e55",
+   "graph": "demo-iam.json#out/demo/graph.json",
+   "kind": "audit-full",
+   "args": [
+    "--hops",
+    "8",
+    "--wiring-hops",
+    "3",
+    "--limit",
+    "100000",
+    "--from",
+    "tf:aws_iam_role_policy.lambda_dynamo_policy"
+   ]
+  },
+  {
+   "id": "a8513f77770cacfa",
+   "graph": "skill/tests/fixtures/ImpactFacts/group-late.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_lambda_function.s",
+    "--from",
+    "tf:aws_api_gateway_method.b"
+   ]
+  },
+  {
+   "id": "a8aa82158a945564",
+   "graph": "skill/tests/fixtures/ImpactFacts/touched-api-nocorr.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_lambda_function.a",
+    "--from",
+    "tf:aws_api_gateway_method.b"
+   ]
+  },
+  {
+   "id": "a8f5cf86ed0de15e",
+   "graph": "skill/tests/fixtures/ImpactFacts/budget-dominance.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_api_gateway_method.m1",
+    "--from",
+    "tf:aws_s3_bucket.r1"
+   ]
+  },
+  {
+   "id": "aac35ee167606018",
+   "graph": "skill/tests/fixtures/ImpactFacts/budget-min.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "a"
+   ]
+  },
+  {
+   "id": "ab87e459a1a301f0",
+   "graph": "skill/tests/fixtures/ImpactFacts/promote-skip.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "member:Start.Handle"
+   ]
+  },
+  {
+   "id": "abc42e8b18459902",
+   "graph": "skill/tests/fixtures/ImpactFacts/promote-skip.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_lambda_function.start",
+    "--from",
+    "tf:aws_lambda_function.r1"
+   ]
+  },
+  {
+   "id": "ad4e41329493744f",
+   "graph": "skill/tests/fixtures/ImpactFacts/six-groups.graph.json",
+   "kind": "api",
+   "args": [
+    "--api",
+    "POST /2"
+   ]
+  },
+  {
+   "id": "ae0632a28b540803",
+   "graph": "skill/tests/fixtures/ImpactFacts/group-cache.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_lambda_function.s",
+    "--from",
+    "tf:aws_api_gateway_rest_api.b"
+   ]
+  },
+  {
+   "id": "ae42bdb51990f9c4",
+   "graph": "skill/tests/fixtures/ImpactFacts/touched-api-nocorr.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_lambda_function.a",
+    "--from",
+    "tf:aws_api_gateway_integration.b"
+   ]
+  },
+  {
+   "id": "ae784c75e833812a",
+   "graph": "skill/tests/fixtures/ImpactFacts/promote-skip.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_iam_role.r0"
+   ]
+  },
+  {
+   "id": "aebfadc9e29f52c7",
+   "graph": "skill/tests/fixtures/ImpactFacts/arrow-priority.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_api_gateway_method.post_x"
+   ]
+  },
+  {
+   "id": "b0348aee65c927fd",
+   "graph": "skill/tests/fixtures/ImpactFacts/preempt.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_lambda_function.a"
+   ]
+  },
+  {
+   "id": "b0bd4a3ce1068e59",
+   "graph": "skill/tests/fixtures/ImpactFacts/code-chain-long.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "c5"
+   ]
+  },
+  {
+   "id": "b0de6342b04de677",
+   "graph": "skill/tests/fixtures/ImpactFacts/down-inherit-record.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "2"
+   ]
+  },
+  {
+   "id": "b19e3dc062e4e8cb",
+   "graph": "skill/tests/fixtures/ImpactFacts/code-chain-long.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "c1"
+   ]
+  },
+  {
+   "id": "b1c30618a7c2f3e0",
+   "graph": "skill/tests/fixtures/ImpactFacts/down-inherit-seed.graph.json",
+   "kind": "api",
+   "args": [
+    "--api",
+    "POST /a"
+   ]
+  },
+  {
+   "id": "b1edbd5ad1f72639",
+   "graph": "skill/tests/fixtures/ImpactFacts/budget-reversed.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_lambda_function.s",
+    "--from",
+    "tf:aws_lambda_function.a"
+   ]
+  },
+  {
+   "id": "b2e058262b76a340",
+   "graph": "skill/tests/fixtures/ImpactFacts/touched-api.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_lambda_function.a",
+    "--from",
+    "member:A"
+   ]
+  },
+  {
+   "id": "b450f77e73c2239f",
+   "graph": "out/elsa/graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "folder:.",
+    "--from",
+    "member:Elsa.Workflows.Admission.AdmissionAuthorityRegistry/Invocation.AdmissionId"
+   ]
+  },
+  {
+   "id": "b55f5aed576dd8c0",
+   "graph": "skill/tests/fixtures/ImpactFacts/cut-primary.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_sfn_state_machine.c"
+   ]
+  },
+  {
+   "id": "b57c308701be5fb7",
+   "graph": "skill/tests/fixtures/ImpactFacts/code-chain-long.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "s",
+    "--from",
+    "c1"
+   ]
+  },
+  {
+   "id": "b5defd030a4740c6",
+   "graph": "out/elsa/graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "folder:.",
+    "--from",
+    "folder:apps"
+   ]
+  },
+  {
+   "id": "b5e9b211247bf5ab",
+   "graph": "skill/tests/fixtures/ImpactFacts/calledout-walk.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "member:X.Handle"
+   ]
+  },
+  {
+   "id": "b8505d5ddaacd6cb",
+   "graph": "skill/tests/fixtures/ImpactFacts/touched-api.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "member:A"
+   ]
+  },
+  {
+   "id": "b88112a17ca9d3c1",
+   "graph": "skill/tests/fixtures/ImpactFacts/group-late.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_api_gateway_integration.b"
+   ]
+  },
+  {
+   "id": "b8dbc81403ce93e0",
+   "graph": "out/elsa/graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "member:Elsa.Workflows.Admission.AdmissionAuthorityRegistry/Invocation._authorityTuple"
+   ]
+  },
+  {
+   "id": "b97332e44389ecc7",
+   "graph": "skill/tests/fixtures/ImpactFacts/budget-through-invokes.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_api_gateway_integration.int1"
+   ]
+  },
+  {
+   "id": "b9ff1b6e7bf537b4",
+   "graph": "skill/tests/fixtures/ImpactFacts/code-chain-long.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "s"
+   ]
+  },
+  {
+   "id": "ba8a86ea82dbb8a7",
+   "graph": "skill/tests/fixtures/ImpactFacts/six-groups.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "s",
+    "--from",
+    "m1"
+   ]
+  },
+  {
+   "id": "bc0d05addaba9e8f",
+   "graph": "skill/tests/fixtures/ImpactFacts/touched-api.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_api_gateway_rest_api.b"
+   ]
+  },
+  {
+   "id": "bc59ed15f931713b",
+   "graph": "skill/tests/fixtures/ImpactFacts/down-inherit-record.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "0",
+    "--from",
+    "6"
+   ]
+  },
+  {
+   "id": "bcb707f2a2ef46c5",
+   "graph": "out/elsa/graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "folder:.",
+    "--from",
+    "folder:apps/scripts"
+   ]
+  },
+  {
+   "id": "bd1c6679c67e70bd",
+   "graph": "elsa-10.json#out/elsa/graph.json",
+   "kind": "audit-full",
+   "args": [
+    "--hops",
+    "8",
+    "--wiring-hops",
+    "3",
+    "--limit",
+    "100000",
+    "--from",
+    "file:apps/src/Elsa.Server/Program.cs",
+    "--from",
+    "file:apps/src/Elsa.Server.Shared/DatabaseConfiguration.cs",
+    "--from",
+    "file:apps/src/Elsa.Server.Studio.BlazorServer/Program.cs",
+    "--from",
+    "file:apps/src/Elsa.Server.Studio.BlazorWasm/Program.cs",
+    "--from",
+    "file:apps/src/Elsa.Server.Studio.BlazorWasm.Client/Program.cs",
+    "--from",
+    "file:apps/src/Elsa.Studio.BlazorServer/Bootstrap/Backend.cs",
+    "--from",
+    "file:apps/src/Elsa.Studio.BlazorServer/Bootstrap/Core.cs",
+    "--from",
+    "file:apps/src/Elsa.Studio.BlazorServer/Bootstrap/Diagnostics.cs",
+    "--from",
+    "file:apps/src/Elsa.Studio.BlazorServer/Bootstrap/HealthChecks.cs",
+    "--from",
+    "file:apps/src/Elsa.Studio.BlazorServer/Bootstrap/Login.cs"
+   ]
+  },
+  {
+   "id": "bde2d7d2a9b93ed2",
+   "graph": "skill/tests/fixtures/ImpactFacts/down-inherit-record.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "0",
+    "--from",
+    "1"
+   ]
+  },
+  {
+   "id": "be6b8c2cf6dfb2d7",
+   "graph": "real-handler.json#out/tmp-r19/real/graph.json",
+   "kind": "audit-full",
+   "args": [
+    "--hops",
+    "8",
+    "--wiring-hops",
+    "3",
+    "--limit",
+    "100000",
+    "--from",
+    "file:cs/ExampleLambdaApi/Handler.cs"
+   ]
+  },
+  {
+   "id": "bf125371cb7132fb",
+   "graph": "skill/tests/fixtures/ImpactFacts/code-chain.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "member:M0",
+    "--from",
+    "tf:aws_lambda_function.l5"
+   ]
+  },
+  {
+   "id": "c22c6533dc83d990",
+   "graph": "out/perf-inputs/v2-big.graph.json",
+   "kind": "changed",
+   "args": [
+    "--changed",
+    "@src/Handlers.cs,infra/api0.tf"
+   ]
+  },
+  {
+   "id": "c2ddaca25b8819a3",
+   "graph": "skill/tests/fixtures/ImpactFacts/cut-primary.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_sfn_state_machine.a"
+   ]
+  },
+  {
+   "id": "c66e714f21ee9eb8",
+   "graph": "skill/tests/fixtures/ImpactFacts/down-inherit-record.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "0",
+    "--from",
+    "2"
+   ]
+  },
+  {
+   "id": "c71853c5246e2756",
+   "graph": "skill/tests/fixtures/ImpactFacts/group-cache.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_api_gateway_method.b"
+   ]
+  },
+  {
+   "id": "c7ade2334cafe843",
+   "graph": "skill/tests/fixtures/ImpactFacts/down-inherit-record.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "0",
+    "--from",
+    "5"
+   ]
+  },
+  {
+   "id": "c845837783a9c2ce",
+   "graph": "out/perf-inputs/v2-big.graph.json",
+   "kind": "api",
+   "args": [
+    "--api",
+    "POST /v2/a0/r2"
+   ]
+  },
+  {
+   "id": "cca069e99190237e",
+   "graph": "skill/tests/fixtures/ImpactFacts/budget-dominance.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_s3_bucket.x"
+   ]
+  },
+  {
+   "id": "ce81eaadd87f9629",
+   "graph": "out/perf-inputs/v2-big.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "folder:.",
+    "--from",
+    "folder:infra"
+   ]
+  },
+  {
+   "id": "ce83d006ab4fcb8b",
+   "graph": "skill/tests/fixtures/query/graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "folder:.",
+    "--from",
+    "project:src/Pay.csproj"
+   ]
+  },
+  {
+   "id": "d1b3588a9d4062ca",
+   "graph": "skill/tests/fixtures/ImpactFacts/touched-api.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_lambda_function.a",
+    "--from",
+    "tf:aws_api_gateway_rest_api.b"
+   ]
+  },
+  {
+   "id": "d1bb828a56d63c2c",
+   "graph": "skill/tests/fixtures/ImpactFacts/budget-dominance.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_api_gateway_integration.int1"
+   ]
+  },
+  {
+   "id": "d20511688464a40a",
+   "graph": "skill/tests/fixtures/ImpactFacts/budget-through-invokes.graph.json",
+   "kind": "api",
+   "args": [
+    "--api",
+    "POST /a"
+   ]
+  },
+  {
+   "id": "d4cc3162205d4691",
+   "graph": "out/elsa/graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "folder:apps"
+   ]
+  },
+  {
+   "id": "d545736a2971cf75",
+   "graph": "skill/tests/fixtures/ImpactFacts/budget-through-invokes.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_api_gateway_resource.r1"
+   ]
+  },
+  {
+   "id": "d59dcadcbdd7eba0",
+   "graph": "skill/tests/fixtures/query/graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "folder:src"
+   ]
+  },
+  {
+   "id": "d68367fab4bdcf7a",
+   "graph": "skill/tests/fixtures/ImpactFacts/budget-dominance.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_api_gateway_method.m1",
+    "--from",
+    "tf:aws_s3_bucket.x"
+   ]
+  },
+  {
+   "id": "d6e2dd1ccb4552db",
+   "graph": "out/perf-inputs/v2-big.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "folder:infra"
+   ]
+  },
+  {
+   "id": "d735aab1738f8e16",
+   "graph": "skill/tests/fixtures/ImpactFacts/preempt.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "member:S.Handle"
+   ]
+  },
+  {
+   "id": "d7e2ce85c85be9db",
+   "graph": "real-api.json#out/tmp-r19/real/graph.json",
+   "kind": "audit-full",
+   "args": [
+    "--hops",
+    "8",
+    "--wiring-hops",
+    "3",
+    "--limit",
+    "100000",
+    "--from",
+    "tf:aws_api_gateway_method.example_api_method"
+   ]
+  },
+  {
+   "id": "dba28816047084c7",
+   "graph": "skill/tests/fixtures/ImpactFacts/preempt.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_lambda_function.s",
+    "--from",
+    "tf:aws_lambda_function.a"
+   ]
+  },
+  {
+   "id": "dd6310b7448dd41c",
+   "graph": "skill/tests/fixtures/ImpactFacts/down-inherit-seed.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_lambda_function.lam2"
+   ]
+  },
+  {
+   "id": "e3c2f65ad4e59069",
+   "graph": "elsa-limit.json#out/elsa/graph.json",
+   "kind": "audit-full",
+   "args": [
+    "--hops",
+    "8",
+    "--wiring-hops",
+    "3",
+    "--limit",
+    "100000",
+    "--from",
+    "file:apps/src/Elsa.Server/Program.cs",
+    "--from",
+    "file:apps/src/Elsa.Server.Shared/DatabaseConfiguration.cs",
+    "--from",
+    "file:apps/src/Elsa.Server.Studio.BlazorServer/Program.cs",
+    "--from",
+    "file:apps/src/Elsa.Server.Studio.BlazorWasm/Program.cs",
+    "--from",
+    "file:apps/src/Elsa.Server.Studio.BlazorWasm.Client/Program.cs",
+    "--from",
+    "file:apps/src/Elsa.Studio.BlazorServer/Bootstrap/Backend.cs",
+    "--from",
+    "file:apps/src/Elsa.Studio.BlazorServer/Bootstrap/Core.cs",
+    "--from",
+    "file:apps/src/Elsa.Studio.BlazorServer/Bootstrap/Diagnostics.cs",
+    "--from",
+    "file:apps/src/Elsa.Studio.BlazorServer/Bootstrap/HealthChecks.cs",
+    "--from",
+    "file:apps/src/Elsa.Studio.BlazorServer/Bootstrap/Login.cs",
+    "--from",
+    "file:apps/src/Elsa.Studio.BlazorServer/Bootstrap/Modules.cs",
+    "--from",
+    "file:apps/src/Elsa.Studio.BlazorServer/Program.cs",
+    "--from",
+    "file:apps/src/Elsa.Studio.BlazorServer/SafeBlazorServerJwtAccessor.cs",
+    "--from",
+    "file:apps/src/Elsa.Studio.BlazorWasm/Program.cs",
+    "--from",
+    "file:apps/src/Elsa.Studio.BlazorWasm.Client/Bootstrap/Backend.cs",
+    "--from",
+    "file:apps/src/Elsa.Studio.BlazorWasm.Client/Bootstrap/Core.cs",
+    "--from",
+    "file:apps/src/Elsa.Studio.BlazorWasm.Client/Bootstrap/Diagnostics.cs",
+    "--from",
+    "file:apps/src/Elsa.Studio.BlazorWasm.Client/Bootstrap/HealthChecks.cs",
+    "--from",
+    "file:apps/src/Elsa.Studio.BlazorWasm.Client/Bootstrap/Login.cs",
+    "--from",
+    "file:apps/src/Elsa.Studio.BlazorWasm.Client/Bootstrap/Modules.cs",
+    "--from",
+    "file:apps/src/Elsa.Studio.BlazorWasm.Client/Program.cs",
+    "--from",
+    "file:apps/src/Shared/Constants/SettingKeys.cs",
+    "--from",
+    "file:apps/src/Shared/Helpers/OptionsHelper.cs",
+    "--from",
+    "file:apps/src/Shared/Options/AuthenticationOptions.cs",
+    "--from",
+    "file:apps/src/Shared/Options/DiagnosticOptionType.cs",
+    "--from",
+    "file:apps/src/Shared/Options/DiagnosticOptions.cs",
+    "--from",
+    "file:apps/src/Shared/Options/HealthCheckEndpointOptions.cs",
+    "--from",
+    "file:apps/src/Shared/Options/HealthCheckOptions.cs",
+    "--from",
+    "file:apps/src/Shared/Options/IdentityOptionType.cs",
+    "--from",
+    "file:apps/src/Shared/Options/IdentityOptions.cs",
+    "--from",
+    "file:apps/src/Shared/Options/ModulesFeaturesOptions.cs",
+    "--from",
+    "file:apps/src/Shared/Options/ModulesOptions.cs",
+    "--from",
+    "file:build/Build.CI.GitHubActions.cs",
+    "--from",
+    "file:build/Build.ReactStudio.cs",
+    "--from",
+    "file:build/Build.cs",
+    "--from",
+    "file:core/experiments/NativeCompensation.E1/Activities.cs",
+    "--from",
+    "file:core/experiments/NativeCompensation.E1/CommitObserver.cs",
+    "--from",
+    "file:core/experiments/NativeCompensation.E1/Journal.cs",
+    "--from",
+    "file:core/experiments/NativeCompensation.E1/Program.cs",
+    "--from",
+    "file:core/src/PackageManifestHints.cs",
+    "--from",
+    "file:core/src/apps/Elsa.ModularServer.Web/Catalog/AssemblyCatalogResponses.cs",
+    "--from",
+    "file:core/src/apps/Elsa.ModularServer.Web/Catalog/IPlugin.cs",
+    "--from",
+    "file:core/src/apps/Elsa.ModularServer.Web/Catalog/PluginCatalog.cs",
+    "--from",
+    "file:core/src/apps/Elsa.ModularServer.Web/Catalog/SampleCatalogEndpointExtensions.cs",
+    "--from",
+    "file:core/src/apps/Elsa.ModularServer.Web/IdentityTokenStartupValidation.cs",
+    "--from",
+    "file:core/src/apps/Elsa.ModularServer.Web/ModularServerHost.cs",
+    "--from",
+    "file:core/src/apps/Elsa.ModularServer.Web/MyPackageObserver.cs",
+    "--from",
+    "file:core/src/apps/Elsa.ModularServer.Web/NuplaneAssemblyProvider.cs",
+    "--from",
+    "file:core/src/apps/Elsa.ModularServer.Web/Program.cs",
+    "--from",
+    "file:core/src/apps/Elsa.ModularServer.Web/RoleManagementE2EFixtures.cs"
+   ]
+  },
+  {
+   "id": "e49a9b141cbfe3d2",
+   "graph": "skill/tests/fixtures/ImpactFacts/touched-api-nocorr.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "member:A"
+   ]
+  },
+  {
+   "id": "e95596eb35430c2d",
+   "graph": "out/demo/graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "folder:.",
+    "--from",
+    "folder:src"
+   ]
+  },
+  {
+   "id": "ea7bc0041ddb63f0",
+   "graph": "out/elsa/graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "folder:apps/scripts"
+   ]
+  },
+  {
+   "id": "ebdf09f7f153ba4e",
+   "graph": "skill/tests/fixtures/ImpactFacts/cut-primary.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "file:main.tf",
+    "--from",
+    "tf:aws_sfn_state_machine.b"
+   ]
+  },
+  {
+   "id": "ec556a1a0cd40235",
+   "graph": "skill/tests/fixtures/ImpactFacts/budget-normal.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_lambda_function.s"
+   ]
+  },
+  {
+   "id": "ec832caf3c45d933",
+   "graph": "skill/tests/fixtures/ImpactFacts/touched-api.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_lambda_function.a",
+    "--from",
+    "tf:aws_api_gateway_method.b"
+   ]
+  },
+  {
+   "id": "ecb05ca5d757d469",
+   "graph": "out/demo/graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "folder:."
+   ]
+  },
+  {
+   "id": "ed5397887754c098",
+   "graph": "skill/tests/fixtures/ImpactFacts/preempt.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_sfn_state_machine.r",
+    "--from",
+    "tf:aws_lambda_function.a"
+   ]
+  },
+  {
+   "id": "efedc173fd1d0a1f",
+   "graph": "skill/tests/fixtures/ImpactFacts/budget-through-invokes.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_api_gateway_method.m1"
+   ]
+  },
+  {
+   "id": "f2152c6594696939",
+   "graph": "skill/tests/fixtures/ImpactFacts/six-groups.graph.json",
+   "kind": "api",
+   "args": [
+    "--api",
+    "POST /1"
+   ]
+  },
+  {
+   "id": "f28692a6d498ac9f",
+   "graph": "skill/tests/fixtures/ImpactFacts/arrow-priority.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_api_gateway_method.post_x",
+    "--from",
+    "tf:aws_lambda_function.y"
+   ]
+  },
+  {
+   "id": "f34391afa5bd1c8e",
+   "graph": "skill/tests/fixtures/ImpactFacts/cut-primary.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "file:main.tf",
+    "--from",
+    "tf:aws_sfn_state_machine.c"
+   ]
+  },
+  {
+   "id": "f3874f88e0671e1a",
+   "graph": "skill/tests/fixtures/ImpactFacts/touched-api-nocorr.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_api_gateway_rest_api.b"
+   ]
+  },
+  {
+   "id": "f3e8580fa4a82318",
+   "graph": "skill/tests/fixtures/ImpactFacts/budget-through-invokes.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_api_gateway_rest_api.api",
+    "--from",
+    "tf:aws_api_gateway_method.m1"
+   ]
+  },
+  {
+   "id": "f5a1d8530642b266",
+   "graph": "skill/tests/fixtures/ImpactFacts/budget-reversed.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_lambda_function.s"
+   ]
+  },
+  {
+   "id": "f753b733b68e7ae9",
+   "graph": "skill/tests/fixtures/query/graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "folder:.",
+    "--from",
+    "member:Pay.Handler.ReadRow"
+   ]
+  },
+  {
+   "id": "f86ebdf4dafbef50",
+   "graph": "skill/tests/fixtures/ImpactFacts/group-cache.graph.json",
+   "kind": "api",
+   "args": [
+    "--api",
+    "POST /b"
+   ]
+  },
+  {
+   "id": "f891a3da0c5da1ab",
+   "graph": "skill/tests/fixtures/ImpactFacts/budget-normal.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_lambda_function.s",
+    "--from",
+    "tf:aws_lambda_function.r"
+   ]
+  },
+  {
+   "id": "f8fadd5774199670",
+   "graph": "skill/tests/fixtures/ImpactFacts/budget-min.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "s",
+    "--from",
+    "t"
+   ]
+  },
+  {
+   "id": "f92a8349979ba01f",
+   "graph": "skill/tests/fixtures/ImpactFacts/group-late.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_api_gateway_rest_api.b"
+   ]
+  },
+  {
+   "id": "f93acabfe2084c29",
+   "graph": "skill/tests/fixtures/ImpactFacts/touched-api.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_lambda_function.a",
+    "--from",
+    "tf:aws_api_gateway_integration.b"
+   ]
+  },
+  {
+   "id": "f9f9fd27d075de37",
+   "graph": "skill/tests/fixtures/ImpactFacts/budget-dominance.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_api_gateway_method.m1"
+   ]
+  },
+  {
+   "id": "fbb89934fcfbf1e6",
+   "graph": "skill/tests/fixtures/ImpactFacts/group-late.graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "tf:aws_lambda_function.s",
+    "--from",
+    "tf:aws_api_gateway_rest_api.b"
+   ]
+  },
+  {
+   "id": "fc2f95dc18752e0c",
+   "graph": "skill/tests/fixtures/query/graph.json",
+   "kind": "from",
+   "args": [
+    "--from",
+    "member:Pay.Handler.ReadRow"
+   ]
+  }
+ ]
+}

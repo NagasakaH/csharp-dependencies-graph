@@ -42,6 +42,9 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / 'battery'))
 import _inputs as IN
 
 REPO = IN.repo_root()
+# 追跡下の fixture は `required-checks.json` の一覧が正本（glob で減らさない。第 53 ラウンド
+# 双人レビュー両名 P2: 2 本消しても点検も不変条件検査も終了 0 だった）
+FIXTURES = IN.required_spec()['fixtures']
 FILES = [
     # スキル本体（追跡下）
     'skill/scripts/report.mjs', 'skill/scripts/query.mjs', 'skill/scripts/merge.mjs',
@@ -81,13 +84,19 @@ FILES = [
     'skill/analyzer/bin/Release/net9.0/cgd',
     'skill/scripts/tools/battery/input-fingerprints.json',
     'skill/scripts/tools/battery/known-v1-diffs.json',
+    'skill/scripts/tools/battery/required-checks.json',
+    'skill/scripts/tools/battery/emit-required.py',
     # `baseline-v1` が記録する入力グラフの実体（掃除で消える場所に有った唯一のコピー）
     'skill/scripts/tools/battery/graphs/ri.graph.json',
     'skill/scripts/tools/battery/graphs/ri0.graph.json',
     'skill/scripts/tools/battery/graphs/real.graph.json',
 ]
 
+FILES = FILES + list(FIXTURES)
 missing = [p for p in FILES if not (REPO / p).exists()]
+# 0 バイトの固定入力は「在るが空」。性能ゲートの入力 `out/perf-inputs/elsa-50.txt` が空に
+# なった日は測る物が無いので、在るかだけでなく中身も見る（第 53 ラウンド agy の指摘）
+empty = [p for p in FILES if (REPO / p).is_file() and (REPO / p).stat().st_size == 0]
 
 # 18 条件が記録している入力グラフ（作者環境の一時出力先）が実在するか。
 # 掃除や別クローンで壊れたら、ここで終了 1 にする（第 51 ラウンド agy P2）
@@ -106,23 +115,6 @@ for p in reps:
 for g in IN.extra_graphs(REPO):
     if not g.exists():
         missing.append(f'{g.relative_to(REPO)}（_inputs.extra_graphs が足す検査のグラフ）')
-
-# out/ の固定入力が「別のもの」に差し替わっていないか（構造指紋）。第 52 ラウンド Astra 裁定 3
-EMIT = '--emit' in sys.argv
-if EMIT:
-    out = pathlib.Path(sys.argv[sys.argv.index('--emit') + 1])
-    spec = json.loads((IN.HERE / 'input-fingerprints.json').read_text(encoding='utf-8'))
-    for rel in spec['inputs']:
-        d = IN.fingerprint(IN.require(REPO / rel, f'指紋を書き出す入力（{rel}）'))
-        spec['inputs'][rel].update({'nodes': d['nodes'], 'edges': d['edges'],
-                                    'ids': d['ids'], 'rels': d['rels']})
-        spec['inputs'][rel].pop('freshAtHead', None)
-    out.write_text(json.dumps(spec, ensure_ascii=False, indent=1) + '\n', encoding='utf-8')
-    print(f'今の指紋を {out} に書き出した（作り直しを人が認めたあとの作成手順。'
-          '日常の実行では --emit を付けない）')
-    raise SystemExit(0)
-
-bad_fp = IN.check_fingerprints(REPO)
 
 # 道具のソースに掃除対象の一時パスが残っていないか。保存済み条件（`baseline-v1`）の中の
 # 記録パスは歴史の記録なので対象外。`_inputs.py` の対応表も移設の実体へ橋渡しするための記述
@@ -143,19 +135,13 @@ for p in sorted(tools.rglob('*')):
         for m in list(STALE.finditer(line)) + list(STALE_JOIN.finditer(line)):
             stale.append(f'{p.relative_to(REPO)}:{i}: {m.group(0)}')
 
-if bad_fp:
-    print(f'out/ の固定入力 {len(bad_fp)} 件の構造指紋が基準と違う（入力が別のものに差し替わった。'
-          '作り直してよいは人の判断。`--emit <ファイル>` は人が作り直しを認めたあとの作成手順）:',
-          file=sys.stderr)
-    for m in bad_fp:
-        print(f'  - {m}', file=sys.stderr)
-    raise SystemExit(1)
-
-if missing:
+if missing or empty:
     print(f'バッテリーの入力が {len(missing)} 件無い（無い状態で走ると、黙って前版を測るか、'
-          '黙って条件が減る）:', file=sys.stderr)
+          '黙って条件が減る）。空（0 バイト）{len(empty)} 件:', file=sys.stderr)
     for p in missing:
-        print(f'  - {p}', file=sys.stderr)
+        print(f'  - 無い: {p}', file=sys.stderr)
+    for p in empty:
+        print(f'  - 空: {p}', file=sys.stderr)
     print('out/tmp-* はディスク掃除の対象。追跡下のものは git checkout -- <パス>、'
           '作り直せるものは README.md の手順（build.mjs / make-v2-graph.py / make-changed-list.py）で'
           '再生成して使う。'
@@ -170,6 +156,32 @@ if stale:
     for s in stale:
         print(f'  - {s}', file=sys.stderr)
     raise SystemExit(1)
-print(f'バッテリーの入力 {len(FILES)} 件 + 記録グラフ {len(reps)} 件 + '
-      f'検査のグラフ {len(IN.extra_graphs(REPO))} 件が揃っている'
+# out/ の固定入力が「別のもの」に差し替わっていないか（構造指紋）。第 52 ラウンド Astra 裁定 3。
+# 第 53 ラウンド agy P2: 指紋検査は `require` で落ちる所以前にやると、上の「無い物の一覧」と
+# `out/wt-head` の作り直し案内へ届かないので、**missing と stale を出したあと**にやる
+EMIT = '--emit' in sys.argv
+if EMIT:
+    out = pathlib.Path(sys.argv[sys.argv.index('--emit') + 1])
+    spec = json.loads((IN.HERE / 'input-fingerprints.json').read_text(encoding='utf-8'))
+    for rel in spec['inputs']:
+        d = IN.fingerprint(IN.require(REPO / rel, f'指紋を書き出す入力（{rel}）'))
+        spec['inputs'][rel].update({'nodes': d['nodes'], 'edges': d['edges'],
+                                    'ids': d['ids'], 'rels': d['rels']})
+        spec['inputs'][rel].pop('freshAtHead', None)
+    out.write_text(json.dumps(spec, ensure_ascii=False, indent=1) + '\n', encoding='utf-8')
+    print(f'今の指紋を {out} に書き出した（作り直しを人が認めたあとの作成手順。'
+          '日常の実行では --emit を付けない）')
+    raise SystemExit(0)
+
+bad_fp = IN.check_fingerprints(REPO)
+if bad_fp:
+    print(f'out/ の固定入力 {len(bad_fp)} 件の構造指紋が基準と違う（入力が別のものに差し替わった。'
+          '作り直してよいは人の判断。`--emit <ファイル>` は人が作り直しを認めたあとの作成手順）:',
+          file=sys.stderr)
+    for m in bad_fp:
+        print(f'  - {m}', file=sys.stderr)
+    raise SystemExit(1)
+
+print(f'バッテリーの入力 {len(FILES)} 件（fixture {len(FIXTURES)} 本ふくむ）+ '
+      f'記録グラフ {len(reps)} 件 + 検査のグラフ {len(IN.extra_graphs(REPO))} 件が揃っている'
       f'（道具のソースに一時パスの残り 0 件 / out/ 固定入力 {len(bad_fp)} 件の差し替えなし）')

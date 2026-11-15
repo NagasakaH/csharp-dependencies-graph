@@ -65,7 +65,10 @@ def rows_of(doc):
 def check_dir(d):
   agree = bad = loose = nopath = bad_domain = 0
   examples = []
-  for p in IN.report_paths(d):
+  # 18 条件ぶんを要求する（1 本だけのディレクトリで「一致 N / 不一致 0」を出して
+  # 終了 0 にしない。第 53 ラウンド agy P2: 1/18 でも通っていた）
+  for p in IN.report_paths(IN.require(d, 'レポートディレクトリ'), expect=18,
+                           what='照合する 18 条件'):
     doc = json.loads(p.read_text())
     # 記録された作者パスは今のリポジトリの実体へ解決する（第 52 ラウンド双人レビュー両名 P2:
     # ここを生パスで開くと別クローンと掃除後に FileNotFoundError になった）

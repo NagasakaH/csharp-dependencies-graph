@@ -20,8 +20,13 @@ import json, os, pathlib, subprocess, sys
 
 import _inputs as IN
 
-BASE = pathlib.Path(os.environ.get('CGD_AUDIT_BASE', 'skill/scripts/tools/battery/baseline-v1'))
+# 既定値はリポジトリ相対。作業ディレクトリがどこでも同じ物を見る（第 53 ラウンド agy P2）
+BASE = IN.require(pathlib.Path(os.environ.get('CGD_AUDIT_BASE',
+                                              'skill/scripts/tools/battery/baseline-v1')),
+                  'v1 基準の 18 条件のディレクトリ')
 OUT = pathlib.Path(os.environ.get('CGD_AUDIT_OUT', 'out/audit-current'))
+if not OUT.is_absolute():
+    OUT = IN.repo_root() / OUT
 OUT.mkdir(parents=True, exist_ok=True)
 BUCKETS = ['external.in', 'external.out', 'entries.in', 'entries.out',
            'artifacts.in', 'artifacts.out', 'sameApi', 'siblingEndpoints', 'wiring']
