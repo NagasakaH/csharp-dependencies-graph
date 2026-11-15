@@ -208,12 +208,14 @@ Astra 問 2 で「実行系の制御（JSON を書かない、JSON が壊れて�
 | `json-dup-key` | 対応表の JSON に同じオブジェクト内での重複した鍵が有る（`json.loads` は後勝ちで畳むので禁止名を並べて消す細工が通る。裁定 (iv)） | 同じ鍵を 2 度書いた JSON を `_dup_json_keys` へ渡す |
 | `exempt-scan-parity` | 豁免を渡した走査と渡さない走査で**穴で落とす前の呼び出し候補**（名前・所属・ファイル・行）が違う（豁免が見張り番の集計を動かした。Astra 第 64 ラウンド 問 2 裁定 (iii)） | 豁免つきの走査で 1 名を消す細工を差し込んで照合する |
 | `v1-derivation` | 既知差分から導いた 向き の差分が 55 件であること | **既知差分の 1 件を「向きが変わらない」形へ直す**（導出が 54 件になる。第 57 ラウンド agy P2-2: 「`dir-rule-v1` の制御が同時に落とす」と書いていたが、それは `v1-derivation` を測っていなかった）|
-| `import-granted` / `import-star` / `guard-unbound` / `exempt-scope-attr` | 豁免台帳に登録していないサブモジュールの import、`from <任意> import *`、`_inputs.py` 以外での裸の `guard(...)`、豁免で束縛した名前空間の登録外の属性利用・別の名前への受け渡し（Astra 第 65 ラウンド 問 1・問 2 の裁定） | 各形を `_guard_scan` へ渡して穴として挙がり、その名前だけを消すと穴が消えることを1 本ずつ確かめる |
+| `import-granted` / `import-star` / `guard-unbound` / `exempt-use-form` | 豁免台帳に登録していないモジュールの import（豁免は**完全修飾モジュール × 末端名**で効き、登録済みのサブモジュールは通らない）、`from <任意> import *`、`_inputs.py` 以外での裸の `guard(...)`、豁免由来の束縛を**登録した末端を直接呼ぶ連鎖の外**で読む（代入・既定値・辞書の鍵・条件式・内包・`match`・`getattr` 経由など。Astra 第 66 ラウンド 問 1・問 2 の裁定） | 各形を `_guard_scan` へ渡して穴として挙がり、その名前だけを消すと穴が消えることを 1 本ずつ確かめる |
 | `md-marker-form` | 区画マーカーの行に他の文字が付いている、マーカーが 0 個か 2 個以上、開始と終了の順序が逆、マーカーや区画がコードフェンスの中（README の 2 区画と決めの表で共有。Astra 第 65 ラウンド 問 3 の裁定） | 語尾へ説明を足したマーカー行を README と `docs/decisions.md`にそれぞれ差し込む |
 | `exempt-map-expand` / `exempt-loader-attrs` | 走査へ渡した豁免マップが検証済みの台帳から作り直した物と違う（欠落・余剰・宛先・許可内容）、台帳の登録禁止が走査側の禁止属性を避けている（Astra 第 65 ラウンド 問 4・問 1 の裁定） | 使わないキーを足したマップを渡す控制と、豁免を 1 件落とした台帳での照合を別名で置く |
+| `box-shape` / `exempt-path-overlap` | 対応表の `boxNames`（見張り番の箱 `IN` の公開名と用途）が辞書でない・用途が `call`/`const` のどちらでもない・`guard` が載っている（`box-shape`）、豁免で同じ経路を中継と末端の両方に登録する併記（`exempt-path-overlap`。Astra 第 66 ラウンド 問 1・追記の裁定 (ア)） | `boxNames` を辞書以外へ組み替える台帳、`importlib.util` の登録の子経路をもう 1 段深く足す台帳をそれぞれの検査が見逃すか |
+| `in-public-name` / `in-public-table` | 見張り番の箱 `IN` の公開名を用途付きの表と違う形で使う（表に無い名前、`call` の呼び出さない読み取り、`const` の呼び出し。`in-public-name`）、表と実ツリーの使用が違う（使わない登録・無い名前・両方の形で使う名前。`in-public-table`。Astra 第 66 ラウンド 追記の裁定 (ア)） | 表に無い名前・用途違いの 3 形を `_guard_scan` へ渡す控制と、使わない名前を 1 個足した台帳を照合が見逃すか |
 <!-- /見張り番の名前一覧 -->
 
-**全 70 名に、その名前だけを無効化する負控制が有る。うち 57 名は無効化すると実行が成功し、
+**全 74 名に、その名前だけを無効化する負控制が有る。うち 61 名は無効化すると実行が成功し、
 残る 13 名は対象の案内が消えたうえで宣言済みの別の診断で拒否される**（`clean=False` +
 `fallback`）。複数名を同時に無効化する制御はこの網羅数に含めない。
 **1 名前 = 呼び出し 1 箇所**も同じ正控制が数える（呼び出し回数を AST で数え、2 箇所以上の名前を
@@ -225,11 +227,11 @@ Astra 問 2 で「実行系の制御（JSON を書かない、JSON が壊れて�
 見張り番を**直接呼んでいるファイル**別の一覧（Astra 第 61 ラウンド 問 5 の機械検査 `readme_guard_names_match_code` はこの箇条書きと上の「名前」列だけを読む。歴史説明に旧名を書くのは自由だが、この一覧と「名前」列に旧名や実在しない名を残すと失敗する。上の表は判定のまとめで道具と対応付けていないので、道具別の対応はここで宣言する）:
 
 <!-- 見張り番の道具別一覧 -->
-- `_inputs.py`（共有ヘルパー。各道具はここを経由して呼ぶ。直接呼ぶのは下の 3 ファイル）: `canonical-id` / `child-fail` / `cond-args` / `cond-case` / `cond-graph` / `cond-keys` / `cond-kind-args` / `condition-set` / `cov-keys` / `cov-shape` / `coverage` / `dup-built` / `dup-condition` / `dup-fixture` / `dup-id` / `fixture-set` / `fixture-shape` / `fp-bytes` / `fp-ledger-extra` / `fp-mode` / `fp-sha` / `fp-structural` / `fp-type` / `fp-unregistered` / `json-empty` / `json-missing` / `json-parse` / `out-exists` / `path-count` / `path-cwd-only` / `path-empty` / `perm-cap` / `perm-count` / `perm-declared` / `perm-edges` / `perm-expected` / `perm-runs-min` / `proj-buckets` / `proj-fields` / `report-shape` / `rows-zero` / `trial-count` / `v1-derivation` / `own-shape` / `exempt-loader-name` / `exempt-dup-entry` / `json-dup-key`
+- `_inputs.py`（共有ヘルパー。各道具はここを経由して呼ぶ。直接呼ぶのは下の 3 ファイル）: `canonical-id` / `child-fail` / `cond-args` / `cond-case` / `cond-graph` / `cond-keys` / `cond-kind-args` / `condition-set` / `cov-keys` / `cov-shape` / `coverage` / `dup-built` / `dup-condition` / `dup-fixture` / `dup-id` / `fixture-set` / `fixture-shape` / `fp-bytes` / `fp-ledger-extra` / `fp-mode` / `fp-sha` / `fp-structural` / `fp-type` / `fp-unregistered` / `json-empty` / `json-missing` / `json-parse` / `out-exists` / `path-count` / `path-cwd-only` / `path-empty` / `perm-cap` / `perm-count` / `perm-declared` / `perm-edges` / `perm-expected` / `perm-runs-min` / `proj-buckets` / `proj-fields` / `report-shape` / `rows-zero` / `trial-count` / `v1-derivation` / `own-shape` / `exempt-loader-name` / `exempt-dup-entry` / `json-dup-key` / `box-shape` / `exempt-path-overlap`
 - `check-dir-rule.py`: `dir-rule-counters` / `dir-rule-report` / `dir-rule-v1`
 - `count-none.py`: `none-counters` / `none-expectations`
 - `edge-order.py`: `edge-child-fail` / `edge-group-empty` / `edge-json-parse` / `edge-out-shape`
-- `test-contract.py`: `own-names` / `own-tools` / `own-files` / `md-fence-form` / `import-binds-guard` / `import-unregistered` / `exempt-scan-parity` / `import-granted` / `import-star` / `guard-unbound` / `exempt-scope-attr` / `md-marker-form` / `exempt-map-expand` / `exempt-loader-attrs`（第 63 ラウンド Astra 問 4 の対応表の照合と第 64 ラウンド 問 1〜3 の import 一覧・文書の書き方の検査。形の検査は `_inputs.py` が読む）
+- `test-contract.py`: `own-names` / `own-tools` / `own-files` / `md-fence-form` / `import-binds-guard` / `import-unregistered` / `exempt-scan-parity` / `import-granted` / `import-star` / `guard-unbound` / `exempt-use-form` / `in-public-name` / `in-public-table` / `md-marker-form` / `exempt-map-expand` / `exempt-loader-attrs`（第 63 ラウンド Astra 問 4 の対応表の照合と第 64 ラウンド 問 1〜3 の import 一覧・文書の書き方の検査。形の検査は `_inputs.py` が読む）
 <!-- /見張り番の道具別一覧 -->
 この内訳は毎回
 `test-contract.py` の正控制が機械に数える — ツリーを AST で読んで `guard('名前')` を付けた
@@ -268,6 +270,21 @@ Astra 裁定 問 1・問 4 の台帳 **`guard-owners.json`**（見張り番の�
 9 形は `out/tmp-r64/repro-5.log` が期待と違った行 0 件。変種検査
 （`out/tmp-r61/mutate-guards-r61.sh`）は 24 名（第 64 ラウンドまでの 17 名に今回の 7 名）を 1 個ずつ
 無力化して全名 終了 1 / クラッシュ 0 / NG 0（`out/tmp-r64/mutate-1.log` と `mutate-2.log`）
+第 66 ラウンド実測: **負控制 122 件・正控制 15 件**、見張り番 **74 名 = 呼び出し 74 箇所**、
+単独名指し 74 / 74（成功だけの控制 61 名・診断消失確認だけ 13 名・両方が並ぶ 0 名（無し）。
+通った控制 94 本）（`out/tmp-r66/contract-5.log`）。同じラウンドで豁免を**ファイルの正準相対パス ×
+完全修飾モジュール × 許可する末端名**へ直し（キーを根へ畳んだので `importlib.resources: ["abc"]` が
+別経路の `importlib.abc` を通し、正当な `import importlib.util as u` を拒否していた。Astra 第 66
+ラウンド 問 1 の裁定）、ファイルの照合は語尾一致をやめて**正準相対パスの完全一致**にした
+（同名の `.py` が別ディレクトリに有る為、所属の違う豁免が漏れた。agy 第 65 ラウンド P2-1）。
+豁免由来の束縛の読み取りは構文ごとの禁止リストを捨てて**登録した末端を直接呼ぶ形だけの白名前**に
+し（注釈付き代入・ワルラス・既定値・辞書の鍵・条件式・内包・`match`・`del`・`global`・`for` / `with` の
+対象・`except` / `isinstance`・デコレータ・`getattr` 経由が穴 0 件で素通りしていた。同 問 2）、
+見張り番の箱 `IN` の公開名を台帳 `boxNames`（`call` / `const`）で見るようにした（同 追記の裁定 (ア)。
+実測 47 名）。フェンスは接頭辞を剥がすたびに空白を詰め、字下げの中の 3 形が落ちることを同じ控制で
+測る（agy P2-2）。`out/tmp-r66/repro-1.py` の 32 形は期待と違った行 0 件、変種検査は今回直した 6 名で
+全名 終了 1 / クラッシュ 0 / NG 0（`out/tmp-r66/mutate-1.log`）、全測定は 120 項目 NG 0
+（`out/tmp-r66/verify-1.log`）
 同じ AST 走査は `guard()` の引数が文字列リテラルでない呼び出しと `guard` の別名代入も見て、
 **静的に読めない形を穴として失敗にする**（第 59 ラウンド Codex P2-1。`before= 42 after= 42` で
 網羅の分母から黙って消える穴。第 61 ラウンド Codex P2-2 は `IN2 = IN` という別名を付けた呼び出しを実ツリーへ混ぜれば穴 0 のまま通過できることを実測した。Astra 第 61 ラウンド 問 2 の

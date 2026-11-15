@@ -35,7 +35,10 @@ NOTE = ('見張り番の名前と、その名前を**直接呼ぶ**道具の対�
         '許可一覧（test-contract.py の `_ALLOWED_IMPORTS`）に無い import を使う時に、そのファイルで'
         '許す import と名前だけを書く（Astra 第 63 ラウンド 問 1・第 64 ラウンド 問 1 裁定 (c)。'
         'ファイル全体の豁免は置けず、動的機構の名前（exec / compile / FunctionType / modules など）は'
-        '豁免で登録できない。第 64 ラウンド 問 2 裁定 (i)）')
+        '豁免で登録できない。第 64 ラウンド 問 2 裁定 (i)。豁免はファイルの正準相対パス ×'
+        '完全修飾モジュール × 許可する末端名で持つ（Astra 第 66 ラウンド 問 1 の裁定）。'
+        'boxNames は見張り番の箱 `IN` の公開名と用途（call / const）で、実ツリーの使用から'
+        '作る（Astra 第 66 ラウンド 追記の裁定 (ア)）')
 
 
 def candidate(root, keep_exemptions):
@@ -50,8 +53,18 @@ def candidate(root, keep_exemptions):
                 '（穴が残った対応表は「読めた範囲」を台帳に書き写すだけになる）')
     # `direct` は「道具 -> 名前」なので台帳の形（名前 -> 直接呼ぶ道具）へ裏返す
     owners = {n: sorted(tool for tool, got in direct.items() if n in got) for n in sorted(names)}
+    # 見張り番の箱の公開名（Astra 第 66 ラウンド 追記の裁定 (ア): 用途付きの許可表）。実ツリーで
+    # 呼び出しにしか使っていない名前は `call`、読み取りだけなのは `const`。両方の名前はここで
+    # 止める（表が 1 名 1 用途しか書けない為、人の側で使い方を揃えないと候補が出せない）
+    used = tc._box_used_attrs()
+    both = sorted(n for n, kinds in used.items() if len(kinds) > 1)
+    if both:
+        IN.fail(f'見張り番の箱の公開名 {both[:6]} が呼び出しと読み取りの両方で使われている'
+                f'{" …ほか " + str(len(both) - 6) + " 件" if len(both) > 6 else ""}'
+                '（`boxNames` は 1 名 1 用途。使い方を揃えてから候補を作り直す）')
+    box = {n: sorted(kinds)[0] for n, kinds in used.items()}
     return {'note': NOTE, 'scannedFiles': files, 'owners': owners,
-            'exemptions': list(keep_exemptions)}
+            'exemptions': list(keep_exemptions), 'boxNames': dict(sorted(box.items()))}
 
 
 def diff_lines(old, new):

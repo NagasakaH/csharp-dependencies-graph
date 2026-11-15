@@ -1,26 +1,80 @@
 {
+ "boxNames": {
+  "CONTENTS": "const",
+  "COVERAGE_KINDS": "const",
+  "FIXTURE_GLOB": "const",
+  "GUARD_LEDGER_FILE": "const",
+  "GUARD_LEDGER_HEADER": "const",
+  "GUARD_OFF": "const",
+  "HERE": "const",
+  "KNOWN_HEADER": "const",
+  "_LEDGER_LOADER_NAMES": "const",
+  "check_coverage": "call",
+  "check_fingerprints": "call",
+  "condition_id": "call",
+  "condition_key": "call",
+  "content_fingerprint": "call",
+  "content_scope": "call",
+  "emit_measured": "call",
+  "expectations": "call",
+  "expected_direction_diffs": "call",
+  "extra_graphs": "call",
+  "fail": "call",
+  "fail_guard_ledger": "call",
+  "fingerprint": "call",
+  "graph_path": "call",
+  "guard_exempt_map": "call",
+  "guard_ledger_shape_errors": "call",
+  "launch_conditions": "call",
+  "load_guard_ledger": "call",
+  "materialize": "call",
+  "parse_flags": "call",
+  "permutation_guards": "call",
+  "projection_rows": "call",
+  "repo_root": "call",
+  "report_paths": "call",
+  "require": "call",
+  "require_comparison_rows": "call",
+  "require_fingerprints": "call",
+  "require_sample_cap": "call",
+  "require_sampled_runs": "call",
+  "require_script": "call",
+  "require_trial_count": "call",
+  "required_fixtures": "call",
+  "required_spec": "call",
+  "resolve_cli_path": "call",
+  "run_json": "call",
+  "sample_permutations": "call",
+  "validate_report": "call",
+  "validate_required_spec": "call"
+ },
  "exemptions": [
   {
    "file": "skill/scripts/tools/battery/emit-guard-owners.py",
    "imports": {
-    "importlib": [
-     "util"
+    "importlib.util": [
+     "module_from_spec",
+     "spec_from_file_location"
     ]
    },
-   "note": "見張り番の対応表の候補を書き出す道具。test-contract.py を Roslyn 風に読む為に `importlib.util.spec_from_file_location` を使う（Astra 第 64 ラウンド 問 1 裁定 (c) で importlib は許可一覧に入れない。`importlib.import_module` は豁免でも通らない）。登録は人（第 64 ラウンド双人レビューで再確認）"
+   "note": "test-contract.py を `sys.modules` に載せずに読む為の静的な読み込み（`importlib.util.spec_from_file_location` / `module_from_spec` の 2 つだけを末端で使う。Astra 第 66 ラウンド 問 1 の裁定で末端までの完全な経路で登録）"
   },
   {
    "file": "skill/scripts/tools/battery/test-contract.py",
    "imports": {
-    "importlib": [
-     "util"
+    "importlib.util": [
+     "module_from_spec",
+     "spec_from_file_location"
     ]
    },
-   "note": "入力の点検の道具をその場読みする 1 箇所だけで `importlib.util` を使う（`import importlib.util` の 1 行。`importlib.import_module` は豁免でも通らない）。Astra 第 64 ラウンド 問 1 裁定 (c)。登録は人（第 64 ラウンド双人レビューで再確認）"
+   "note": "edge-order.py を制御の一時的な読み込みで呼ぶ為の静的な読み込み（同じく 2 つの末端だけ。Astra 第 66 ラウンド 問 1 の裁定）"
   }
  ],
- "note": "見張り番の名前と、その名前を**直接呼ぶ**道具の対応表。走査（test-contract.py の _guard_names_by_file）から見つかる集合とその場で比べる台帳で、実行結果から自動更新しない。作り直しは emit-guard-owners.py（候補の書き出し）。exemptions は走査対象のファイルが許可一覧（test-contract.py の `_ALLOWED_IMPORTS`）に無い import を使う時に、そのファイルで許す import と名前だけを書く（Astra 第 63 ラウンド 問 1・第 64 ラウンド 問 1 裁定 (c)。ファイル全体の豁免は置けず、動的機構の名前（exec / compile / FunctionType / modules など）は豁免で登録できない。第 64 ラウンド 問 2 裁定 (i)）",
+ "note": "見張り番の名前と、その名前を**直接呼ぶ**道具の対応表。走査（test-contract.py の _guard_names_by_file）から見つかる集合とその場で比べる台帳で、実行結果から自動更新しない。作り直しは emit-guard-owners.py（候補の書き出し）。exemptions は走査対象のファイルが許可一覧（test-contract.py の `_ALLOWED_IMPORTS`）に無い import を使う時に、そのファイルで許す import と名前だけを書く（Astra 第 63 ラウンド 問 1・第 64 ラウンド 問 1 裁定 (c)。ファイル全体の豁免は置けず、動的機構の名前（exec / compile / FunctionType / modules など）は豁免で登録できない。第 64 ラウンド 問 2 裁定 (i)。豁免はファイルの正準相対パス ×完全修飾モジュール × 許可する末端名で持つ（Astra 第 66 ラウンド 問 1 の裁定）。boxNames は見張り番の箱 `IN` の公開名と用途（call / const）で、実ツリーの使用から作る（Astra 第 66 ラウンド 追記の裁定 (ア)）",
  "owners": {
+  "box-shape": [
+   "_inputs.py"
+  ],
   "canonical-id": [
    "_inputs.py"
   ],
@@ -99,10 +153,13 @@
   "exempt-map-expand": [
    "test-contract.py"
   ],
+  "exempt-path-overlap": [
+   "_inputs.py"
+  ],
   "exempt-scan-parity": [
    "test-contract.py"
   ],
-  "exempt-scope-attr": [
+  "exempt-use-form": [
    "test-contract.py"
   ],
   "fixture-set": [
@@ -145,6 +202,12 @@
    "test-contract.py"
   ],
   "import-unregistered": [
+   "test-contract.py"
+  ],
+  "in-public-name": [
+   "test-contract.py"
+  ],
+  "in-public-table": [
    "test-contract.py"
   ],
   "json-dup-key": [

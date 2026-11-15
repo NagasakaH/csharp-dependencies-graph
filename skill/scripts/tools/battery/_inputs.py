@@ -1363,7 +1363,10 @@ def materialize(cond, tmpdir):
 # 走査から見つかる集合とその場で比べる為だけの一覧なので、`cond` の様な起動条件は持たない。
 GUARD_LEDGER_FILE = 'skill/scripts/tools/battery/guard-owners.json'
 GUARD_LEDGER_HEADER = '見張り番の対応表（guard-owners.json）が壊れている'
-GUARD_LEDGER_KEYS = ('note', 'scannedFiles', 'owners', 'exemptions')
+GUARD_LEDGER_KEYS = ('note', 'scannedFiles', 'owners', 'exemptions', 'boxNames')
+# `boxNames` の値の形（Astra 第 66 ラウンド 追記の裁定 (ア): 見張り番の箱 `IN` の公開名は
+# **用途付きの許可表**に載せた物だけ、その用途の形で使える）
+_BOX_KINDS = ('call', 'const')
 _EXEMPT_ENTRY_KEYS = ('file', 'imports', 'note')
 _NAME_SHAPE_RE = re.compile(r'[a-z][a-z0-9]*(?:-[a-z0-9]+)*')
 # 豁免で**名乗ってはいけない**名前（`test-contract.py` の `_LOADER_NAMES` と対）。Astra 第 64
@@ -1431,6 +1434,25 @@ def _exempt_entry_errors(entry, where):
     if not imports:
         errs.append(f'{where} の imports が空（何を許すか書いていない豁免は、ファイル全体の豁免に'
                     '見えるので置かない）')
+    # Astra 第 66 ラウンド 問 1 の裁定: 豁免は「**完全修飾モジュール × 許可する末端名**」で持つ。
+    # 同じファイルで片方を中継・もう片方を末端として同じ経路の名前を 2 度登録する併記は拒否する
+    # （`importlib: ["util"]` と `importlib.util: ["spec_from_file_location"]` は同じ `util` を
+    # 中継と末端の両方にしている）。見張り番 `exempt-path-overlap` はここで 1 箇所だけ読む
+    if guard('exempt-path-overlap'):
+        keys = [k for k in imports if isinstance(k, str) and k.strip()]
+        for k in keys:
+            names = imports.get(k)
+            if not isinstance(names, list):
+                continue
+            for other in keys:
+                step = ''
+                if other != k and other.startswith(k + '.'):
+                    step = other[len(k) + 1:].split('.')[0]
+                if step and step in names:
+                    errs.append(f'{where} の imports[{k!r}] が許す名前 {step!r} が別の登録 '
+                                f'{other!r} の経路の先頭（中継）になっている（豁免は末端までの完全な'
+                                '経路で持つので、同じ名前を中継と末端の両方へ登録する併記は認めない。'
+                                'Astra 第 66 ラウンド 問 1 の裁定）')
     # 見張り番 `exempt-loader-name` はこの関数で 1 箇所だけ読む（1 名前 = 1 箇所の規則）
     mod_banned = guard('exempt-loader-name')
     for mod, granted in imports.items():
@@ -1471,7 +1493,8 @@ def guard_ledger_shape_errors(doc):
     errs = []
     for fld in GUARD_LEDGER_KEYS:
         if fld not in doc:
-            errs.append(f'台帳に {fld} が無い（{"/".join(GUARD_LEDGER_KEYS)} の 4 つが要る）')
+            errs.append(f'台帳に {fld} が無い（{"/".join(GUARD_LEDGER_KEYS)} の '
+                        f'{len(GUARD_LEDGER_KEYS)} つが要る）')
     if errs:
         return errs
     note = doc['note']
@@ -1510,7 +1533,7 @@ def guard_ledger_shape_errors(doc):
             errs += _exempt_entry_errors(entry, f'exemptions[{i}]')
         # Astra 第 64 ラウンド 問 2 裁定 (iv): 同じファイルの豁免を二重に登録して「片方で許し
         # 片方で消す」ような置き方をする（同じ import の重複登録もここで落ちる）
-        files, pairs, folded_pairs, twice = [], [], [], []
+        files, pairs, twice = [], [], []
         for entry in ex:
             if not isinstance(entry, dict) or not isinstance(entry.get('file'), str):
                 continue
@@ -1521,18 +1544,37 @@ def guard_ledger_shape_errors(doc):
             mods = entry.get('imports')
             if isinstance(mods, dict):
                 for mod in mods:
-                    # Astra 第 65 ラウンド 問 1 (c) 3: 展開は**親へ畳んだ形**で行うので、検査も
-                    # 畳んだキーで重複を見る（`{"importlib": ["util"], "importlib.util": [...]}` は
-                    # 展開すると同じ `importlib` の許可になり、後勝ちで中身が入れ替わる）
-                    folded = mod.split('.')[0] if isinstance(mod, str) else mod
-                    if (key, mod) in pairs or (key, folded) in folded_pairs:
+                    # 展開はキーを畳まない（Astra 第 66 ラウンド 問 1）。親と子を並べる登録は
+                    # 上の `exempt-path-overlap` が名指すので、ここでは**同じキーを 2 度**書く形を
+                    # 見る（後勝ちで中身が黙って入れ替わる。Astra 第 65 ラウンド 問 1 (c) 3）
+                    if (key, mod) in pairs:
                         twice.append(f'{key} の import「{mod}」')
                     pairs.append((key, mod))
-                    folded_pairs.append((key, folded))
         if twice and guard('exempt-dup-entry'):
             errs.append(f'豁免に同じファイル・同じ import の重複登録がある: {sorted(set(twice))[:4]}'
                         '（1 ファイルにつき 1 件にまとめる。分けて置くと片方だけが読まれたのか'
                         '人が判別できない。Astra 第 64 ラウンド 問 2 裁定 (iv)）')
+    # 見張り番の箱の公開名の一覧（Astra 第 66 ラウンド 追記の裁定 (ア): `IN` は豁免ではなく
+    # 許可一覧に入っている箱なので、公開名を**用途付きの表**に載せて形ごとに見る）。見張り番
+    # `box-shape` はここで 1 箇所だけ読む
+    if guard('box-shape'):
+        box = doc['boxNames']
+        if not isinstance(box, dict):
+            errs.append('台帳の boxNames が辞書ではない'
+                        '（`公開名 -> "call" か "const"`。`IN.<名前>` を使う形ごと人が登録する）')
+        else:
+            for name, kind in sorted(box.items()):
+                if not isinstance(name, str) or not name.isidentifier():
+                    errs.append(f'台帳の boxNames の名前「{str(name)[:24]}」が Python の名の形に'
+                                '合わない（`IN.<名前>` と書ける名前だけ）')
+                if kind not in _BOX_KINDS:
+                    errs.append(f'台帳の boxNames[{name!r}] = {kind!r} が '
+                                f'{"・".join(_BOX_KINDS)} のどちらでもない（"call" は '
+                                '`IN.<名前>(...)` の呼び出しだけ、"const" は値の読み取りだけ）')
+            if 'guard' in box:
+                errs.append('台帳の boxNames に `guard` が有る（見張り番の読み出しは別の規則で '
+                            '`IN.guard(\'名前\')` の 1 形に既に限定している。表へ載せると同じ名前へ'
+                            '2 通りの読み方が通る。Astra 第 66 ラウンド 追記の裁定）')
     return errs
 
 
@@ -1570,11 +1612,15 @@ def load_guard_ledger(repo=None):
 
 
 def guard_exempt_map(doc, origin):
-    """走査するファイルに対する豁免を `モジュール名 -> 許す名前の集合` に展開する
+    """走査するファイルに対する豁免を `完全修飾モジュール名 -> 許す末端名の集合` に展開する
 
-    Astra 第 63 ラウンド 問 1 の裁定どおり、豁免は**名乗った import と名前だけ**を許す
-    （`types` を許したファイルでも `types.FunctionType` は穴のまま）。ファイル名の照合は
-    台帳の `file` をリポジトリからの相対パスの末尾で見る（走査の `origin` は道具のファイル名）"""
+    Astra 第 66 ラウンド 問 1 の裁定で **根へ畳まない**（第 65 ラウンドまでは `mod.split('.')[0]`
+    で畳んでいた為、`importlib.resources: ["abc"]` が別の `importlib.abc` を通し、正当な
+    `importlib.util: ["spec_from_file_location"]` を拒否した。Codex 第 65 ラウンド P2 / agy
+    P2-1）。キーは登録した完全修飾名のまま返し、走査側が「そのモジュール × 登録した末端名」で
+    照合する。`origin` はリポジトリからの**正準相対パス**で受けて完全一致で比べる（末尾一致・名前の
+    だけの一致は、走査対象に同名の `.py` が別ディレクトリに有る為、所属の豁免が漏れる。
+    agy 第 65 ラウンド P2-1）"""
     out = {}
     for entry in doc.get('exemptions') or []:
         if not isinstance(entry, dict) or not isinstance(entry.get('imports'), dict):
@@ -1582,12 +1628,11 @@ def guard_exempt_map(doc, origin):
         f = entry.get('file')
         if not isinstance(f, str):
             continue
-        if f != origin and not f.endswith('/' + origin):
+        if f != origin:
             continue
         for mod, granted in entry['imports'].items():
             if not isinstance(mod, str) or not isinstance(granted, list):
                 continue
-            root = mod.split('.')[0]
             allowed = {x for x in granted if isinstance(x, str) and x.strip()}
-            out.setdefault(root, set()).update(allowed)
+            out.setdefault(mod, set()).update(allowed)
     return out
