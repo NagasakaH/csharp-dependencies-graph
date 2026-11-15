@@ -923,6 +923,60 @@ check('--limit で一覧が切れてもカウンタの不変条件は保たれ�
       && /他 2 件は --limit 13 で打ち切られているため Markdown にも JSON にも入っていません/.test(capLine(cap13)),
     cap13 ? JSON.stringify([cap13.result.external.out.length, capLine(cap13).trim()]) : '実行失敗');
 
+  // --md / --json を付けていない実行で「Markdown と --json に出しています」と言うのも同じ嘘だった
+  // （第 50 ラウンド双人レビュー両名）。ファイル出力が無い実行では条件付きの言い方にする
+  {
+    const f = join(dir, 'stdout-cap-15.graph.json');   // 上で runSyn が書いた同じグラフ
+    const proc = spawnSync(process.execPath, [join(HERE, 'report.mjs'), '--graph', f, '--from', 's'],
+      { cwd: root, encoding: 'utf8' });
+    const line = proc.status === 0
+      ? (proc.stdout.split('\n').find((l) => l.includes('この一覧はターミナルでは最大 12 件')) || '') : '';
+    check('--md / --json を付けない実行は「指定するとそこに入ります」と言い「出しています」と言わない',
+      proc.status === 0 && /他 3 件は --md \/ --json を指定するとそこに入ります/.test(line)
+        && !/に出しています/.test(line) && /表示 12 \/ 15 件/.test(line),
+      JSON.stringify(line.trim()));
+  }
+
+  // エンドポイント欄は Markdown とターミナルで同じ並び・同じ本数で切る（第 50 ラウンド agy P2）。
+  // 起点のエンドポイント 1 件 + `invokes` で到達するエンドポイント 2 件を --limit 2 で切ったとき、
+  // 以前は Markdown 3 件・ターミナル 2 件と表示本数が割れた
+  {
+    const ep = (n, path) => synNode(`tf:aws_api_gateway_method.${n}`, 'resource',
+      { resourceType: 'aws_api_gateway_method', category: 'apigateway', endpoint: path });
+    const g = {
+      nodes: [ep('m1', 'POST /a'), ep('m2', 'GET /b'), ep('m3', 'GET /c'),
+        synNode('tf:aws_api_gateway_integration.i1', 'resource',
+          { resourceType: 'aws_api_gateway_integration', category: 'apigateway' }),
+        synNode('tf:aws_lambda_function.f1', 'resource', { resourceType: 'aws_lambda_function' })],
+      edges: [synEdge('invokes', 'tf:aws_api_gateway_method.m1', 'tf:aws_api_gateway_integration.i1'),
+        synEdge('triggers', 'tf:aws_api_gateway_integration.i1', 'tf:aws_lambda_function.f1'),
+        synEdge('invokes', 'tf:aws_lambda_function.f1', 'tf:aws_api_gateway_method.m2'),
+        synEdge('invokes', 'tf:aws_lambda_function.f1', 'tf:aws_api_gateway_method.m3')],
+    };
+    const x = runSyn('ep-list', g, ['--api', 'POST /a', '--limit', '2'], 'ep-list-2');
+    // 次の欄（### 影響する外部リソース）の打ち切り注記を巻き込まないよう、見出し行で切る
+    const sec = x ? ((x.md.split('## 影響を受ける API エンドポイント')[1] || '').split(/\n#+ /)[0]) : '';
+    const epNote = sec.split('\n').find((l) => l.startsWith('（表示')) || '';
+    const mdIds = sec.split('\n').filter((l) => l.startsWith('- `'))
+      .map((l) => (l.match(/（`([^`]+)`/) || [])[1]);
+    const termLine = x ? (x.stdout.split('\n')[0] || '') : '';
+    const termIds = (termLine.replace(/^API エンドポイント: /, '').split(' （')[0] || '').split(', ');
+    check('エンドポイント欄は Markdown とターミナルで同じ行を同じ本数だけ出す（--limit 2）',
+      !!x && x.result.summary.startEndpoints.length === 1
+        && x.result.summary.reachedEndpoints.length === 2
+        // 同じ 2 行を同じ順で出していること（Markdown は id、ターミナルは 名前）
+        && mdIds.length === 2 && termIds.length === 2 && mdIds.length === termIds.length
+        && JSON.stringify(mdIds) === JSON.stringify(['tf:aws_api_gateway_method.m1',
+          'tf:aws_api_gateway_method.m2'])
+        && JSON.stringify(termIds) === JSON.stringify(['POST /a', 'GET /b'])
+        && /表示 2 \/ 3 件/.test(sec) && /表示 2 \/ 3 件/.test(termLine)
+        && /summary\.startEndpoints/.test(sec) && sec.includes('`summary.startEndpoints`')
+        && /summary\.startEndpoints/.test(termLine) && !termLine.includes('`')
+        && /この一覧に出しませんが/.test(epNote) && !/Markdown にも/.test(epNote)
+        && !/JSON にも/.test(epNote) && !sec.includes('（表示 1 /'),
+      x ? JSON.stringify([mdIds, termIds, sec.split('\n').find((l) => l.startsWith('（表示')) || '']) : '実行失敗');
+  }
+
   const d = runOn('code-chain-long.graph.json', ['--from', 's', '--hops', '100'], 'code-rounds');
   check('API を含まない Lambda の連鎖は既定の上限で切り詰めない（上限式はコードのノード数も数える）',
     !!d && d.result.summary.rows === 25 && d.result.summary.unresolved === false,
@@ -1153,6 +1207,86 @@ check('--limit で一覧が切れてもカウンタの不変条件は保たれ�
     !!listed && sibNote.includes('他のルート 24 件') && sibNote.includes('他のルート 24 件は --limit 5 で打ち切られているため Markdown にも JSON にも入っていません')
       && !sibNote.includes('`'),
     JSON.stringify(sibNote) || '実行失敗');
+
+  // 第 50 ラウンド agy P1: JSON の \`siblingEndpoints\` はルートと定義ノードを混ぜた順で
+  // \`--limit\` を切っていたため、一覧に出したルートが JSON に無いことがあった
+  // （\`--api "POST /v2/a7/r3" --list-siblings --limit 2\` の一覧 2 ルートが JSON に無く、
+  // \`siblingEndpoints\` は定義ノード 2 件）。並びを 1 本（ルート先頭）に統一した
+  const sibBulletIds = (m) => ((m.split('### 同じコードを使う別の API')[1] || '').split('\n### ')[0]
+    .split('\n').filter((x) => x.startsWith('- `')).map((x) => (x.match(/（`([^`]+)`/) || [])[1]));
+  check('一覧に出た兄弟ルートは --json の siblingEndpoints の先頭に入る（第 50 ラウンド agy P1）',
+    !!listed && (() => {
+      const ids = sibBulletIds(listed.md);
+      const arr = listed.result.siblingEndpoints;
+      return ids.length === 5 && arr.length === 5
+        && JSON.stringify(ids) === JSON.stringify(arr.map((r) => r.id))
+        && arr.every((r) => !!r.endpoint);
+    })(),
+    listed ? JSON.stringify([sibBulletIds(listed.md),
+      listed.result.siblingEndpoints.map((r) => r.id)]) : '実行失敗');
+  check('兄弟の JSON はルートが先頭でそのうしろに定義ノード（--limit を上げても同じ順）',
+    !!listed50 && (() => {
+      const s = listed50.result.summary;
+      const arr = listed50.result.siblingEndpoints;
+      const ep = arr.filter((r) => !!r.endpoint).length;
+      return ep === s.siblingEndpointsOnly && arr.slice(0, ep).every((r) => !!r.endpoint)
+        && arr.slice(ep).every((r) => !r.endpoint)
+        && arr.length === Math.min(s.siblings, 50);
+    })(),
+    listed50 ? JSON.stringify([listed50.result.summary.siblingEndpointsOnly,
+      listed50.result.summary.siblingDefs,
+      listed50.result.siblingEndpoints.map((r) => !!r.endpoint).join('')]) : '実行失敗');
+
+  // 定義ノードは一覧に出さないので「Markdown にも入っていません」は嘘になる。JSON だけの話として
+  // 言う（第 50 ラウンド agy P1）。兄弟 API が 1 本の Lambda を共有する合成グラフで、兄弟ルート
+  // 2 件と定義ノード 4 件を作る
+  {
+    const bits = (a, path) => {
+      const api = `tf:aws_api_gateway_rest_api.a${a}`;
+      const res = `tf:aws_api_gateway_resource.r${a}`;
+      const m = `tf:aws_api_gateway_method.m${a}`;
+      const intg = `tf:aws_api_gateway_integration.i${a}`;
+      const rn = (id, rt, md) => ({ id, kind: 'resource', name: id.split(':').pop(),
+        metadata: { resourceType: rt, ...(md ? { category: 'apigateway', ...md } : {}) } });
+      return {
+        nodes: [rn(api, 'aws_api_gateway_rest_api'), rn(res, 'aws_api_gateway_resource', { rest_api_id: `${api}.id` }),
+          rn(m, 'aws_api_gateway_method', { rest_api_id: `${api}.id`, endpoint: path }),
+          rn(intg, 'aws_api_gateway_integration', { rest_api_id: `${api}.id` })],
+        edges: [synEdge('references', m, res), synEdge('references', intg, res),
+          synEdge('triggers', intg, 'tf:aws_lambda_function.f1')],
+      };
+    };
+    const head = bits(0, 'POST /a');
+    head.edges.unshift(synEdge('invokes', 'tf:aws_api_gateway_method.m0',
+      'tf:aws_api_gateway_integration.i0'));
+    const one = bits(1, 'POST /b1');
+    const two = bits(2, 'POST /b2');
+    const g = {
+      nodes: [head.nodes[0], head.nodes[1], head.nodes[2], head.nodes[3],
+        { id: 'tf:aws_lambda_function.f1', kind: 'resource', name: 'f1',
+          metadata: { resourceType: 'aws_lambda_function' } },
+        ...one.nodes, ...two.nodes],
+      edges: [...head.edges, ...one.edges, ...two.edges],
+    };
+    const x = runSyn('sib-defs', g, ['--api', 'POST /a', '--list-siblings', '--limit', '3'], 'sib-defs');
+    const sec = x ? ((x.md.split('### 同じコードを使う別の API')[1] || '').split('\n### ')[0]) : '';
+    const mdLine = x ? (x.md.split('\n').find((l) => l.startsWith('（定義ノード')) || '') : '';
+    const term = x ? (x.stdout.split('\n').find((l) => l.includes('定義ノード') && l.includes('件')) || '') : '';
+    check('定義ノードの打ち切りは JSON についてだけ言い「Markdown にも」とは言わない',
+      !!x && x.result.summary.siblingEndpointsOnly === 2 && x.result.summary.siblingDefs === 4
+        && JSON.stringify(x.result.siblingEndpoints.map((r) => r.id)) === JSON.stringify([
+          'tf:aws_api_gateway_method.m1', 'tf:aws_api_gateway_method.m2',
+          'tf:aws_api_gateway_integration.i1'])
+        && sec.split('\n').filter((l) => l.startsWith('- `')).length === 2   // 一覧はルートだけ
+        && mdLine.includes('定義ノード 4 件中 1 件が') && mdLine.includes('他 3 件は `--limit 3`')
+        && mdLine.includes('JSON にも入っていません') && mdLine.includes('ルートの一覧とは別枠です')
+        && !mdLine.includes('Markdown にも')
+        && term.includes('定義ノード 4 件中 1 件が') && term.includes('JSON にも入っていません')
+        && !term.includes('Markdown にも') && !term.includes('`'),
+      x ? JSON.stringify([x.result.summary.siblingEndpointsOnly, x.result.summary.siblingDefs,
+        x.result.siblingEndpoints.map((r) => r.id.split('.').pop()), mdLine.slice(0, 120),
+        term.slice(0, 120)]) : '実行失敗');
+  }
 
   // 一覧を既定で出すのをやめたぶん、JSON 単体で「どの欄の・なぜこの行なのか」が読めること
   const expectedBucket = (r) => {

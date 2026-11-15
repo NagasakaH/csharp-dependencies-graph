@@ -290,7 +290,9 @@ node $SKILL/scripts/report.mjs --graph out/graph/graph.json --api "POST /orders"
 
 **時間ゲートは 1 レポートあたり固定した変更前版の 1.20 倍以内**、**最大 RSS 800 MB は絶対上限**。
 測り方は 同じ入力・設定・ウォームアップ条件で **旧→新 / 新→旧 を交互に最低 5 組**、
-**組ごとの倍率の中央値**で合否を出す（`bash out/tmp-r42/paired-gate.sh`）。比較する旧版はコミットで
+**組ごとの倍率の中央値**で合否を出す（`bash skill/scripts/tools/paired-gate.sh <毎回新しいタグ>`）。
+ゲートは測る前に**入力の存在**を確かめ、同じタグの結果が既に有れば断り、子プロセスの失敗が
+1 件でもあれば倍率を見る前に終了 1 になります。比較する旧版はコミットで
 固定し、比較対象を毎回更新して遅延を積み上げる運用はしない。
 **1.0 秒（5 回中央値）はゲートではなく UX 目標**として併記し、**最大応答時間はゲートにしない**
 （保証もしない）。裁定は `out/loop/r42-decision.md` §2（2026-11-14、運用は `out/loop/protocol.md` 4-2）。
@@ -298,18 +300,21 @@ node $SKILL/scripts/report.mjs --graph out/graph/graph.json --api "POST /orders"
 時間ゲートだけが置き換わり、RSS の絶対上限はそのまま残った。混雑時の新版と静かだった過去の旧版を
 直接比べて合否を出すこと、混雑を理由に倍率超過を免除することは裁定で却下されている。
 
-相対ゲートでの実測（`out/tmp-r49/gate49a.log`、旧版は commit `a44b7c7` を `out/wt-head` に固定、
-旧→新 / 新→旧 を交互に 5 組、2026-11-15 12:50〜12:58、load average 3.42〜4.50。
-第 48 ラウンド双人レビューの修正（打ち切り告知が指す出力を実挙動へ合わせる）を当てた版。
-**レポート JSON は HEAD と 1 バイトも同じ**で、動いたのは標準出力と Markdown の文言だけ。
-子プロセスの失敗回数は旧・新とも全条件 0）:
+相対ゲートでの実測（`out/tmp-r50/gate-p50b.log`、旧版は commit `a44b7c7` を `out/wt-head` に固定、
+旧→新 / 新→旧 を交互に 5 組、2026-11-15 13:19〜13:20、load average 3.31〜3.95。
+第 49 ラウンド双人レビューの修正（兄弟一覧の並び順・エンドポイント欄の二重スライス・
+`--md` / `--json` を付けない実行の告知文言）を当てた版。18 条件を再生成して差分を見ると、
+**JSON は 2 条件（`fixture-api` と `fixture-api0`）の `siblingEndpoints` の並び順だけ**で、
+その 2 条件も入る id・件数・他の欄は HEAD と同じ（一覧に出るルートを先頭に置いたため）。
+標準出力と Markdown の文言は条件を問わず変わる。
+子プロセスの失敗回数は旧・新とも全条件 0。前ラウンドの表は `out/tmp-r49/gate49a.log` に残す）:
 
 | 入力 | 旧 5 組中央値 | 新 5 組中央値 | 組ごとの倍率 | 倍率の中央値 | 判定（1.20 以内） | 旧 RSS | 新 RSS |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| demo-api | 0.0379 秒 | 0.0384 秒 | 1.00 / 0.99 / 1.03 / 1.01 / 1.01 | 1.01 | 適合 | 52.8 MB | 53.2 MB |
-| elsa-50 | 0.3063 秒 | 0.3360 秒 | 1.11 / 1.09 / 1.09 / 1.09 / 1.10 | 1.09 | 適合 | 416.7 MB | 442.4 MB |
-| elsa-folder | 0.7791 秒 | 0.8772 秒 | 0.79 / 0.93 / 1.09 / 1.16 / 1.58 | 1.09 | 適合 | 602.1 MB | 641.9 MB |
-| v2-mix | 0.2300 秒 | 0.2091 秒 | 0.81 / 0.91 / 0.91 / 0.91 / 0.92 | 0.91 | 適合 | 185.1 MB | 186.9 MB |
+| demo-api | 0.0379 秒 | 0.0386 秒 | 1.02 / 1.02 / 1.00 / 1.03 / 1.08 | 1.02 | 適合 | 52.7 MB | 53.3 MB |
+| elsa-50 | 0.3043 秒 | 0.3368 秒 | 1.09 / 1.09 / 1.10 / 1.12 / 1.11 | 1.10 | 適合 | 413.2 MB | 442.3 MB |
+| elsa-folder | 0.7410 秒 | 0.9482 秒 | 0.86 / 1.13 / 1.56 / 1.60 / 1.14 | 1.14 | 適合 | 601.7 MB | 639.6 MB |
+| v2-mix | 0.2228 秒 | 0.2057 秒 | 0.92 / 0.92 / 0.92 / 0.93 / 0.92 | 0.92 | 適合 | 183.8 MB | 186.1 MB |
 
 **4 とおりすべてゲート内**（合否は 5 組の倍率の中央値で判定する）。**`elsa-50` の絶対値が前の
 ラウンドの 0.19 秒から 0.31 秒へ跳ねたのは入力の差し替え**です。これまで使っていた変更一覧は
@@ -320,10 +325,24 @@ node $SKILL/scripts/report.mjs --graph out/graph/graph.json --api "POST /orders"
 **250 回すべて失敗した実行の倍率**なので不当でした
 （ゲートは失敗を数えるようになり、測る前に入力の存在を確かめます）
 
+ゲート自体の最初の実行（タグ `p50a`）は**不合格で落ちた**。理由は速度ではなく検査の型で、
+1 組の集計ファイルに入る標本は 1 本なのに検査が「標本 5 本」を要求していた（前版は
+1 ファイルに 5 本まとめていた）。検査を「その組の標本が 1 本以上かつ失敗 0 回」に直し、
+同じスクリプトのままタグを `p50b` に変えて測り直した。不合格で落ちたことはそのまま
+`out/tmp-r50/gate-p50a.log` に残す（検査が実際に効いている証拠）
+
+測定道具は追跡下に置いた（`skill/scripts/tools/perf-measure.py` / `perf-run.sh` /
+`paired-gate.sh`。第 50 ラウンド双人レビューで、唯一のコピーが `out/tmp-*`（ディスク掃除の対象）に
+あると指摘された）。入力の作り直しも同じ場所にある。`out/perf-inputs/elsa-50.txt` は
+`skill/scripts/tools/make-changed-list.py`、`out/perf-inputs/v2-big.graph.json` は
+`skill/scripts/tools/make-v2-graph.py`（旧残骸 `out/tmp-r26/v2-big.graph.json` とノード・縁が
+1 件も違わないことを実測）で生える。入力が欠けた日はゲートが測らずに落ちるので、
+消えたまま合格することができない
+
 `elsa-folder`（`--from folder:. --limit 100000`）は他の入力より重く、縁の本数ぶんの表示用コピーを
 隣エントリが持つため最大 RSS も 641.9 MB まで上がる（上限 800 MB 内）。この入力は組ごとの振れが
-最も大きく、このラウンドの個別組は 0.79 〜 1.58（中央値 1.09）、前のラウンドは 1.19、その前は
-1.55 まで振れました。
+最も大きく、このラウンドの個別組は 0.86 〜 1.60（中央値 1.14）、前のラウンドは 0.79 〜 1.58
+（中央値 1.09）、その前は 1.55 まで振れました。
 この入力を「遅いから」と理由に打ち切ることはしない。
 
 かつて超過していた値はこうです（`out/loop/r42-decision.md` §3、2026-11-14 23:00、commit `a44b7c7` との比較）:
@@ -348,9 +367,9 @@ demo-api 1.01 / elsa-50 1.00 / **elsa-folder 1.67（超過）** / v2-mix 1.02。
 | 名前 | 入力の実測サイズ | コマンドの引数 |
 | --- | --- | --- |
 | demo-api | `out/demo/graph.json` 74 ノード / 66 縁 | `--graph out/demo/graph.json --api POST /orders` |
-| elsa-50 | `out/elsa/graph.json` 51,179 ノード / 53,521 縁（48.5 MB）、変更 50 件 | `--graph out/elsa/graph.json --changed out/review-agy17/elsa-50.txt` |
+| elsa-50 | `out/elsa/graph.json` 51,179 ノード / 53,521 縁（48.5 MB）、変更 50 件 | `--graph out/elsa/graph.json --changed out/perf-inputs/elsa-50.txt` |
 | elsa-folder | 上のグラフで `folder:.` 起点、`--limit 100000`（既定の `--limit 200` を上げている） | `--graph out/elsa/graph.json --from folder:. --limit 100000` |
-| v2-mix | `out/tmp-r26/v2-big.graph.json` 2,727 ノード / 5,800 縁（HTTP API v2 40 × 20 route） | `--graph out/tmp-r26/v2-big.graph.json --api POST /v2/a7/r3` |
+| v2-mix | `out/perf-inputs/v2-big.graph.json` 2,727 ノード / 5,800 縁（HTTP API v2 40 × 20 route。`make-v2-graph.py` で作り直せる） | `--graph out/perf-inputs/v2-big.graph.json --api POST /v2/a7/r3` |
 
 測定環境: macOS 26.3（ビルド 25D125）、Apple M4（`Mac16,10`）・16 GB・arm64、Node v26.5.0。
 測定方法: `bash out/tmp-r26/perf-run.sh r40v`（実体は `out/tmp-r26/perf.py`）。4 とおりを交互に

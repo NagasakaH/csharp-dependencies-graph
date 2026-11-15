@@ -2390,6 +2390,28 @@ const summary = {
     return c;
   })(),
 };
+// 「同じコードを使う別の API」の並びはここで 1 回だけ決める（JSON・Markdown・ターミナルが
+// 同じ順を向くため）。**ルートを先頭**に置く。混ぜた順で --limit を切っていたまで、一覧に
+// 出したルートが JSON の siblingEndpoints に入らないことがあった（第 50 ラウンド agy P1:
+// `--api "POST /v2/a7/r3" --list-siblings --limit 2` の一覧 2 ルートが JSON に無く、
+// siblingEndpoints は定義ノード 2 件だった）
+const siblingRowsOrdered = () => [
+  ...siblingRows().filter((r) => !!r.endpoint),
+  ...siblingRows().filter((r) => !r.endpoint),
+];
+const siblingShown = siblingRowsOrdered().slice(0, opts.limit);
+const siblingEpRows = siblingRows().filter((r) => !!r.endpoint);
+const siblingDefRows = siblingRows().filter((r) => !r.endpoint);
+// 一覧はルートだけを出す（定義ノードの一覧は JSON に任せる）。ルートを先頭にしているので
+// 一覧に出るルートは必ず siblingEndpoints の先頭側に入る
+const siblingListShown = siblingShown.filter((r) => !!r.endpoint);
+const siblingDefsShown = siblingShown.length - siblingListShown.length;
+// 定義ノードは一覧に出さないため「Markdown にも」は嘘になる。JSON に入った分と打たれた分を分けて言う
+const siblingDefNote = siblingDefRows.length > siblingDefsShown
+  ? `（定義ノード ${siblingDefRows.length} 件中 ${siblingDefsShown} 件が --json の \`siblingEndpoints\` に入り、`
+    + `他 ${siblingDefRows.length - siblingDefsShown} 件は \`--limit ${opts.limit}\` で打ち切られているため JSON にも入っていません。`
+    + `ルートの一覧とは別枠です）`
+  : '';
 const result = {
   summary,
   starts: starts.map((s) => ({ id: s.id, why: s.why })),
@@ -2403,7 +2425,7 @@ const result = {
   entries: { in: entryRows(inRows).slice(0, opts.limit), out: entryRows(outRows).slice(0, opts.limit) },
   artifacts: { in: artifactRows(inRows).slice(0, opts.limit), out: artifactRows(outRows).slice(0, opts.limit) },
   sameApi: sameApiRows().slice(0, opts.limit),
-  siblingEndpoints: siblingRows().slice(0, opts.limit),
+  siblingEndpoints: siblingRowsOrdered().slice(0, opts.limit),
   wiring: wiringRows().slice(0, opts.limit),
 };
 if (opts.json) writeFileSync(resolve(opts.json), JSON.stringify(result, null, 2));
@@ -2425,8 +2447,15 @@ const truncNote = (total, shown, fileCap, stem = '他', extra = '') => {
   if (total <= shown) return '';
   const inFiles = Math.min(total, fileCap) - shown;   // Markdown と JSON には入っている分
   const nowhere = total - Math.min(total, fileCap);   // --limit で打たれてどこにも無い分
-  const bits = [];
-  if (inFiles > 0) bits.push(`${stem} ${inFiles} 件は Markdown と --json に出しています`);
+  // 「Markdown と --json に出しています」は --md / --json を付けた実行だけ本当。付けていない実行で
+  // 同じことを言うのも同じ嘘（第 50 ラウンド双人レビュー両名）
+  const dest = [opts.md ? 'Markdown' : null, opts.json ? '--json' : null].filter(Boolean).join(' と ');
+  const bits = [`表示 ${shown} / ${total} 件`];
+  if (inFiles > 0) {
+    bits.push(dest
+      ? `${stem} ${inFiles} 件は ${dest} に出しています`
+      : `${stem} ${inFiles} 件は --md / --json を指定するとそこに入ります（いまはターミナルだけ）`);
+  }
   if (nowhere > 0) {
     bits.push(`${stem} ${nowhere} 件は --limit ${fileCap} で打ち切られているため Markdown にも JSON にも入っていません`);
     bits.push('--limit を上げるか --json の summary の件数で全体量を見てください');
@@ -2457,9 +2486,24 @@ const epLine = (e) => `- \`${e.name}\`（\`${e.id}\`）`;
 // （`--limit 5` でも `--limit 50` でも 12 本で切る不整合をなくす）。
 // 兄弟ルートは 本命 の結果に影響しない（別の欄に要約する）ので、既定の画面から消しても
 // 見直しの候補は減らない
-const siblingEpIds = new Set(siblingRows().filter((r) => !!r.endpoint).map((r) => r.id));
+const siblingEpIds = new Set(siblingEpRows.map((r) => r.id));
 const reachedRealEndpoints = reachedEndpoints.filter((e) => !siblingEpIds.has(e.id));
 const reachedSiblingEndpoints = reachedEndpoints.filter((e) => siblingEpIds.has(e.id));
+// エンドポイント欄は Markdown とターミナルで**同じ並び・同じ本数**で切る（別々に切っていたため、
+// 起点 1 + 到達 2 の `--limit 2` で Markdown 3 件・ターミナル 2 件と表示本数が割れた。
+// 第 50 ラウンド agy P2）
+const endpointRows = [...startEndpoints, ...reachedRealEndpoints];
+const startEndpointIds = new Set(startEndpoints.map((e) => e.id));
+const endpointShown = endpointRows.slice(0, opts.limit);
+// 一覧から落ちた分は --json の summary.startEndpoints / summary.reachedEndpoints に全件入る
+// （この 2 つは --limit で切らない）。一覧自体には入らないのでそう書く
+// ターミナル行に Markdown の記号をそのまま出さない
+const plain = (s) => s.replace(/`/g, '');
+const endpointNote = endpointRows.length > endpointShown.length
+  ? `（表示 ${endpointShown.length} / ${endpointRows.length} 件。他のエンドポイント `
+    + `${endpointRows.length - endpointShown.length} 件はこの一覧に出しませんが --json の `
+    + `\`summary.startEndpoints\` と \`summary.reachedEndpoints\` に全件入ります。一覧を長くするには --limit を上げます）`
+  : '';
 const SIBLING_LIST_HINT = '一覧は `--list-siblings`（本数は `--limit`）';
 let md = `# 影響範囲レポート\n\n- グラフ: \`${summary.graph}\`\n- 起点 ${summary.starts} 件（展開後 ${summary.expandedStarts} 件、グラフに無く起点にしなかった変更 ${summary.fallbacks} 件）\n- 探索 ${summary.hops} ホップ（向きの変えは探索中 1 回まで許可、表示経路で向き変えを含む行 ${summary.secondOrder} 件）/ Terraform の定義単位は ${summary.wiringHops} 段まで無方向で閉じる / 階層（parent・contains）は起点の展開にのみ使用\n- 本命: 影響する先 ${summary.primaryOut} / 影響を受ける入口 ${summary.primaryIn} / コード 出口 ${summary.entryOut}・入口 ${summary.entryIn} / 成果物 先 ${summary.artifactsOut}・受 ${summary.artifactsIn} / 定義上の関連 ${summary.wiring} / 同じ API の定義 ${summary.sameApi} / 同じコードを使う別の API ${summary.siblings}（エンドポイント ${summary.siblingEndpointsOnly}・定義ノード ${summary.siblingDefs}）/ 向き を決める関係が無い行 ${summary.directionless}（うち 本命 の資格を持つ行 ${summary.directionlessPrimary}）。**「本命」は「最短」を意味しません**\n- 行の 向き（JSON の direction）は in（影響を受ける入口）/ out（影響する先）/ none（**この表示経路に 向き を決める関係が無い**。Terraform の定義の縁だけを辿った行。一覧の 向き 列では「—」と書きます）。none は「そのノードに他の有向関係が存在しない」意味ではなく、動きの根拠 が無いこととは同義ではありません（以前の有向縁から 向き を継承した行があります）。継承した in / out は、その無方向の縁自体が動作方向を証明した値ではありません。none の行は 定義上の関連・同じ API の定義・同じコードを使う別の API に並び、tier（本命の資格）はそのまま保ちます（同じコードを使う別の API の一覧は 向き 列を出さないので、そこは JSON の \`siblingEndpoints\` で見ます）\n- 各段数欄は**表示経路の段数**です（起点 0 段、表示経路の関係 1 本を 1 段。表の値と行の経路表示は一致させます）。**最短とは限りません**。経路全体の整合性を保つため、より長い代表経路を表示する場合があります。この段数は影響の強さやレビューの優先度を示しません\n- 根拠の由来: ${Object.entries(summary.byProvenance).map(([k, v]) => `${provLabel(k)} ${v}`).join(' / ') || 'なし'}（**注釈由来 ${summary.annotationRows} 件**は静的解析では決まらない対応付け）\n\n`;
 if (result.score) {
@@ -2491,12 +2535,15 @@ if (summary.unresolvedCorr > 0) {
   md += `> ${UNRESOLVED_WARNING}\n\n`;
 }
 md += `## 影響を受ける API エンドポイント\n\n`;
-md += startEndpoints.length
-  ? `起点にしたエンドポイント:\n\n${startEndpoints.map(epLine).join('\n')}\n\n`
+const epShownStart = endpointShown.filter((e) => startEndpointIds.has(e.id));
+const epShownReached = endpointShown.filter((e) => !startEndpointIds.has(e.id));
+md += epShownStart.length
+  ? `起点にしたエンドポイント:\n\n${epShownStart.map(epLine).join('\n')}\n\n`
   : '';
-md += reachedRealEndpoints.length
-  ? `${startEndpoints.length ? 'それを使う' : '到達した'}エンドポイント（**起点の定義ではない**同じコードを使う別エンドポイントを含む${reachedRealEndpoints.length > opts.limit ? `。他 ${reachedRealEndpoints.length - opts.limit} 件は \`--json\` 参照` : ''}）:\n\n${reachedRealEndpoints.slice(0, opts.limit).map(epLine).join('\n')}\n\n`
-  : (startEndpoints.length ? '' : '該当なし\n\n');
+md += epShownReached.length
+  ? `${epShownStart.length ? 'それを使う' : '到達した'}エンドポイント（**起点の定義ではない**同じコードを使う別エンドポイントを含む）:\n\n${epShownReached.map(epLine).join('\n')}\n\n`
+  : (epShownStart.length ? '' : '該当なし\n\n');
+if (endpointNote) md += `${endpointNote}\n\n`;
 // 兄弟ルートは 本命 の結果に影響しないので、この欄には**件数だけ**出す（指摘 F）
 if (reachedSiblingEndpoints.length) {
   md += `同じコードを使う別のルート ${reachedSiblingEndpoints.length} 件（起点の実行には入りません。${SIBLING_LIST_HINT}）\n\n`;
@@ -2511,13 +2558,13 @@ if (startIsEndpoint) md += mdSection('起点と同じ API を定義するノー�
 if (startIsEndpoint && siblingRows().length) {
   md += `### 同じコードを使う別の API（エンドポイント ${summary.siblingEndpointsOnly} 件と、それを定義するノード ${summary.siblingDefs} 件。起点の定義ではなく、共有しているコードを変えたときに一緒に見る）\n\n`;
   md += `兄弟ルート ${summary.siblingEndpointsOnly} 件 / その API を定義しているノード ${summary.siblingDefs} 件`
-    + `（**起点の 本命 の結果には入りません**。\`--json\` の \`siblingEndpoints\` にも同じ \`--limit\` までしか入りません、${SIBLING_LIST_HINT}）\n\n`;
+    + `（**起点の 本命 の結果には入りません**。\`--json\` の \`siblingEndpoints\` は**この一覧のルートを先頭に**、`
+    + `そのうしろに定義ノードを並べて \`--limit\` まで入ります。${SIBLING_LIST_HINT}）\n\n`;
 if (opts.listSiblings) {
-    const shown = siblingRows().filter((r) => !!r.endpoint).slice(0, opts.limit);
-    md += (shown.map((r) => `- \`${r.name}\`（\`${r.id}\`、段数 ${r.hops}（最短とは限りません）、根拠 \`${r.evidence.kind}\`、理由 \`${r.siblingReason}\`）`).join('\n') || '（なし）') + '\n\n';
-    const sibTotal = siblingRows().filter((r) => !!r.endpoint).length;
-    const rest = truncNote(sibTotal, shown.length, opts.limit, '他のルート');
+    md += (siblingListShown.map((r) => `- \`${r.name}\`（\`${r.id}\`、段数 ${r.hops}（最短とは限りません）、根拠 \`${r.evidence.kind}\`、理由 \`${r.siblingReason}\`）`).join('\n') || '（なし）') + '\n\n';
+    const rest = truncNote(siblingEpRows.length, siblingListShown.length, opts.limit, '他のルート');
     if (rest) md += `${rest}\n\n`;
+    if (siblingDefNote) md += `${siblingDefNote}\n\n`;
   }
 }
 // 一覧の切り詰めは `mdSection` の中でやる（`limit` を超えたら `truncNote` で注記を出す）。
@@ -2534,10 +2581,9 @@ md += mdSection('定義上の関連（Terraform の定義を辿っただけ。�
 if (opts.md) writeFileSync(resolve(opts.md), md);
 
 // 兄弟ルートは既定では**件数だけ**出す（指摘 F）。一覧は `--list-siblings`、本数は `--limit`
-const shownEps = [...startEndpoints, ...reachedRealEndpoints];
 const sibEpCount = summary.siblingEndpointsOnly;
-console.log(`API エンドポイント: ${shownEps.slice(0, opts.limit).map((e) => e.name).join(', ') || '該当なし'}`
-  + (shownEps.length > opts.limit ? ` / 他のエンドポイント ${shownEps.length - opts.limit} 件（--limit を上げると上に出ます）` : '')
+console.log(`API エンドポイント: ${endpointShown.map((e) => e.name).join(', ') || '該当なし'}`
+  + (endpointNote ? ` ${plain(endpointNote)}` : '')
   + (sibEpCount ? ` / 兄弟ルート ${sibEpCount} 件（${opts.listSiblings ? '下に一覧' : '一覧は --list-siblings'}）` : ''));
 console.log(`起点 ${summary.starts} 件（展開後 ${summary.expandedStarts}）/ 影響する先 ${summary.primaryOut} / 影響を受ける入口 ${summary.primaryIn} / コード 出口 ${summary.entryOut}・入口 ${summary.entryIn} / 成果物 先 ${summary.artifactsOut}・受 ${summary.artifactsIn} / 定義上 ${summary.wiring} / 同じ API の定義 ${summary.sameApi} / 別の API ${summary.siblings}（エンドポイント ${summary.siblingEndpointsOnly}・定義 ${summary.siblingDefs}） / 向き を決める関係が無い ${summary.directionless}（本命の資格 ${summary.directionlessPrimary}） / 注釈由来 ${summary.annotationRows}`);
 if (primaryTotal === 0 && summary.rows > 0) {
@@ -2562,10 +2608,10 @@ printExternal(externalRows(outRows), 'out');
 printExternal(externalRows(inRows), 'in ');
 // `--list-siblings` を立てたら一覧も並べる（本数は --limit。既定は上の 1 行の件数だけ）
 if (opts.listSiblings) {
-  const sibEps = siblingRows().filter((r) => !!r.endpoint);
-  for (const r of sibEps.slice(0, opts.limit)) {
+  for (const r of siblingListShown) {
     console.log(`  [sib ${r.hops}] ${r.name}  <- ${r.evidence.kind} (${r.siblingReason})`);
   }
-const sibNote = truncNote(sibEps.length, Math.min(sibEps.length, opts.limit), opts.limit, '他のルート');
+  const sibNote = truncNote(siblingEpRows.length, siblingListShown.length, opts.limit, '他のルート');
   if (sibNote) console.log(`  ${sibNote}`);
+  if (siblingDefNote) console.log(`  ${plain(siblingDefNote)}`);
 }

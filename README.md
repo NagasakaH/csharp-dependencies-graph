@@ -29,14 +29,14 @@ open out/graph/graph.html
 最低 5 組、組ごとの倍率の中央値で判定）**と 最大 RSS 800 MB（絶対上限）** で、**1.0 秒はゲートではなく
 UX 目標**、最大応答時間はゲートにしない。4 とおりの入力の倍率・最大 RSS・測定環境は
 [skill/SKILL.md](skill/SKILL.md) の「レポートの性能基準」に実測どおり置いてある
-（第 49 ラウンドの実測で 4 とおりすべて適合、重い `elsa-folder` でも倍率中央値 1.09 / 最大 RSS 641.9 MB。
+（第 50 ラウンドの実測で 4 とおりすべて適合、重い `elsa-folder` でも倍率中央値 1.14 / 最大 RSS 639.6 MB。
 かつて 1.67 で超過したときは、結果を 1 バイトも変えない軽量化で収束させ、時間で切り捨てる対応は採っていない）。
 
 検証は 2 系統あり、どちらも対象プロジェクト非依存で動く。
 
 ```sh
 node skill/scripts/test-analyzer.mjs                          # 静的解析の精度（96 項目、ブラウザ不要）
-node skill/scripts/test-report.mjs                            # 影響範囲レポート（117 項目）
+node skill/scripts/test-report.mjs                            # 影響範囲レポート（122 項目）
 node skill/scripts/test-query.mjs                             # 逆引き・影響範囲の照会（28 項目、.NET 不要）
 node skill/scripts/test-merge.mjs                             # Lambda handler の解決規則（12 項目、.NET 必要）
 node skill/scripts/test-terraform.mjs                         # API Gateway のパス組み立てと HTTP API (v2) の `target`（46 項目、.NET 不要）
@@ -176,14 +176,29 @@ v1 の三点組）または統合からメソッドへの直接参照・注釈�
 ノード**だけを持ち、しかも**参照している側へ進む一歩**にだけ受け継がれる（自分が使っているものへ渡った
 先は資格を失う）。
 
-JSON の一覧はすべて `--limit`（既定 200）で**打ち切る**。打ち切ったときは `summary.listTruncated` が
+JSON の一覧は `--limit`（既定 200）で**打ち切る**。打ち切ったときは `summary.listTruncated` が
 true になり、`summary` の各欄の数は**打ち切る前**のままなので「欄の合計 == 総行数」は常にカウンタ側で
-確かめる。ターミナルに出す外部リソースの一覧も `--limit` に従い、さらに見やすさのため
-**12 件**で切る。各一覧の注記は「他の出力（Markdown と `--json`）に出している分」と
+確かめる。**例外が 2 つある**（注記が「--json 参照」と指すのはこの 2 つの意味。第 50 ラウンド実測）:
+
+- `summary.startEndpoints` と `summary.reachedEndpoints` は `--limit` で切らず**全件**入る
+- `summary.startIds` は 50 件で打ち切り、切れたら `summary.startIdsTruncated` が立つ
+
+ターミナルに出す外部リソースの一覧も `--limit` に従い、さらに見やすさのため**12 件**で切る。
+各一覧の注記は冒頭に `表示 M / N 件` を置き、そのあとに「他の出力に出している分」と
 「`--limit` で打たれて**どの出力にも入っていない分**」を分けて出し、12 件で打ったときだけ
-それを告げる（黙って 13 件目を落とさない）。`--limit` は Markdown・JSON・ターミナルの
-すべてに掛かるので、`--limit` で打った分が `--json` の中から見つかることはない
-（第 48 ラウンド双人レビューの実測。以前の注記は「--json 参照」と書いていた）
+それを告げる（黙って 13 件目を落とさない）。「Markdown と `--json` に出しています」は
+**`--md` / `--json` を付けた実行だけ**の真実なので、付けていない実行では
+「`--md` / `--json` を指定するとそこに入ります（いまはターミナルだけ）」と書く
+（第 50 ラウンド双人レビュー。前の版はファイルを 1 つも出していない実行で同じ嘘を言っていた）。
+`--limit` は Markdown・JSON・ターミナルのすべてに掛かるので、`--limit` で打った分が
+`--json` の中から見つかることはない（第 48 ラウンド双人レビューの実測）
+
+同じコードを使う別の API の一覧は、**ルートを先頭・そのうしろに定義ノード**という 1 本の順で
+`--limit` を切る（JSON の `siblingEndpoints`・Markdown・ターミナルが同じ順を向く）。
+一覧に出すのはルートだけなので、定義ノードは「`--json` に入った分 / 打たれた分」だけを別枠で告げる
+（第 50 ラウンド agy 指摘。前の版はルートを混ぜて切っていたため、一覧に出たルートが
+`--json` に入らないことがあった）。API エンドポイント欄も Markdown とターミナルで
+**同じ並び・同じ本数**で切る（以前は Markdown 3 件・ターミナル 2 件と割れた）
 
 探索の深さにも打ち切りがある。外側の探索は「まだ歩いていないコードのノード」か「未登録の API グループ」が
 無くなるまで繰り返し、実行したラウンド数は `summary.rounds`、その上限は `summary.maxRounds` に出る。
@@ -238,6 +253,8 @@ skill/
   analyzer/            Roslyn 構文解析（net9.0, cgd）。ビルドは build.mjs がやる
   scripts/             build / scan / scan-terraform / merge / render / query / report / verify
                        + test-analyzer / test-query / test-merge / test-terraform / test-report（回帰テスト）
+  scripts/tools/       測定と再生成の道具（regen-audit / count-kinds / make-changed-list /
+                       make-v2-graph / perf-measure.py / perf-run.sh / paired-gate.sh）
   tests/fixtures/      静的解析と照会のテスト用データ（C# と graph.json）
   viewer/template.html 単一ファイルのビューア（データ埋め込み）
   reference/schema.md  データ契約

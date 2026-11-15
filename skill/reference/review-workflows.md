@@ -49,7 +49,8 @@ git diff --name-only origin/main... | node skill/scripts/report.mjs \
 うち 2 行は 本命 の資格を持っています。件数は `summary.directionless` / `summary.directionlessPrimary`。
 「向き を決める関係が無い」は「そのノードに関係が無い」意味ではなく、**表示経路が Terraform の定義の縁だけ
 だった**という意味です（「同じコードを使う別の API」の一覧は Markdown に 向き 列を出さないので、
-そこは JSON の `siblingEndpoints` で見ます）
+そこは JSON の `siblingEndpoints` で見ます。この JSON は**一覧に出るルートを先頭**に、そのうしろへ
+同じ API の定義ノードを並べて `--limit` まで入れる（第 50 ラウンド）。一覧に出たルートが JSON から落ちることはない）
 
 **実行経路とみなす条件**（第 29 ラウンドの裁定。第 30 ラウンドの双人レビューで両名が文書化を要求）:
 `method → invokes → integration`（v2 の `target`、v1 の三点組）または統合からメソッドへの直接参照・
