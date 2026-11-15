@@ -1,0 +1,200 @@
+{
+ "exemptions": [],
+ "note": "見張り番の名前と、その名前を**直接呼ぶ**道具の対応表。走査（test-contract.py の _guard_names_by_file）から見つかる集合とその場で比べる台帳で、実行結果から自動更新しない。作り直しは emit-guard-owners.py（候補の書き出し）。exemptions は動的機構のモジュール（builtins / types / inspect / importlib）のうち、そのファイルで許す import と名前だけを書く（Astra 第 63 ラウンド 問 1。ファイル全体の豁免は置けない）",
+ "owners": {
+  "canonical-id": [
+   "_inputs.py"
+  ],
+  "child-fail": [
+   "_inputs.py"
+  ],
+  "cond-args": [
+   "_inputs.py"
+  ],
+  "cond-case": [
+   "_inputs.py"
+  ],
+  "cond-graph": [
+   "_inputs.py"
+  ],
+  "cond-keys": [
+   "_inputs.py"
+  ],
+  "cond-kind-args": [
+   "_inputs.py"
+  ],
+  "condition-set": [
+   "_inputs.py"
+  ],
+  "cov-keys": [
+   "_inputs.py"
+  ],
+  "cov-shape": [
+   "_inputs.py"
+  ],
+  "coverage": [
+   "_inputs.py"
+  ],
+  "dir-rule-counters": [
+   "check-dir-rule.py"
+  ],
+  "dir-rule-report": [
+   "check-dir-rule.py"
+  ],
+  "dir-rule-v1": [
+   "check-dir-rule.py"
+  ],
+  "dup-built": [
+   "_inputs.py"
+  ],
+  "dup-condition": [
+   "_inputs.py"
+  ],
+  "dup-fixture": [
+   "_inputs.py"
+  ],
+  "dup-id": [
+   "_inputs.py"
+  ],
+  "edge-child-fail": [
+   "edge-order.py"
+  ],
+  "edge-group-empty": [
+   "edge-order.py"
+  ],
+  "edge-json-parse": [
+   "edge-order.py"
+  ],
+  "edge-out-shape": [
+   "edge-order.py"
+  ],
+  "fixture-set": [
+   "_inputs.py"
+  ],
+  "fixture-shape": [
+   "_inputs.py"
+  ],
+  "fp-bytes": [
+   "_inputs.py"
+  ],
+  "fp-ledger-extra": [
+   "_inputs.py"
+  ],
+  "fp-mode": [
+   "_inputs.py"
+  ],
+  "fp-sha": [
+   "_inputs.py"
+  ],
+  "fp-structural": [
+   "_inputs.py"
+  ],
+  "fp-type": [
+   "_inputs.py"
+  ],
+  "fp-unregistered": [
+   "_inputs.py"
+  ],
+  "json-empty": [
+   "_inputs.py"
+  ],
+  "json-missing": [
+   "_inputs.py"
+  ],
+  "json-parse": [
+   "_inputs.py"
+  ],
+  "none-counters": [
+   "count-none.py"
+  ],
+  "none-expectations": [
+   "count-none.py"
+  ],
+  "out-exists": [
+   "_inputs.py"
+  ],
+  "own-files": [
+   "test-contract.py"
+  ],
+  "own-names": [
+   "test-contract.py"
+  ],
+  "own-shape": [
+   "_inputs.py"
+  ],
+  "own-tools": [
+   "test-contract.py"
+  ],
+  "path-count": [
+   "_inputs.py"
+  ],
+  "path-cwd-only": [
+   "_inputs.py"
+  ],
+  "path-empty": [
+   "_inputs.py"
+  ],
+  "perm-cap": [
+   "_inputs.py"
+  ],
+  "perm-count": [
+   "_inputs.py"
+  ],
+  "perm-declared": [
+   "_inputs.py"
+  ],
+  "perm-edges": [
+   "_inputs.py"
+  ],
+  "perm-expected": [
+   "_inputs.py"
+  ],
+  "perm-runs-min": [
+   "_inputs.py"
+  ],
+  "proj-buckets": [
+   "_inputs.py"
+  ],
+  "proj-fields": [
+   "_inputs.py"
+  ],
+  "report-shape": [
+   "_inputs.py"
+  ],
+  "rows-zero": [
+   "_inputs.py"
+  ],
+  "trial-count": [
+   "_inputs.py"
+  ],
+  "v1-derivation": [
+   "_inputs.py"
+  ]
+ },
+ "scannedFiles": [
+  "skill/scripts/tools/battery/_inputs.py",
+  "skill/scripts/tools/battery/allperm-corr.py",
+  "skill/scripts/tools/battery/allperm-full.py",
+  "skill/scripts/tools/battery/allperm.py",
+  "skill/scripts/tools/battery/check-dir-rule.py",
+  "skill/scripts/tools/battery/check-invariants46.py",
+  "skill/scripts/tools/battery/cmp-head-proto.py",
+  "skill/scripts/tools/battery/count-none.py",
+  "skill/scripts/tools/battery/edge-order.py",
+  "skill/scripts/tools/battery/emit-guard-owners.py",
+  "skill/scripts/tools/battery/emit-required.py",
+  "skill/scripts/tools/battery/find-splits.py",
+  "skill/scripts/tools/battery/r43-permute.py",
+  "skill/scripts/tools/battery/same-output.py",
+  "skill/scripts/tools/battery/self-consistency.py",
+  "skill/scripts/tools/battery/test-contract.py",
+  "skill/scripts/tools/battery/v1diff.py",
+  "skill/scripts/tools/battery/via-cycle.py",
+  "skill/scripts/tools/check-battery-inputs.py",
+  "skill/scripts/tools/count-kinds.py",
+  "skill/scripts/tools/make-changed-list.py",
+  "skill/scripts/tools/make-v2-graph.py",
+  "skill/scripts/tools/perf-measure.py",
+  "skill/scripts/tools/regen-audit.py"
+ ]
+}

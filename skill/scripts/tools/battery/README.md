@@ -198,6 +198,7 @@ Astra 問 2 で「実行系の制御（JSON を書かない、JSON が壊れて�
 | `dir-rule-counters` / `dir-rule-report` / `dir-rule-v1` | 向き別の件数・**レポート別の按分**・v1 の既知差分との中身照合 | 18 本とも 0 行 / **`byReport` の按分だけ**入れ替えた一覧（向き別の合計は同じ）/ **`byReport` の実在する 2 本の件数を入れ替える**（キー集合も合計もそのまま。実在しない名前に集め替える形は第 60 ラウンドの入口の共通検査 `cov-keys` が先に落とすので、道具自身の比較を測れなくなった。Astra 第 60 ラウンド 問 1 の裁定。「キー集合その物」は `cov-keys` 側で引き続き測る）/ 18 本そろえて 1 本だけ行を消す / **既知差分の `id` を別ノードへ動かす**（不一致 55 件のまま中身だけずらす。`dir-rule-v1` を単独で測る。第 56 ラウンド Codex P2-1）/ **v1 の `agree` を 1 減らして `bad` を 1 増やす**（`dir-rule-counters`。合計は実測のまま。第 58 ラウンドまで `dir-rule-report` と組で、手前に遮われて単独に測れていなかった） |
 | `edge-group-empty` / `none-expectations` / `none-counters` | `edge-order.py` の 4 起動すべて 0 群（`--json` の形は上の行の `edge-out-shape`）・`count-none.py` の期待値とサマリカウンタ | **実グラフの縁を全部抜いて 4 起動すべて 0 群**（`edge-group-empty`。`--json` の形でない出力は `edge-out-shape` として別名にした。同じ名前を 2 箇所で使っていたため 1 箇所だけの無力化が検出できなかった。第 60 ラウンド Astra 問 2）/ **`expectations.directionless.none` を 1 増やして `count-none.py`**（`none-expectations`）/ **1 本の `summary.rows` を 1 増やす**（`none-counters`）。第 57 ラウンド agy P2-2: 「実グラフの縁を全部抜く」を 3 名前ぶん載せていたが、走っていたのは `edge-order-groups` だけだった |
 | `path-empty` / `path-count` / `path-cwd-only` | レポート 0 件・期待件数違い・明示した相対パスを cwd から解決する | **0 件のディレクトリを `report_paths` へ直接渡す**（`path-empty`）/ **1 本のディレクトリに 18 件を期待して渡す**（`path-count`）。第 57 ラウンド agy P2-2: 「1/18 のディレクトリ」を両方の制御として載せていたが、その実行は `path-count` が先に落ちていた（道具側から単独に作れないので関数へ直接渡す）/ `battery/` から `out/audit-current` を渡す（`path-cwd-only`） |
+| `own-shape` / `own-names` / `own-tools` / `own-files` | 見張り番の対応表 `guard-owners.json` の形・名前集合・名前と所属道具の対応・走査対象のファイル集合（合計値が同数のまま名前を入れ替える細工を止める為の台帳。豁免は許す import と名前だけを書く） | 台帳から 1 名を消す（`own-names`）/ 1 名の所属道具を別へ動かす（`own-tools`）/ 走査対象から 1 ファイル消す（`own-files`）/ 豁免に走査対象外のファイルを登録する（`own-files`）/ `owners` の値を配列でなくす（`own-shape`） |
 | `v1-derivation` | 既知差分から導いた 向き の差分が 55 件であること | **既知差分の 1 件を「向きが変わらない」形へ直す**（導出が 54 件になる。第 57 ラウンド agy P2-2: 「`dir-rule-v1` の制御が同時に落とす」と書いていたが、それは `v1-derivation` を測っていなかった）|
 
 **全 52 名に、その名前だけを無効化する負控制が有る。うち 39 名は無効化すると実行が成功し、
@@ -212,10 +213,11 @@ Astra 問 2 で「実行系の制御（JSON を書かない、JSON が壊れて�
 見張り番を**直接呼んでいるファイル**別の一覧（Astra 第 61 ラウンド 問 5 の機械検査 `readme_guard_names_match_code` はこの箇条書きと上の「名前」列だけを読む。歴史説明に旧名を書くのは自由だが、この一覧と「名前」列に旧名や実在しない名を残すと失敗する。上の表は判定のまとめで道具と対応付けていないので、道具別の対応はここで宣言する）:
 
 <!-- 見張り番の道具別一覧:この箇条書きだけを解析する -->
-- `_inputs.py`（共有ヘルパー。各道具はここを経由して呼ぶ。直接呼ぶのは下の 3 ファイル）: `canonical-id` / `child-fail` / `cond-args` / `cond-case` / `cond-graph` / `cond-keys` / `cond-kind-args` / `condition-set` / `cov-keys` / `cov-shape` / `coverage` / `dup-built` / `dup-condition` / `dup-fixture` / `dup-id` / `fixture-set` / `fixture-shape` / `fp-bytes` / `fp-ledger-extra` / `fp-mode` / `fp-sha` / `fp-structural` / `fp-type` / `fp-unregistered` / `json-empty` / `json-missing` / `json-parse` / `out-exists` / `path-count` / `path-cwd-only` / `path-empty` / `perm-cap` / `perm-count` / `perm-declared` / `perm-edges` / `perm-expected` / `perm-runs-min` / `proj-buckets` / `proj-fields` / `report-shape` / `rows-zero` / `trial-count` / `v1-derivation`
+- `_inputs.py`（共有ヘルパー。各道具はここを経由して呼ぶ。直接呼ぶのは下の 3 ファイル）: `canonical-id` / `child-fail` / `cond-args` / `cond-case` / `cond-graph` / `cond-keys` / `cond-kind-args` / `condition-set` / `cov-keys` / `cov-shape` / `coverage` / `dup-built` / `dup-condition` / `dup-fixture` / `dup-id` / `fixture-set` / `fixture-shape` / `fp-bytes` / `fp-ledger-extra` / `fp-mode` / `fp-sha` / `fp-structural` / `fp-type` / `fp-unregistered` / `json-empty` / `json-missing` / `json-parse` / `out-exists` / `path-count` / `path-cwd-only` / `path-empty` / `perm-cap` / `perm-count` / `perm-declared` / `perm-edges` / `perm-expected` / `perm-runs-min` / `proj-buckets` / `proj-fields` / `report-shape` / `rows-zero` / `trial-count` / `v1-derivation` / `own-shape`
 - `check-dir-rule.py`: `dir-rule-counters` / `dir-rule-report` / `dir-rule-v1`
 - `count-none.py`: `none-counters` / `none-expectations`
 - `edge-order.py`: `edge-child-fail` / `edge-group-empty` / `edge-json-parse` / `edge-out-shape`
+- `test-contract.py`: `own-names` / `own-tools` / `own-files`（第 63 ラウンド Astra 問 4 の対応表の照合。形の検査は `_inputs.py` が読む）
 <!-- /見張り番の道具別一覧 -->
 この内訳は毎回
 `test-contract.py` の正控制が機械に数える — ツリーを AST で読んで `guard('名前')` を付けた
@@ -228,7 +230,13 @@ Astra 問 2 で「実行系の制御（JSON を書かない、JSON が壊れて�
 （`out/tmp-r59/contract-2.log`）。第 62 ラウンド実測: **負控制 97 件・正控制 12 件**、
 見張り番 **52 名 = 呼び出し 52 箇所**、単独名指し 52 / 52（成功だけの控制 39 名・診断消失確認だけ
 13 名・両方が並ぶ 0 名（無し）。通った控制 69 本を名前ごとに保持し、後勝ちで潰さない）
-（`out/tmp-r62/contract-1.log`）。
+（`out/tmp-r62/contract-1.log`）。第 63 ラウンド実測: **負控制 102 件・正控制 14 件**、
+見張り番 **56 名 = 呼び出し 56 箇所**、単独名指し 56 / 56（成功だけの控制 43 名・診断消失確認だけ
+13 名・両方が並ぶ 0 名（無し）。通った控制 74 本）（`out/tmp-r62/contract-8.log`。名前を無力化する細工を回した後も同じ値）。同じラウンドで
+Astra 裁定 問 1・問 4 の台帳 **`guard-owners.json`**（見張り番の名前集合・名前と所属道具の対応・
+走査対象のファイル集合の 3 照合と、許す import と名前だけを書く豁免）を足した。合計値が同数のまま
+名前を入れ替える細工は台帳が止め、豁免は名乗った名前以外の動的機構を弱めないことを対で測る
+（`out/tmp-r62/repro-12.log`）
 同じ AST 走査は `guard()` の引数が文字列リテラルでない呼び出しと `guard` の別名代入も見て、
 **静的に読めない形を穴として失敗にする**（第 59 ラウンド Codex P2-1。`before= 42 after= 42` で
 網羅の分母から黙って消える穴。第 61 ラウンド Codex P2-2 は `IN2 = IN` という別名を付けた呼び出しを実ツリーへ混ぜれば穴 0 のまま通過できることを実測した。Astra 第 61 ラウンド 問 2 の

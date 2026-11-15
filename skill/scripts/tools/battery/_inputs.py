@@ -18,6 +18,7 @@ import hashlib
 import json
 import os
 import pathlib
+import re
 import subprocess
 import sys
 
@@ -1354,3 +1355,155 @@ def materialize(cond, tmpdir):
         else:
             args.append(a)
     return args
+
+
+# ---------------------------------------------------------------- 見張り番の対応表（guard-owners.json）
+# Astra 第 63 ラウンド 問 4 の裁定で増やした 3 番目の Astra 台帳（`required-checks.json` /
+# `input-fingerprints.json` / `known-v1-diffs.json` と同じ約束。**実行結果から自動更新しない**）。
+# 走査から見つかる集合とその場で比べる為だけの一覧なので、`cond` の様な起動条件は持たない。
+GUARD_LEDGER_FILE = 'skill/scripts/tools/battery/guard-owners.json'
+GUARD_LEDGER_HEADER = '見張り番の対応表（guard-owners.json）が壊れている'
+GUARD_LEDGER_KEYS = ('note', 'scannedFiles', 'owners', 'exemptions')
+_EXEMPT_ENTRY_KEYS = ('file', 'imports', 'note')
+_NAME_SHAPE_RE = re.compile(r'[a-z][a-z0-9]*(?:-[a-z0-9]+)*')
+
+
+def _exempt_entry_errors(entry, where):
+    """豁免の 1 件の形を検査して説明文の列で返す（空なら壊れていない）
+
+    Astra 第 63 ラウンド 問 1 の裁定は「豁免の単位はファイル全体ではなく、**そのファイルで許す
+    import と利用する機能**」。だから `imports` は `モジュール名 -> 許す名前の配列` の辞書で、
+    モジュール名だけ書いて中身を無制限にする形を認めない"""
+    if not isinstance(entry, dict):
+        return [f'{where} が辞書ではない: {type(entry).__name__}']
+    errs = []
+    for fld in _EXEMPT_ENTRY_KEYS:
+        if fld not in entry:
+            errs.append(f'{where} に {fld} が無い')
+    if errs:
+        return errs
+    f = entry['file']
+    if not isinstance(f, str) or not f.strip():
+        errs.append(f'{where} の file が空でない文字列ではない: {f!r}')
+    imports = entry['imports']
+    if not isinstance(imports, dict):
+        errs.append(f'{where} の imports が辞書ではない: {type(imports).__name__}'
+                    '（`{"types": ["SimpleNamespace"]}` のようにモジュール名から許す名前の配列）')
+        return errs
+    if not imports:
+        errs.append(f'{where} の imports が空（何を許すか書いていない豁免は、ファイル全体の豁免に'
+                    '見えるので置かない）')
+    for mod, granted in imports.items():
+        if not isinstance(mod, str) or not mod.strip():
+            errs.append(f'{where} の imports のモジュール名が空でない文字列ではない: {mod!r}')
+        if not isinstance(granted, list) or not granted:
+            errs.append(f'{where} の imports[{mod!r}] が空でない配列ではない: {granted!r}'
+                        '（モジュール全体のアクセスを許す豁免は置けない）')
+            continue
+        bad = [x for x in granted if not isinstance(x, str) or not x.strip()]
+        if bad:
+            errs.append(f'{where} の imports[{mod!r}] に空でない文字列でない名前がある: {bad[:4]}')
+    return errs
+
+
+def guard_ledger_shape_errors(doc):
+    """台帳の形を検査して説明文の列で返す（共通見出しは足さない）
+
+    検証と照合を**同じ台帳**から行うのが Astra 第 63 ラウンド 問 2 の条件（「区画の検証と、その
+    区画だけを使った集計を一体にする」）。だから形の検査を通らなかった台帳で名前を照合しない
+    （形の壊れた台帳との照合は、直したのか潰したのか判別できない）"""
+    if not isinstance(doc, dict):
+        return [f'台帳の根拠が辞書ではない: {type(doc).__name__}']
+    errs = []
+    for fld in GUARD_LEDGER_KEYS:
+        if fld not in doc:
+            errs.append(f'台帳に {fld} が無い（{"/".join(GUARD_LEDGER_KEYS)} の 4 つが要る）')
+    if errs:
+        return errs
+    note = doc['note']
+    if not isinstance(note, str) or not note.strip():
+        errs.append(f'台帳の note が空でない文字列ではない（この台帳が何かを書く）: {note!r}')
+    files = doc['scannedFiles']
+    if not isinstance(files, list) or not all(isinstance(x, str) and x.strip() for x in files):
+        errs.append('台帳の scannedFiles が空でない文字列の配列ではない（走査対象の .py の一覧、'
+                    'リポジトリからの相対パス）')
+        files = []
+    elif len(set(files)) != len(files):
+        dup = sorted({x for x in files if files.count(x) > 1})
+        errs.append(f'台帳の scannedFiles に重複したファイルがある: {dup[:4]}')
+    owners = doc['owners']
+    if not isinstance(owners, dict):
+        errs.append(f'台帳の owners が辞書ではない: {type(owners).__name__}'
+                    '（`見張り番の名前 -> 直接呼ぶ道具のファイル名の配列`）')
+        owners = {}
+    for name, tools in owners.items():
+        if not isinstance(name, str) or not _NAME_SHAPE_RE.fullmatch(name):
+            errs.append(f'台帳の owners の名前「{str(name)[:24]}」が見張り番の名前の形'
+                        '（英小文字・数字・`-`）に合わない')
+        if not isinstance(tools, list) or not tools:
+            errs.append(f'台帳の owners[{name!r}] が空でない配列ではない: {tools!r}'
+                        '（直接呼ぶ道具のファイル名の配列。1 道具でも配列）')
+            continue
+        bad = [x for x in tools if not isinstance(x, str) or not x.endswith('.py')]
+        if bad:
+            errs.append(f'台帳の owners[{name!r}] に .py で終わらない道具名がある: {bad[:4]}')
+    ex = doc['exemptions']
+    if not isinstance(ex, list):
+        errs.append(f'台帳の exemptions が配列ではない: {type(ex).__name__}'
+                    '（今は 0 件。豁免が要る日に 1 件ずつ人が登録する）')
+    else:
+        for i, entry in enumerate(ex):
+            errs += _exempt_entry_errors(entry, f'exemptions[{i}]')
+    return errs
+
+
+def fail_guard_ledger(bad):
+    """台帳の不備を**同じ見出し・同じ作り直し手順**で終了させる（壊れた台帳との照合を止める）"""
+    tail = f'\n  …ほか {len(bad) - 24} 件' if len(bad) > 24 else ''
+    fail(GUARD_LEDGER_HEADER + ':\n  ' + '\n  '.join(bad[:24]) + tail +
+         '\n  作り直し（この順で。候補の書き出しだけで上書きはしない）'
+         '\n    1) 対応表を戻す: git checkout -- ' + GUARD_LEDGER_FILE +
+         '\n    2) 今の走査から候補を書き出す: python3 skill/scripts/tools/battery/'
+         'emit-guard-owners.py --emit ' + GUARD_LEDGER_FILE +
+         '\n    3) 作られた候補を人がレビューしてコミットする（見張り番の名前と所属を変えるのは'
+         '人の判断。豁免の登録も同じ）')
+
+
+def load_guard_ledger(repo=None):
+    """対応表を読んで形の検査を通した物だけを返す（Astra 第 63 ラウンド 問 1・問 2 の裁定）
+
+    形が壊れていたら**照合に進まず**終了する。見張り番 `own-shape` はこの形の検査に置く
+    （消すと壊れた台帳でも照合へ進んでしまうので、名指しの負控制が確かめられる）"""
+    root = repo_root() if repo is None else pathlib.Path(repo)
+    path = root / GUARD_LEDGER_FILE
+    require(path, '見張り番の対応表', want_file=True)
+    doc = json.loads(path.read_text(encoding='utf-8'))
+    if guard('own-shape'):
+        bad = guard_ledger_shape_errors(doc)
+        if bad:
+            fail_guard_ledger(bad)
+    return doc
+
+
+def guard_exempt_map(doc, origin):
+    """走査するファイルに対する豁免を `モジュール名 -> 許す名前の集合` に展開する
+
+    Astra 第 63 ラウンド 問 1 の裁定どおり、豁免は**名乗った import と名前だけ**を許す
+    （`types` を許したファイルでも `types.FunctionType` は穴のまま）。ファイル名の照合は
+    台帳の `file` をリポジトリからの相対パスの末尾で見る（走査の `origin` は道具のファイル名）"""
+    out = {}
+    for entry in doc.get('exemptions') or []:
+        if not isinstance(entry, dict) or not isinstance(entry.get('imports'), dict):
+            continue
+        f = entry.get('file')
+        if not isinstance(f, str):
+            continue
+        if f != origin and not f.endswith('/' + origin):
+            continue
+        for mod, granted in entry['imports'].items():
+            if not isinstance(mod, str) or not isinstance(granted, list):
+                continue
+            root = mod.split('.')[0]
+            allowed = {x for x in granted if isinstance(x, str) and x.strip()}
+            out.setdefault(root, set()).update(allowed)
+    return out
