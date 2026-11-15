@@ -6,7 +6,8 @@ import _inputs as IN
 if len(sys.argv)<3: raise SystemExit('使い方: python3 skill/scripts/tools/battery/cmp-head-proto.py <旧 report.mjs> <新 report.mjs>')
 OLD=str(IN.require_script(sys.argv[1])); NEW=str(IN.require_script(sys.argv[2]))
 REPO=IN.repo_root()
-BASE=pathlib.Path(os.environ.get('CGD_AUDIT_BASE', 'skill/scripts/tools/battery/baseline-v1'))
+BASE=IN.resolve_cli_path(os.environ.get('CGD_AUDIT_BASE'),
+                         default='skill/scripts/tools/battery/baseline-v1')
 BUCKETS=['external.in','external.out','entries.in','entries.out','artifacts.in','artifacts.out','sameApi','siblingEndpoints','wiring']
 FIELDS=('bucket','direction','tier','hops','switches','evidence','path')
 def rows_of(r):

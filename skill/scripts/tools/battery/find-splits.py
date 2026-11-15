@@ -11,7 +11,7 @@ SCRIPT = str(IN.require_script(sys.argv[1]))
 REPO = IN.repo_root()
 TRIALS = int(sys.argv[2])
 SEED = int(sys.argv[3])
-OUT = pathlib.Path(sys.argv[4])
+OUT = IN.resolve_cli_path(sys.argv[4], default=None)
 if TRIALS < 1: print('試行は 1 以上'); raise SystemExit(1)
 BUCKETS=['external.in','external.out','entries.in','entries.out','artifacts.in','artifacts.out','sameApi','siblingEndpoints','wiring']
 KINDS=['calls','triggers','invokes','references','handler']

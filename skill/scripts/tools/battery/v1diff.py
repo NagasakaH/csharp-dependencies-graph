@@ -20,13 +20,13 @@ import json, os, pathlib, subprocess, sys
 
 import _inputs as IN
 
-# 既定値はリポジトリ相対。作業ディレクトリがどこでも同じ物を見る（第 53 ラウンド agy P2）
-BASE = IN.require(pathlib.Path(os.environ.get('CGD_AUDIT_BASE',
-                                              'skill/scripts/tools/battery/baseline-v1')),
+# 既定値はリポジトリ相対（作業ディレクトリがどこでも同じ物を見る。第 53 ラウンド agy P2）。
+# 環境変数で明示された値は cwd 基準（第 55 ラウンド Astra 裁定 問 5 の案 1。手順書は
+# 「リポジトリ根から実行」なので、手順どおりの実行ではどちらでも同じ物を指す）
+BASE = IN.require(IN.resolve_cli_path(os.environ.get('CGD_AUDIT_BASE'),
+                                      default='skill/scripts/tools/battery/baseline-v1'),
                   'v1 基準の 18 条件のディレクトリ')
-OUT = pathlib.Path(os.environ.get('CGD_AUDIT_OUT', 'out/audit-current'))
-if not OUT.is_absolute():
-    OUT = IN.repo_root() / OUT
+OUT = IN.resolve_cli_path(os.environ.get('CGD_AUDIT_OUT'), default='out/audit-current')
 OUT.mkdir(parents=True, exist_ok=True)
 BUCKETS = ['external.in', 'external.out', 'entries.in', 'entries.out',
            'artifacts.in', 'artifacts.out', 'sameApi', 'siblingEndpoints', 'wiring']
@@ -34,10 +34,15 @@ SUMMARY_KEYS = ['rows', 'primaryIn', 'primaryOut', 'entryIn', 'entryOut', 'artif
                 'artifactsOut', 'wiring', 'sameApi', 'siblings', 'siblingEndpointsOnly', 'siblingDefs']
 
 MODE, KNOWNS = 'plain', None
+# 既知差分のファイルも CLI から渡された値なので cwd 基準（第 55 ラウンド Astra 裁定 問 5）
 if '--verify-known' in sys.argv:
-    MODE, KNOWNS = 'verify', sys.argv[sys.argv.index('--verify-known') + 1]
+    MODE = 'verify'
+    KNOWNS = IN.resolve_cli_path(sys.argv[sys.argv.index('--verify-known') + 1], default=None)
 elif '--emit-known' in sys.argv:
-    MODE, KNOWNS = 'emit', sys.argv[sys.argv.index('--emit-known') + 1]
+    MODE = 'emit'
+    KNOWNS = IN.resolve_cli_path(sys.argv[sys.argv.index('--emit-known') + 1], default=None)
+if KNOWNS is not None:
+    KNOWNS = IN.require(KNOWNS, '既知差分の JSON', want_file=True)
 
 
 def rows_of(r, cond):
@@ -75,7 +80,9 @@ for p in REPORTS:
     except SystemExit as e:
         bad.append(f'{p.name} の記録グラフが解決できない: {e}')
         continue
-    args = ['node', str(IN.require_script(os.environ.get('CGD_V1DIFF_REPORT', 'skill/scripts/report.mjs'))),
+    # 環境変数が未設定なら None を渡す。既定の文字列を明示値として渡すと cwd 基準に
+    # なり、battery/ から実行した日に自分自身の場所を探しに行く（第 55 ラウンド実測）
+    args = ['node', str(IN.require_script(os.environ.get('CGD_V1DIFF_REPORT'))),
             '--graph', graph,
             '--hops', str(s['hops']), '--wiring-hops', str(s['wiringHops']),
             '--limit', str(s.get('limit') or 100000)]

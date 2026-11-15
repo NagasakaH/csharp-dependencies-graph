@@ -32,7 +32,10 @@ def _repo_root(start):
 
 ROOT = _repo_root(pathlib.Path(__file__).resolve().parent)
 HERE = pathlib.Path(__file__).resolve().parent
-REPORT = str(ROOT / 'skill' / 'scripts' / 'report.mjs')
+# README は対象を第 1 引数に渡す書き方なのに `sys.argv` を一切読まず、この固定パスを測っていた
+# （第 54 ラウンド agy 指摘 1: `python3 via-cycle.py /nonexistent/report.mjs` が「18 レポート /
+# 違反合計 0」で終了 0 になった）。README どおり引数を使い、無いパスは測らずに終わる
+REPORT = str(IN.require_script(sys.argv[1] if len(sys.argv) > 1 else None))
 BUCKETS = [('external', 'in'), ('external', 'out'), ('entries', 'in'), ('entries', 'out'),
            ('artifacts', 'in'), ('artifacts', 'out'), ('sameApi', None),
            ('siblingEndpoints', None), ('wiring', None)]
@@ -126,6 +129,7 @@ def main():
         gp.write_text(json.dumps(g))
         r = run(['--graph', str(gp), '--from', 'tf:aws_iam_role_policy.p', '--hops', '0'])
     print('== (1) 最小再現（policy -> role; n,o -> role; o --invokes--> n）==')
+    IN.require_comparison_rows(list(rows_of(r)), 'via-cycle.py (1) 最小再現', what='表示行')
     for x in rows_of(r):
         print(f"  {x['id']}: hops={x['hops']} root={x['pathRoot']} via={x.get('via')} "
               f"ev={(x['evidence'] or {}).get('kind')} path={' -> '.join(x['path'])}")
@@ -141,6 +145,7 @@ def main():
     dump = os.environ.get('CGD_VIA_CYCLE_DUMP')
     if dump:
         pathlib.Path(dump).write_text(json.dumps(r, ensure_ascii=False, indent=1))
+    IN.require_comparison_rows(list(rows_of(r)), 'via-cycle.py (2) demo-iam', what='表示行')
     for x in rows_of(r):
         print(f"  {x['id']}: hops={x['hops']} tier={x['tier']} dir={x['direction']} "
               f"root={x['pathRoot']} ev={(x['evidence'] or {}).get('kind')} "
@@ -158,7 +163,14 @@ def main():
                 '--wiring-hops', str(s['wiringHops']), '--limit', str(s.get('limit') or 100000)]
         for st in old['starts']:
             args += ['--from', st['id']]
-        fail += len(check(run(args), p.name))
+        new = run(args)
+        # 記録その物が行 0 件の条件（demo-readme / elsa-1 / elsa-folder / real-tf の 4 件）は
+        # 0 件で正しい。記録が行を持つ条件で今回 0 件なら、その条件は測れていない
+        rec = [x for b_, s_ in BUCKETS for x in (old.get(b_) or [] if s_ is None
+                                               else (old.get(b_) or {}).get(s_, []))]
+        if rec:
+            IN.require_comparison_rows(list(rows_of(new)), f'via-cycle.py (3) {p.name}', what='表示行')
+        fail += len(check(new, p.name))
         nrep += 1
     print(f'== 結果: {nrep} レポート / 違反合計 {fail} ==')
     return 1 if fail else 0

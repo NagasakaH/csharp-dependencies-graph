@@ -15,10 +15,11 @@ import _inputs as IN
 
 args = [a for a in sys.argv[1:] if a != '--force']
 force = '--force' in sys.argv
-script = str(IN.require_script(args[0] if len(args) > 0 else 'skill/scripts/report.mjs'))
+script = str(IN.require_script(args[0] if len(args) > 0 else None))
 REPO = IN.repo_root()
-base = pathlib.Path(os.environ.get('CGD_AUDIT_BASE', 'skill/scripts/tools/battery/baseline-v1'))
-out = pathlib.Path(args[1] if len(args) > 1 else 'out/audit-current')
+base = IN.resolve_cli_path(os.environ.get('CGD_AUDIT_BASE'),
+                           default='skill/scripts/tools/battery/baseline-v1')
+out = IN.resolve_cli_path(args[1] if len(args) > 1 else None, default='out/audit-current')
 if not base.is_dir():
     raise SystemExit(f'条件の保存先が無い: {base}')
 if out.resolve() == base.resolve():

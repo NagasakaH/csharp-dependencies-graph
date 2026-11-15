@@ -38,7 +38,9 @@ import _inputs as IN
 # 見張り番は、fixture を 2 本消した日（219 → 201 件）を通したため削除した（両名 P2）
 
 REPO = IN.repo_root()
-REPORT = str(IN.require_script(sys.argv[1] if len(sys.argv) > 1 else 'skill/scripts/report.mjs'))
+# `--emit-measured <パス>` を位置引数と取り違えない（旗の値はここで落とす）
+FLAGS, POS = IN.parse_flags(sys.argv[1:])
+REPORT = str(IN.require_script(POS[0] if POS else None))
 ANNOTATION = 'human'
 CORRESPONDENCE = {'llm', 'human'}
 MOVEMENT = {'triggers', 'invokes', 'handler', 'exposed-by'}
@@ -272,22 +274,41 @@ def check_summary(label, result):
 def run_report(graph_path, extra_args):
   # 失敗を「実行しなかった」に変えない（第 51 ラウンド双人レビュー。失敗を数えて continue すると
   # 全滅しても違反 0 で終了 0 になった）
+  # 出力名を実行ごとに替える（同じ名前で上書きすると、前の条件の JSON を読む事故が
+  # 起きうる。`run_json` は出力先が有る日を止めるようになった）
   return IN.run_json(REPORT, ['--graph', str(graph_path), *extra_args],
-                     os.path.join(TMP, 'r.json'), REPO, label=str(graph_path))
+                     os.path.join(TMP, 'r-%d.json' % len(os.listdir(TMP))),
+                     REPO, label=str(graph_path))
 
 
 seen_conditions = 0
+# 条件ごとに**実際に走査した行数**を数える（第 55 ラウンド Astra 裁定 問 2）。合計だけ見ると
+# 別条件の増減が相殺して「5,033 行」のまま中身が痩せる日を通过率するので、条件別で持つ
+measured = {}
 for cond in CONDS:
   # ラベルは以前と同じ形（`<グラフ名>[<種類>]`。v1 基準の条件はレポート名で出す）
   label = f'{cond["rel"].split("#")[0]}[{cond["kind"]}]'
   doc = json.loads(cond['graph'].read_text())
   res = run_report(cond['graph'], IN.materialize(cond, TMP))
   seen_conditions += 1
+  before = checked['行']
   check_run(label, doc, res)
   check_summary(label, res)
+  measured[cond['id']] = checked['行'] - before
 
 print(f'検査した起動条件 {seen_conditions} 件 / 行 {checked["行"]} 件'
       f'（要求一覧 required-checks.json と集合一致）')
+# 測った値の書き出し（`emit-required.py` が要求一覧を作り直すときの材料。通常の検証では
+# 正本を更新しないので、これは人が一覧を作り直すときだけ使う）
+if '--emit-measured' in sys.argv:
+  _out = IN.emit_measured(sys.argv[sys.argv.index('--emit-measured') + 1],
+                          'invariantRows', measured)
+  print(f'測った行数を書き出した: {_out}')
+try:
+  _cov_total = IN.check_coverage('invariantRows', measured, REPO, what='走査した行数')
+  _cov = None
+except SystemExit as e:
+  _cov, _cov_total = str(e), None
 print(f'違反合計 {len(violations)} 件')
 for kind, cnt in Counter(v[0] for v in violations).most_common():
   print(f'  - {kind}: {cnt}')
@@ -295,4 +316,9 @@ for k, c in notes.most_common():
   print(f'（参考）{k}: {c}')
 for v in violations[:20]:
   print(f'  違反: {v[0]} / {v[1]} / {v[2]} / {v[3]}')
+if _cov:
+  # 入力はそのままで測る範囲だけ変わった日（行が残っていても比較が減った日を含む）
+  print(_cov, file=sys.stderr)
+  sys.exit(1)
+print(f'走査した行数 {checked["行"]} 件は期待値（expectations.invariantRows、条件別 {_cov_total} 件）と一致')
 sys.exit(1 if violations else 0)

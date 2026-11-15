@@ -4,9 +4,13 @@ import json, subprocess, sys, itertools, tempfile, os, collections
 import _inputs as IN
 
 # 存在しない report.mjs を渡して「全通り一致」で合格しない（第 51 ラウンド双人レビュー Codex P2）
-script = str(IN.require_script(sys.argv[1]))
-graph_file = str(IN.require(sys.argv[2], '順列検査の固定グラフ'))
+script = str(IN.require_script(sys.argv[1] if len(sys.argv) > 1 else None))
+graph_file = str(IN.require(IN.resolve_cli_path(sys.argv[2] if len(sys.argv) > 2 else None,
+                                          default='skill/scripts/tools/battery/min-0.json'),
+                            '順列検査の固定グラフ', want_file=True))
 extra = json.load(open(graph_file)).get('extra', [])
+# 3 番目の引数で期待する縁順の通り数を明示できる（allperm-full.py と同じ決まり）
+EXPECT = int(sys.argv[3]) if len(sys.argv) > 3 else None
 g = json.load(open(graph_file))['graph']
 def run(edges):
     gg = dict(g); gg['edges'] = edges
@@ -20,15 +24,19 @@ def run(edges):
     if p.returncode:
         raise SystemExit(f'report.mjs 失敗 (exit {p.returncode}): {p.stderr[-800:]}')
     d = json.load(open(out)); os.unlink(out)
+    # 6 欄（external/entries/artifacts x in/out）だけを突き合わせているとここで宣言する
     rows = []
-    for b in ['external','entries','artifacts']:
-        for side in ['in','out']:
-            for r in d[b][side]: rows.append(f"{r['id']}={r['bucket']}/{r['direction']}/h{r['hops']}/sw{r['switches']}/e{(r.get('evidence') or {}).get('id','-')}/mv{(r.get('movementEvidence') or {}).get('id','-')}")
+    for r in IN.projection_rows(d, 'allperm.py', ('id', 'bucket', 'direction', 'hops', 'switches')):
+        rows.append(f"{r['id']}={r['bucket']}/{r['direction']}/h{r['hops']}/sw{r['switches']}/e{(r.get('evidence') or {}).get('id','-')}/mv{(r.get('movementEvidence') or {}).get('id','-')}")
+    # 行が 0 件の実行を「1 通りに一致」で合格にしない（第 54 ラウンド agy 指摘 2）
+    IN.require_comparison_rows(rows, 'allperm.py（縁順 1 とおりの実行）', what='比較する行')
     return '\n'.join(sorted(rows))
+IN.permutation_guards(len(g['edges']), None, EXPECT, 'allperm.py')
 res = collections.OrderedDict()
 for perm in itertools.permutations(range(len(g['edges']))):
     edges = [g['edges'][i] for i in perm]
     res[','.join('e%d' % i for i in perm)] = run(edges)
+IN.permutation_guards(len(g['edges']), len(res), EXPECT, 'allperm.py')
 uniq = collections.defaultdict(list)
 for k, v in res.items(): uniq[v].append(k)
 print(f"縁順 {len(res)} 通り / 表 {len(uniq)} 通り")

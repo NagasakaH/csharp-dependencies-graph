@@ -20,8 +20,9 @@ import _inputs as IN
 
 REPO = IN.repo_root()
 QUERY = IN.require(REPO / 'skill' / 'scripts' / 'query.mjs', 'query.mjs')
-BASE = str(IN.require(pathlib.Path(sys.argv[1]) if len(sys.argv) > 1
-                      else REPO / 'out' / 'demo' / 'graph.json', '実グラフ', want_file=True))
+BASE = str(IN.require(IN.resolve_cli_path(sys.argv[1] if len(sys.argv) > 1 else None,
+                                          default='out/demo/graph.json'),
+                      '実グラフ', want_file=True))
 
 CMDS = [
     ['--from', 'file:src/Orders.Domain/Order.cs', '--dir', 'both', '--via-parent', '--hops', '3', '--group-by', 'file'],
@@ -37,12 +38,20 @@ def key(graph, argv, repo):
     # 失敗を「不一致 0 件」に混ぜない（check=True だと Traceback で終わる）
     if p.returncode != 0:
         raise SystemExit(f'query.mjs 失敗 (exit {p.returncode}) {" ".join(argv)}: {p.stderr[-500:]}')
-    d = json.loads(p.stdout)
+    try:
+        d = json.loads(p.stdout)
+    except ValueError as e:
+        raise SystemExit(f'query.mjs の JSON が読めない ({" ".join(argv)}。{e}): {p.stdout[:200]}')
+    if not isinstance(d, dict) or not isinstance(d.get('groups'), list) or \
+            not isinstance(d.get('summary'), dict):
+        raise SystemExit(f'query.mjs の出力が --json の形ではない'
+                         f'（{" ".join(argv)}: keys={sorted(d)[:5] if isinstance(d, dict) else type(d).__name__}）')
     s = {k: v for k, v in d['summary'].items() if k.startswith('group') or k == 'reached'}
     return json.dumps({'groups': d['groups'], 'summary': s}, sort_keys=True, ensure_ascii=False)
 
 
 base = json.loads(pathlib.Path(BASE).read_text())
+total_groups = 0
 print(f"# 縁の列挙順を変えても --group-by の JSON が同じか"
       f"（{os.path.relpath(BASE, REPO)}: {len(base['nodes'])} ノード / {len(base['edges'])} 縁）")
 bad = 0
@@ -66,5 +75,14 @@ with tempfile.TemporaryDirectory() as td:
         g = json.loads(ref)['groups']
         print('   groups: ' + (', '.join(
             f"{x['id']} 参照{x['nodes']}ノード/実縁{x['edges']}本" for x in g) or '(0 件)'))
-print(f"\n不一致 {bad} 件（0 が期待値）")
+        total_groups += len(g)
+        # 単一の起動が 0 群その物は正当（`--dir in` で届く先が無い起点が 1 本ある）。
+        # 見るのは **4 本の合計**。すべて 0 なら 4 とおりの並び順を突き合わせる相手が
+        # 無いので合格にしない（Astra 裁定 問 4: 一律に 0 行を違反にはしない）
+# （この見張り番の実装は下の合計判定。群の数え上げだけここで足す）
+if total_groups == 0:
+    raise SystemExit(f'edge-order.py: {len(CMDS)} 本の起動ですべて群が 0 件（{BASE}）。'
+                     '並び順を変えた 4 通りを突き合わせる相手が無いので合格にしない。'
+                     '空のグラフや起点が無いグラフを渡していないか確かめる')
+print(f"\n不一致 {bad} 件（0 が期待値）/ 集計された群 {total_groups} 件")
 sys.exit(1 if bad else 0)

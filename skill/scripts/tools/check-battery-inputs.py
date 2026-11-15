@@ -104,12 +104,18 @@ base = REPO / 'skill' / 'scripts' / 'tools' / 'battery' / 'baseline-v1'
 # 件数を先に要求する（17 件でも「揃っている」と言っていた。第 52 ラウンド Codex P2）
 reps = IN.report_paths(base, expect=18, what='v1 基準の条件（baseline-v1）')
 for p in reps:
+    # 0 バイト・壊れた JSON は `json.loads` が ValueError を投げて、下の「無い・空の一覧と
+    # 作り直し方」へ届かず Traceback で落ちた（第 54 ラウンド agy 指摘 3）。読めない物も
+    # 一覧へまとめて、測る前に終わらせる
     try:
         got = IN.graph_path(json.loads(p.read_text())['summary']['graph'])
         if not got.exists():
             missing.append(f'{p.name} の記録グラフ → {got}（解決先が無い）')
     except SystemExit as e:
         missing.append(f'{p.name} の記録グラフ: {e}')
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        missing.append(f'{p.name} が読めない（{type(e).__name__}: {str(e)[:60]}。'
+                       f'追跡下の記録なので `git checkout -- {p.relative_to(REPO)}`）')
 
 # 検査の道具が足す実グラフ（一覧は `_inputs.extra_graphs()` が正本）
 for g in IN.extra_graphs(REPO):
@@ -136,8 +142,9 @@ for p in sorted(tools.rglob('*')):
             stale.append(f'{p.relative_to(REPO)}:{i}: {m.group(0)}')
 
 if missing or empty:
+    # 2 行目に `f` が無く「{len(empty)}」がそのまま印字された（第 54 ラウンド agy 指摘 3）
     print(f'バッテリーの入力が {len(missing)} 件無い（無い状態で走ると、黙って前版を測るか、'
-          '黙って条件が減る）。空（0 バイト）{len(empty)} 件:', file=sys.stderr)
+          f'黙って条件が減る）。空（0 バイト）{len(empty)} 件:', file=sys.stderr)
     for p in missing:
         print(f'  - 無い: {p}', file=sys.stderr)
     for p in empty:
@@ -161,27 +168,55 @@ if stale:
 # `out/wt-head` の作り直し案内へ届かないので、**missing と stale を出したあと**にやる
 EMIT = '--emit' in sys.argv
 if EMIT:
-    out = pathlib.Path(sys.argv[sys.argv.index('--emit') + 1])
+    out = IN.resolve_cli_path(sys.argv[sys.argv.index('--emit') + 1], default=None)
     spec = json.loads((IN.HERE / 'input-fingerprints.json').read_text(encoding='utf-8'))
     for rel in spec['inputs']:
         d = IN.fingerprint(IN.require(REPO / rel, f'指紋を書き出す入力（{rel}）'))
         spec['inputs'][rel].update({'nodes': d['nodes'], 'edges': d['edges'],
                                     'ids': d['ids'], 'rels': d['rels']})
         spec['inputs'][rel].pop('freshAtHead', None)
+    # 中身の指紋（第 55 ラウンド Astra 裁定 問 1）。一覧の一掃を書き直すので、
+    # 入力が減った日に古い登録が残らない
+    contents = {}
+    for rel, mode, what in IN.content_scope(REPO):
+        sha_mode, sha, nbytes = IN.content_fingerprint(REPO / rel, mode)
+        contents[rel] = {'mode': sha_mode, 'sha': sha, 'bytes': nbytes, 'what': what}
+    spec[IN.CONTENTS] = contents
+    spec['note'] = ('バッテリーが入力として読むファイルの指紋台帳。`inputs` は out/ 固定入力の'
+                    '構造指紋（ノード id と縁 `source|kind|target` の集合）で、第 52 ラウンド '
+                    'Astra 裁定 3。`' + IN.CONTENTS + '` は**中身その物**の SHA-256（第 54 ラウンド'
+                    '双人レビュー Codex 指摘 1: 構造指紋だけでは fixture の edges を空にしたり、'
+                    '起点でないノードを rename したりしても変わらなかった）。JSON はキー順だけを'
+                    '正規化して配列順・重複・全フィールドを保ち、実行ごとに違うトップレベルの'
+                    ' `generatedAt` / `rootPath` だけ除く。前の版の report.mjs と v1 の記録は'
+                    'バイト列。台帳の更新は人が作り直しが妥当と認めたあとに '
+                    '`python3 skill/scripts/tools/check-battery-inputs.py --emit '
+                    'skill/scripts/tools/battery/input-fingerprints.json` で行う')
     out.write_text(json.dumps(spec, ensure_ascii=False, indent=1) + '\n', encoding='utf-8')
-    print(f'今の指紋を {out} に書き出した（作り直しを人が認めたあとの作成手順。'
+    print(f'今の指紋を {out} に書き出した（構造 {len(spec["inputs"])} 件 / '
+          f'中身 {len(contents)} 件。作り直しを人が認めたあとの作成手順。'
           '日常の実行では --emit を付けない）')
     raise SystemExit(0)
 
+# 二つの指紋検査は**まとめて**落とす。片方で `raise SystemExit` すると、もう片方の
+# 食い違いが出ている日にそれを見せられない（第 54 ラウンド双人レビューの点検で確かめた）
 bad_fp = IN.check_fingerprints(REPO)
-if bad_fp:
-    print(f'out/ の固定入力 {len(bad_fp)} 件の構造指紋が基準と違う（入力が別のものに差し替わった。'
-          '作り直してよいは人の判断。`--emit <ファイル>` は人が作り直しを認めたあとの作成手順）:',
-          file=sys.stderr)
-    for m in bad_fp:
-        print(f'  - {m}', file=sys.stderr)
+bad_ct = IN.require_fingerprints(REPO)
+if bad_fp or bad_ct:
+    if bad_fp:
+        print(f'out/ の固定入力 {len(bad_fp)} 件の構造指紋が基準と違う（入力が別のものに'
+              '差し替わった。作り直してよいは人の判断。`--emit <ファイル>` は人が作り直しを'
+              '認めたあとの作成手順）:', file=sys.stderr)
+        for m in bad_fp:
+            print(f'  - {m}', file=sys.stderr)
+    if bad_ct:
+        print(f'入力の中身の指紋 {len(bad_ct)} 件が基準と違う／揃っていない（差し替え・登録漏れは'
+              '人の判断。自動では直さない）:', file=sys.stderr)
+        for m in bad_ct:
+            print(f'  - {m}', file=sys.stderr)
     raise SystemExit(1)
 
 print(f'バッテリーの入力 {len(FILES)} 件（fixture {len(FIXTURES)} 本ふくむ）+ '
       f'記録グラフ {len(reps)} 件 + 検査のグラフ {len(IN.extra_graphs(REPO))} 件が揃っている'
-      f'（道具のソースに一時パスの残り 0 件 / out/ 固定入力 {len(bad_fp)} 件の差し替えなし）')
+      f'（道具のソースに一時パスの残り 0 件 / out/ 固定入力の構造指紋・中身の指紋 '
+      f'{len(IN.content_scope(REPO))} 件の差し替えなし）')

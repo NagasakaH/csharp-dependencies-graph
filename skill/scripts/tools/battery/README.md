@@ -28,23 +28,45 @@
 - `graph_path()` は**対応表を先に引く**（第 52 ラウンド Codex・agy P2）。作者環境に残骸が有る日も、
   別クローンで作者の絶対パスが残り記録も読む。ルート前の付かない相対パスでたどるので `/tmp` と
   `/private/tmp` の違いで落ちない。解決できない日は**作り直し手順付きで終了 1**（素通ししない）
-- `input-fingerprints.json` は `out/` の固定入力 3 本の**構造指紋**（ノード id と縁
-  `source|kind|target` の sha256。`generatedAt` と `rootPath` は機械ごとに違うのでバイトは使わない）。
-  入力が別のものへ差し替わった日を入力点検が終了 1 で止める。出所（elsa-core commit
-  `b74bc3c7…`）と作り直しコマンドもここに置く。**3 本ともコマンドを作り直して指紋が
-  戻ることを実測**した（第 53 ラウンド。前に書いていた手順は `--exclude` と `--root` が違って別物に
-  なっていた。手順を書き直したら走らせて確かめる）
+- `input-fingerprints.json` は入力の指紋台帳で、**二種類の指紋**を持つ。
+  - `inputs` … `out/` の固定入力 3 本の**構造指紋**（ノード id と縁 `source|kind|target` の
+    sha256。`generatedAt` と `rootPath` は機械ごとに違うのでバイトは使わない）。出所（elsa-core
+    commit `b74bc3c7…`）と作り直しコマンドもここに置く。**3 本ともコマンドを作り直して指紋が
+    戻ることを実測**した（第 53 ラウンド。前に書いていた手順は `--exclude` と `--root` が違って
+    別物になっていた。手順を書き直したら走らせて確かめる）
+  - `contents` … **52 件の入力その物**の SHA-256（fixture 19 本・検査のグラフ・順列入力・
+    `baseline-v1/` 18 本・`out/` 固定入力・注釈・変更一覧のテキスト）。構造指紋だけでは
+    「fixture の `edges` を全部空にした日」「起点でないノードを 1 つ rename した日」
+    「`parent` / `kind` / `provenance` を壊した日」に**指紋が変わらなかった**（第 54 ラウンド
+    双人レビュー Codex 指摘 1 の実測）。JSON はキー順だけ正規化して配列順・重複・全フィールドを
+    見る（縁の並び順その物が検査の対象なので集合にしない）。`r43-before.mjs` と `baseline-v1/` は
+    **バイト列**で固定する（人が方針を変えないと更新しない）。台帳の更新は
+    `python3 skill/scripts/tools/check-battery-inputs.py --emit skill/scripts/tools/battery/input-fingerprints.json`
+    を人が作り直しを認めたあとに走らせる（通常の検証では付けない）
 - `known-v1-diffs.json` は v1 基準との**既知差分 74 件の内容**（行 id・欄・向き・tier・段数・
   根拠の縁の種類と summary キーの、変更前と変更後の値）。`v1diff.py --verify-known` がこれと
   完全一致のときだけ終了 0（Astra 裁定。件数だけ的一致は同件数の入れ替わりを通すので使わない）。
   `--emit-known` は人が作り直しを認めたあとの作成手順で、実行結果から自動更新しない
-- `required-checks.json` は回帰検査が走らせる**必須の fixture（19 本）と起動条件（219 件）の
-  要求一覧**。`_inputs.launch_conditions()` が条件を組み立て、この集合と突き合わせて消えた・
-  新規の条件があれば**測る前に終了 1**（第 53 ラウンド双人レビュー両名 P2: fixture を 2 本
-  消した日 219 → 201 件で入力点検も不変条件検査も終了 0 だった。件数の下限では「一部だけ減る」を
-  捕まえられない）。条件の組み方は `_inputs.condition_args()` に一本化した（以前は
-  `check-invariants46.py` と `self-consistency.py` に同じ関数が 2 本あった）。作り直しは
-  `python3 emit-required.py <その JSON>` で人が行う（`--verify-known` と同じ約束）
+- `required-checks.json` は回帰検査が使う**要求一覧と期待値の正本**で、3 つの内訳を持つ
+  （別々の JSON に増やさない）。
+  - `fixtures`（19 本）… glob の実体と**双方向**で一致必須。有るのに一覧に無い fixture は
+    黙って走らない
+  - `conditions`（219 件）… 起動条件の**正準形**。合否は `case` / `graph` / `kind` / `args` の
+    中身の比較で決める。`id` は中身から再計算できる導物で、**id の集合だけ**を見た比較は
+    「要求一覧の graph / kind / args を書き換えて id を据え置く」日を通した（第 54 ラウンド
+    Codex 指摘 2）。`case`（レポート名、fixture 発は null）が有るのは audit 条件の
+    `elsa-1` ↔ `elsa-folder`、`elsa-50` ↔ `elsa-limit` が**グラフ・kind・args まで同じ**で、
+    起動内容を区別する唯一の材料がレポート名だから。「219 件＝219 とおりの起動内容」では無い
+    （第 55 ラウンド Astra 裁定が指摘した私の前提の誤り）
+  - `expectations` … 実際に測った件数（次節）。`_inputs.launch_conditions()` は一覧の形を
+    検査し（重複・id の再計算・形の壊れた args）、条件が要求に無い／要求にあるのに走らない日を
+    **測る前に**終了 1 にする。条件の組み方は `_inputs.condition_args()` に一本化した
+  - 作り直しは `python3 emit-required.py <その JSON> --measured <測った件数の JSON>` で人が行う
+    （`--verify-known` と同じ約束。通常の検証から正本は更新しない）
+- パスの約束（第 55 ラウンド Astra 裁定 問 5 = 案 1）。**既定の置き場所はリポジトリ根基準**、
+  **明示した引数と環境変数は実行時の cwd 基準**。`_inputs.resolve_cli_path()` が一箇所で決めるので
+  `battery/` から `../../out/...` のように書ける（`out/` はリポジトリの直下なので
+  `battery/` からは `../../../../out/`）。存在しない相対パスを根から補って黙って通すことはしない
 - `require()` は**相対パスをリポジトリの根から引く**（手順書の書き方はリポジトリ相対なので、
   道具をサブディレクトリから実行しても同じ物を見る。第 53 ラウンド agy: `v1diff.py` を
   `battery/` から走れると基準ディレクトリを見失っていた）。`rel_of_recorded()` は今の
@@ -59,8 +81,9 @@
 | `../regen-audit.py` | `python3 skill/scripts/tools/regen-audit.py skill/scripts/report.mjs out/audit-current --force` | 18 件の JSON を今の版で作り直す |
 | `v1diff.py` | `CGD_AUDIT_OUT=out/audit-current python3 skill/scripts/tools/battery/v1diff.py` | 「**レポート 18 件 / 差分 74 件**」（行 58 + 集計 16。人が差し替えないと決めた既知の定数なので**終了 1 が正常**。内訳は決 69 / 決 71） |
 | `v1diff.py --verify-known` | `python3 skill/scripts/tools/battery/v1diff.py --verify-known skill/scripts/tools/battery/known-v1-diffs.json` | 「差分の内容が既知差分と完全一致」で**終了 0**（バッテリーの機械判定）。新規差分・消えた既知差分・同じ値への入れ替わり・不良（実行失敗 / 読みけない JSON / `unresolved` / 行 id 重複）はすべて終了 1 |
-| `check-dir-rule.py` | `python3 skill/scripts/tools/battery/check-dir-rule.py out/audit-current skill/scripts/tools/battery/baseline-v1` | 「一致 441 / 不一致 0」（v1 基準との突き合わせは 386 一致 / 55 不一致で、55 は既知） |
-| `count-none.py` | `python3 skill/scripts/tools/battery/count-none.py out/audit-current` | 「none の行 28 件（同じ API 17 / 定義上の関連 9 / 兄弟 2）」・サマリカウンタ不一致 0・裁定の再集計と一致 |
+| `check-dir-rule.py --profile current` | `python3 skill/scripts/tools/battery/check-dir-rule.py --profile current out/audit-current` | 「一致 441 / 不一致 0 / 並行縁で不定 0 / 経路を読めない 0 / 向き の値域外 0」＋**期待値と一致**（内訳とレポート別の比較件数まで照合。違えば終了 1） |
+| `check-dir-rule.py --profile v1` | `python3 skill/scripts/tools/battery/check-dir-rule.py --profile v1` | 「一致 386 / 不一致 55」で、55 件は `known-v1-diffs.json` の行差分 58 件のうち**向きが変わった 55 件**と中身まで一致（`IN.expected_direction_diffs()` が導出。件数だけの一致は使わない） |
+| `count-none.py` | `python3 skill/scripts/tools/battery/count-none.py out/audit-current` | 「none の行 28 件（同じ API 17 / 定義上の関連 9 / 兄弟 2 / うち primary 2）・期待値（`expectations.directionless`）と一致」。裁定のハードコードは第 55 ラウンドで追跡下の一覧へ移した。行数は `summary.rows` の自己申告でなく**欄の実測**で数える |
 | `cmp-head-proto.py` | `git show HEAD:skill/scripts/report.mjs > /tmp/head.mjs && python3 skill/scripts/tools/battery/cmp-head-proto.py /tmp/head.mjs skill/scripts/report.mjs` | 「動いた項目 {}」。JSON に触らない変更なら 差分のある条件 0（差分があれば終了 1） |
 | `same-output.py` | `python3 skill/scripts/tools/battery/same-output.py /tmp/head.mjs skill/scripts/report.mjs` | 「18 条件中 不一致 0 件」。今日 HEAD と比べるのが意味のある使い方（`r43-before.mjs` と比べると不一致 18 件が出てよい） |
 
@@ -72,7 +95,7 @@
 | 道具 | 実行例 | 期待する出力 |
 | --- | --- | --- |
 | `check-invariants46.py` | `python3 skill/scripts/tools/battery/check-invariants46.py skill/scripts/report.mjs` | 「検査した起動条件 219 件 / 行 5033 件」「**違反合計 0 件**」 |
-| `emit-required.py` | `python3 skill/scripts/tools/battery/emit-required.py skill/scripts/tools/battery/required-checks.json` | 「fixture 19 本 / 起動条件 219 件を書き出した」。今の入力と組み立て方から**人が作り直す手順**で、差分をレビューしてからコミットする（実行結果からの自動更新はしない） |
+| `emit-required.py` | `python3 skill/scripts/tools/battery/emit-required.py skill/scripts/tools/battery/required-checks.json --measured <測った JSON>` | 「fixture 19 本 / 起動条件 219 件 / 期待値 4 内訳を書き出した」。`--measured` が無いと**作れない**（前の期待値を引き継ぐと「検査範囲が縮んだ日」を通すため）。測り方はこの道具の先頭に 5 本書いてある |
 | `self-consistency.py` | `python3 skill/scripts/tools/battery/self-consistency.py skill/scripts/report.mjs` | 「不一致 0 件」（件数の内訳は版で動くので**違反 0** と終了 0 を見る） |
 
 起動条件は `skill/tests/fixtures/ImpactFacts/*.graph.json`（追跡下）+ `_inputs.extra_graphs()`
@@ -82,16 +105,67 @@
 （第 53 ラウンドまであった「200 件未満なら走り終えたあとに止める」は、fixture 2 本消失を
 通したので廃止。両名 P2）
 
+## 測った件数の期待値と、検査の検査（第 55 ラウンド Astra 裁定 問 2・問 4・問 6）
+
+入力指紋は「入力が差し替わった日」を止めるが、**入力はそのまま・測る範囲だけが縮んだ日**を
+止めない。fixture の `edges` を全部空にした日は要求一覧との集合比較も通り、不変条件検査は
+219 条件を走らせても検査する行だけが減っていた（第 54 ラウンド Codex 指摘 1）。そこで
+**実際に走査した件数**を条件別に測り、`expectations` と突き合わせて違えば**測ったあと**に
+終了 1 にする（件数の一致は内容一致の代用ではないので、不変条件検査と
+`v1diff.py --verify-known` はそのまま残す）。
+
+| 内訳 | 測る道具 | 今の期待値 |
+| --- | --- | --- |
+| `expectations.invariantRows` | `check-invariants46.py` | 219 条件 / 5,033 行（**条件別**で持つ。合計だけだと別条件の増減が相殺する） |
+| `expectations.parentChild` | `self-consistency.py` | 472 件の親子突き合わせ（条件別） |
+| `expectations.directionless` | `count-none.py` | 441 行 / none 28（同じ API 17・定義上の関連 9・兄弟 2・primary 2） |
+| `expectations.dirRule.current` | `check-dir-rule.py --profile current` | 441 一致 / 0 不一致 / 0 不定 / 0 経路を読めない / 0 値域外 + レポート別 |
+| `expectations.dirRule.v1` | `check-dir-rule.py --profile v1` | 386 一致 / 55 不一致 + レポート別（55 件は既知差分から導出） |
+
+**要求一覧を作り直すときの測り順**（`emit-required.py --measured` の材料。`out/audit-current` は
+今の `report.mjs` での再生成）:
+
+```sh
+M=$(mktemp -d)/measured.json
+python3 skill/scripts/tools/battery/check-invariants46.py --emit-measured $M
+python3 skill/scripts/tools/battery/self-consistency.py   --emit-measured $M
+python3 skill/scripts/tools/battery/count-none.py         --emit-measured $M out/audit-current
+python3 skill/scripts/tools/battery/check-dir-rule.py --profile current --emit-measured $M out/audit-current
+python3 skill/scripts/tools/battery/check-dir-rule.py --profile v1      --emit-measured $M
+python3 skill/scripts/tools/battery/emit-required.py skill/scripts/tools/battery/required-checks.json --measured $M
+```
+
+「0 行なら違反」を一律にはしない（Astra 裁定 問 4）。`demo-readme.json`・`elsa-1.json`・
+`elsa-folder.json`・`real-tf.json` は**起動条件に対して正当に 0 行**で、`validate_report()` は
+形だけを見る。止めるのは**比較する行が 0 件なのに合否を出そうとする日**
+（`require_comparison_rows()`）と、**1 本のレポートで行を消して比較件数を減らす日**
+（`dirRule.*.byReport`）。
+
+```sh
+python3 skill/scripts/tools/battery/test-contract.py
+```
+
+`test-contract.py` は**検査の検査**（負控制 30 件・正控制 5 件）。0 行の `report.mjs`、要求一覧の
+`graph` / `args` を書き換えて id を据え置く、条件の重複、fixture を 1 本増やす、指紋台帳の登録を
+1 件消す、`fixture` の縁を全部空にする、期待値を 1 件ずらす・2 件入れ替える、JSON を書かない実行、
+出力先が既にある実行、`battery/` から存在しない相対パス、**縁を全部抜いた実グラフでの
+`edge-order.py`**（4 本の起動すべてが 0 群）、**縁が 1 本だけのグラフでの `allperm.py`**、
+`allperm.py` に期待縁順の通り数（第 3 引数）違いを渡す、行から突き合わせる欄（`switches`）が
+消える `report.mjs` を**実際に起こして**、検出されなければ終了 1。追跡下のファイルは読み直した
+bytes を戻するので、走ったあとも `git status` は空のまま（残っていたらそれ自体を失敗にする）。
+**見張り番の件数を増やすだけでは検査は強くならない**という第 54 ラウンドの教訓を、動く形に
+するための道具
+
 ## 縁順・入れ替えで表示が変わらないことを確かめる
 
 | 道具 | 実行例 | 期待する出力 |
 | --- | --- | --- |
-| `allperm.py` / `allperm-corr.py` | `python3 skill/scripts/tools/battery/allperm.py skill/scripts/report.mjs skill/scripts/tools/battery/min-0.json` | 「縁順 720 通り / 表 1 通り」（割れたら終了 1） |
+| `allperm.py` / `allperm-corr.py` | `python3 skill/scripts/tools/battery/allperm.py skill/scripts/report.mjs skill/scripts/tools/battery/min-0.json` | 「縁順 720 通り / 表 1 通り」（割れたら終了 1）。**付き合わせているのは 6 欄**（`external` / `entries` / `artifacts` × `in` / `out`）とその欄（`id` / `bucket` / `direction` / `hops` / `switches`。corr は `correspondence` も）で、形が崩れた日は名前で終了 1。第 3 引数で**期待する縁順の通り数**を明示できる（違う数なら走る前に終了 1。縁が 1 本以下のグラフも空振りなので終了 1） |
 | `allperm-full.py` | `python3 skill/scripts/tools/battery/allperm-full.py skill/scripts/report.mjs skill/scripts/tools/battery/min-0.json` | 「判定: JSON 完全一致」。24 通りを見たいなら第 3 引数に `min-2.json 24`。入力が無い・全実行失敗なら **測らずに**終了 1 |
 | `r43-permute.py` | `python3 skill/scripts/tools/battery/r43-permute.py skill/scripts/report.mjs` | 固定 2 条件（`r42-calls-*.json`）で 120 入れ替え → 表 1 通り |
 | `find-splits.py` | `python3 skill/scripts/tools/battery/find-splits.py skill/scripts/report.mjs 250 <種> out/splits/splits-rNN.json` | 「入れ替えで割れた例 0 / 試行 250」（割れた例があれば終了 1）。**種は毎回新しく**（使った種は protocol に記録）、出力先も毎回新しいパスを渡す。親ディレクトリは作る |
 | `via-cycle.py` | `python3 skill/scripts/tools/battery/via-cycle.py skill/scripts/report.mjs` | 「18 レポート / 違反合計 0」。書き出し先を指定しない限りリポジトリへ何も書かない |
-| `edge-order.py` | `python3 skill/scripts/tools/battery/edge-order.py` | 「不一致 0 件（0 が期待値）」。`query.mjs` の `--group-by` 集計が縁順に依存しないことの実グラフ side の証拠 |
+| `edge-order.py` | `python3 skill/scripts/tools/battery/edge-order.py` | 「不一致 0 件（0 が期待値）/ 集計された群 13 件」。`query.mjs` の `--group-by` 集計が縁順に依存しないことの実グラフ side の証拠。**4 本の起動すべてが 0 群なら比較する相手が無いので終了 1**（単一の起動が 0 群その物は正当。`--dir in` の起点はそうなる） |
 
 `min-0.json` / `min-2.json` / `r42-calls-*.json` は順列検査が使う最小グラフ。
 `via-cycle.py` は `baseline-v1/` と同じ条件でも自分の手で組み直して走らせる

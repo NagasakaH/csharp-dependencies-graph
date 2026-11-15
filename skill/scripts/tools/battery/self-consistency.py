@@ -27,7 +27,9 @@ import _inputs as IN
 # 通したので削除（第 53 ラウンド双人レビュー両名 P2）
 
 REPO = IN.repo_root()
-REPORT = str(IN.require_script(sys.argv[1] if len(sys.argv) > 1 else 'skill/scripts/report.mjs'))
+# `--emit-measured <パス>` を位置引数と取り違えない（旗の値はここで落とす）
+FLAGS, POS = IN.parse_flags(sys.argv[1:])
+REPORT = str(IN.require_script(POS[0] if POS else None))
 MOVEMENT = {'triggers', 'invokes', 'handler', 'exposed-by'}
 BUCKETS = ['external.in', 'external.out', 'entries.in', 'entries.out', 'artifacts.in', 'artifacts.out',
            'sameApi', 'siblingEndpoints', 'wiring']
@@ -109,17 +111,34 @@ def check_run(label, graph_doc, result):
                            f"子={r['direction']} 期待=none 経路={'|'.join(path)}"))
 
 
+measured = {}
 for cond in CONDS:
   label = f'{cond["rel"].split("#")[0]}[{cond["kind"]}]'
   doc = json.loads(cond['graph'].read_text())
+  before = compared
   check_run(label, doc, run_report(cond['graph'], IN.materialize(cond, TMP)))
+  # 条件別に「実際に突き合わせた親子数」を持つ（0 件の条件も期待値として明示する）
+  measured[cond['id']] = compared - before
 
 print(f'検査した起動条件 {conditions} 件（要求一覧 required-checks.json と集合一致） / '
       f'無方向の一歩で親と突き合わせた行 {compared} 件'
       f'（うち 表示経路全体が無方向の行 {undirected_only} 件）')
+if '--emit-measured' in sys.argv:
+  _out = IN.emit_measured(sys.argv[sys.argv.index('--emit-measured') + 1],
+                          'parentChild', measured)
+  print(f'突き合わせた件数を書き出した: {_out}')
+try:
+  _cov_total = IN.check_coverage('parentChild', measured, REPO, what='突き合わせた親子数')
+  _cov = None
+except SystemExit as e:
+  _cov, _cov_total = str(e), None
 print(f'不一致 {len(mismatches)} 件')
 for k, c in notes.most_common():
   print(f'（参考）{k}: {c}')
 for m in mismatches[:20]:
   print(f'  不一致: {m[0]} / 子={m[1]} / 親={m[2]} / {m[3]}')
+if _cov:
+  print(_cov, file=sys.stderr)
+  sys.exit(1)
+print(f'突き合わせた親子数 {compared} 件は期待値（expectations.parentChild、条件別 {_cov_total} 件）と一致')
 sys.exit(1 if mismatches else 0)

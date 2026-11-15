@@ -18,7 +18,8 @@ if len(sys.argv) < 3:
                      '<report.mjs> <ケース json> [順列上限]')
 # 対象と入力の所在を先に確かめる（第 52 ラウンド agy: 入力が無いと Traceback になっていた）
 script = str(IN.require_script(sys.argv[1]))
-graph_file = str(IN.require(sys.argv[2], '順列検査のケース'))
+graph_file = str(IN.require(IN.resolve_cli_path(sys.argv[2], default=None),
+                            '順列検査のケース', want_file=True))
 cap = int(sys.argv[3]) if len(sys.argv) > 3 else 720
 case = json.load(open(graph_file))
 extra = case.get('extra', [])
@@ -50,6 +51,11 @@ def run(edges):
         os.unlink(out)
         raise SystemExit(f'実行失敗（report.mjs が動いていない）: {p.stderr[-300:]}')
     d = json.load(open(out)); os.unlink(out)
+    # 9 欄すべて空の JSON を「判定: JSON 完全一致」で合格にしない（第 54 ラウンド agy 指摘 2）
+    ids = [r['id'] for b in ('external', 'entries', 'artifacts') for s in ('in', 'out')
+           for r in d[b][s]] + [r['id'] for b in ('sameApi', 'siblingEndpoints', 'wiring')
+                                for r in d.get(b, [])]
+    IN.require_comparison_rows(ids, 'allperm-full.py（縁順 1 とおりの実行）', what='レポートの行')
     return norm(d)
 
 perms = list(itertools.permutations(range(len(g['edges']))))

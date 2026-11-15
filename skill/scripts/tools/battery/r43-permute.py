@@ -13,8 +13,7 @@ import tempfile
 import _inputs as IN   # 根の探索と入力の所在はここに一本化（第 52 ラウンド agy 指摘の未使用関数を削除）
 
 REPO = IN.repo_root()
-REPORT = str(IN.require_script(sys.argv[1] if len(sys.argv) > 1
-                               else os.path.join(REPO, 'skill', 'scripts', 'report.mjs')))
+REPORT = str(IN.require_script(sys.argv[1] if len(sys.argv) > 1 else None))
 LIMIT = int(sys.argv[2]) if len(sys.argv) > 2 else 10 ** 9
 BUCKETS = ['external.in', 'external.out', 'entries.in', 'entries.out',
            'artifacts.in', 'artifacts.out', 'sameApi', 'siblingEndpoints', 'wiring']
@@ -30,6 +29,8 @@ def rows_of(r):
     for x in part:
       out.append((x['id'], b, x['direction'], x['tier'], x['hops'], x['switches'],
                   (x['evidence'] or {}).get('id'), '->'.join(x['path'])))
+  # 行 0 件の並びを「1 通りに決まった」と数えない（第 54 ラウンド agy 指摘 2 と同じ型）
+  IN.require_comparison_rows(out, 'r43-permute.py（1 起動）', what='比較する行')
   return sorted(out)
 
 

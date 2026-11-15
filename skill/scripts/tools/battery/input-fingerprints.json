@@ -1,5 +1,5 @@
 {
- "note": "out/ の固定入力の構造指紋（第 52 ラウンド Astra 裁定 3「固定入力にはハッシュと元ソースの版と省略のない生成コマンドを記録しろ」への対応）。graph.json は `generatedAt` と `rootPath` が実行ごとに違うのでバイト一致は使えない。ノード id の集合と縁 `source|kind|target` の集合のsha256 を見る。指紋が違う日は「入力が別のものへ差し替わった」合図で、書き換えてよいか人の判断。`python3 skill/scripts/tools/check-battery-inputs.py --emit <ファイル>`で今の値を書き出せるが、それは**作り直しを認めたあとの作成手順**（自動更新はしない）",
+ "note": "バッテリーが入力として読むファイルの指紋台帳。`inputs` は out/ 固定入力の構造指紋（ノード id と縁 `source|kind|target` の集合）で、第 52 ラウンド Astra 裁定 3。`contents` は**中身その物**の SHA-256（第 54 ラウンド双人レビュー Codex 指摘 1: 構造指紋だけでは fixture の edges を空にしたり、起点でないノードを rename したりしても変わらなかった）。JSON はキー順だけを正規化して配列順・重複・全フィールドを保ち、実行ごとに違うトップレベルの `generatedAt` / `rootPath` だけ除く。前の版の report.mjs と v1 の記録はバイト列。台帳の更新は人が作り直しが妥当と認めたあとに `python3 skill/scripts/tools/check-battery-inputs.py --emit skill/scripts/tools/battery/input-fingerprints.json` で行う",
  "inputs": {
   "out/demo/graph.json": {
    "nodes": 74,
@@ -9,11 +9,7 @@
    "source": "このリポジトリの demo/ を解析したグラフ。`out/loop/protocol.md` §0 のビルド",
    "regen": "node skill/scripts/build.mjs --root demo/orders-api-lambda --out-dir out/demo --name demo --annotation skill/examples/annotations.orders-api.json --annotation skill/examples/annotations.storage.json",
    "reproducible": true,
-   "reproducibleNote": "上のコマンドを作り直してノード id と縁の集合が一致することを第 53 ラウンドで実測（`--root demo` と `--exclude test,tests` は**別物**になる。実測 75/66・51309/53475 で不一致）",
-   "freshAtHead": {
-    "nodes": 74,
-    "edges": 66
-   }
+   "reproducibleNote": "上のコマンドを作り直してノード id と縁の集合が一致することを第 53 ラウンドで実測（`--root demo` と `--exclude test,tests` は**別物**になる。実測 75/66・51309/53475 で不一致）"
   },
   "out/elsa/graph.json": {
    "nodes": 51179,
@@ -24,10 +20,6 @@
    "regen": "git clone https://github.com/elsa-workflows/elsa-core.git repos/elsa-core && git -C repos/elsa-core checkout b74bc3c7740929106d52807d1d89f88a72eed8a7 && export DOTNET_ROOT=$HOME/.dotnet PATH=\"$HOME/.dotnet:$PATH\" CGD_BIN=$PWD/skill/analyzer/bin/Release/net9.0/cgd && node skill/scripts/build.mjs --root repos/elsa-core --out-dir out/elsa --name elsa-core --exclude test,docs",
    "reproducible": true,
    "reproducibleNote": "上のコマンド（`--exclude test,docs`）を作り直して 51179 ノード / 53521 縁・id と縁の集合が一致することを第 53 ラウンドで実測。`--exclude test,tests` にすると 51309 / 53475 で不一致（違いを推測させないためコマンドを省略しない）",
-   "freshAtHead": {
-    "nodes": 51179,
-    "edges": 53521
-   },
    "builtWith": {
     "cgd": "skill/analyzer/bin/Release/net9.0/cgd（sha256 1842d323c282436b…、.NET SDK 9.0.321）"
    }
@@ -40,13 +32,321 @@
    "source": "合成の入力グラフ（性能ゲートの v2-mix 条件と不変条件検査）",
    "regen": "python3 skill/scripts/tools/make-v2-graph.py out/perf-inputs/v2-big.graph.json",
    "reproducible": true,
-   "reproducibleNote": "作り直してノード id と縁の集合が一致することを第 53 ラウンドで実測",
-   "freshAtHead": {
-    "nodes": 2727,
-    "edges": 5800,
-    "ids": "39b25392aad5d802f0d7ac58190fc826ff58ab21380540b3aafa35acbd8d1204",
-    "rels": "e96fa7c9a0bbb6c4fe4c4849d48a24f18f61aa45c91a1c24f99e63194db1c75d"
-   }
+   "reproducibleNote": "作り直してノード id と縁の集合が一致することを第 53 ラウンドで実測"
+  }
+ },
+ "contents": {
+  "out/demo/graph.json": {
+   "mode": "json",
+   "sha": "070b2a79175d2b3fe0f9f3c8a16b435f221f8995078cc5e0e504e7bc8b045b31",
+   "bytes": 46795,
+   "what": "実測の固定入力（demo）"
+  },
+  "out/elsa/graph.json": {
+   "mode": "json",
+   "sha": "cab79e35061fe92b865e92064ed2c0a924b794dbf937510892863256f2aa8100",
+   "bytes": 48477982,
+   "what": "実測の固定入力（elsa-core）"
+  },
+  "out/perf-inputs/elsa-50.txt": {
+   "mode": "bytes",
+   "sha": "34f03af14c338bfd56a510d9999b43a0777363af69cb9ddfe2611c8c8cd8c99e",
+   "bytes": 4042,
+   "what": "変更一覧の固定入力"
+  },
+  "out/perf-inputs/v2-big.graph.json": {
+   "mode": "json",
+   "sha": "e721146107886e7eb16541283d488ee381338903acf48bdeb496cd1f5557e7a9",
+   "bytes": 2889659,
+   "what": "性能ゲートの固定入力"
+  },
+  "skill/examples/annotations.orders-api.json": {
+   "mode": "json",
+   "sha": "7801a9611c378311bcc4334d9d0ce6d5c17f7c62a12fa49e8d2e4e4b2f008fa2",
+   "bytes": 4078,
+   "what": "demo の再生成が読む注釈"
+  },
+  "skill/examples/annotations.storage.json": {
+   "mode": "json",
+   "sha": "bf6e97ad62a65d972fcd121d24f21b7551645e2ab14c272eb5793f6616a9ef98",
+   "bytes": 3290,
+   "what": "demo の再生成が読む注釈（保存先）"
+  },
+  "skill/scripts/tools/battery/baseline-v1/demo-api.json": {
+   "mode": "bytes",
+   "sha": "2ffa70a0f49460f34274497b8b6a36d7e4406c12420b94d8a04c38d7ddfa14bd",
+   "bytes": 37257,
+   "what": "v1 の出力契約の記録（人が差し替えない）"
+  },
+  "skill/scripts/tools/battery/baseline-v1/demo-iam.json": {
+   "mode": "bytes",
+   "sha": "9dfec40de82f94b5c018a43acf08464c47493366cee1c085b6e6c1c80bf6506b",
+   "bytes": 22027,
+   "what": "v1 の出力契約の記録（人が差し替えない）"
+  },
+  "skill/scripts/tools/battery/baseline-v1/demo-order.json": {
+   "mode": "bytes",
+   "sha": "b70182f20be950f9e9a59b8f07a48c2d9efcd49ebbe2f0ffb4e1bbe88f69f3ec",
+   "bytes": 41534,
+   "what": "v1 の出力契約の記録（人が差し替えない）"
+  },
+  "skill/scripts/tools/battery/baseline-v1/demo-proj.json": {
+   "mode": "bytes",
+   "sha": "dac693826c5600523c05827638fdb2efc836f1b6d933441adc15f86c70089796",
+   "bytes": 39044,
+   "what": "v1 の出力契約の記録（人が差し替えない）"
+  },
+  "skill/scripts/tools/battery/baseline-v1/demo-readme.json": {
+   "mode": "bytes",
+   "sha": "046997b3974d8b5090ef50d30a9047e6b22a66c42399d37adf606b0b673940c1",
+   "bytes": 1178,
+   "what": "v1 の出力契約の記録（人が差し替えない）"
+  },
+  "skill/scripts/tools/battery/baseline-v1/demo-tf.json": {
+   "mode": "bytes",
+   "sha": "b3114ca0247234bfb20e85f1daa6c77c45892a49534df3a87437945bafb04f3f",
+   "bytes": 25549,
+   "what": "v1 の出力契約の記録（人が差し替えない）"
+  },
+  "skill/scripts/tools/battery/baseline-v1/elsa-1.json": {
+   "mode": "bytes",
+   "sha": "ca8bb3676302b6543011721dc21385b462463e121b3ab3caf94073a11bc9dc6f",
+   "bytes": 1359,
+   "what": "v1 の出力契約の記録（人が差し替えない）"
+  },
+  "skill/scripts/tools/battery/baseline-v1/elsa-10.json": {
+   "mode": "bytes",
+   "sha": "b976545fb84f1962d8e66b47cbacade60d15125c064ad93e268e1ca3be39d64a",
+   "bytes": 37732,
+   "what": "v1 の出力契約の記録（人が差し替えない）"
+  },
+  "skill/scripts/tools/battery/baseline-v1/elsa-50.json": {
+   "mode": "bytes",
+   "sha": "2b370398f8f0d5b9a3e911dea93df5d253084d02793b6a3e67fc8dcea9af42d3",
+   "bytes": 135831,
+   "what": "v1 の出力契約の記録（人が差し替えない）"
+  },
+  "skill/scripts/tools/battery/baseline-v1/elsa-folder.json": {
+   "mode": "bytes",
+   "sha": "ca8bb3676302b6543011721dc21385b462463e121b3ab3caf94073a11bc9dc6f",
+   "bytes": 1359,
+   "what": "v1 の出力契約の記録（人が差し替えない）"
+  },
+  "skill/scripts/tools/battery/baseline-v1/elsa-limit.json": {
+   "mode": "bytes",
+   "sha": "2b370398f8f0d5b9a3e911dea93df5d253084d02793b6a3e67fc8dcea9af42d3",
+   "bytes": 135831,
+   "what": "v1 の出力契約の記録（人が差し替えない）"
+  },
+  "skill/scripts/tools/battery/baseline-v1/fixture-api.json": {
+   "mode": "bytes",
+   "sha": "dcd2eeb1f2f37b5eaa0f66de3f32db3562bf21acff3caa4595e0bf0c9a1d4448",
+   "bytes": 27829,
+   "what": "v1 の出力契約の記録（人が差し替えない）"
+  },
+  "skill/scripts/tools/battery/baseline-v1/fixture-api0.json": {
+   "mode": "bytes",
+   "sha": "09cd7c1f2d118fbf2b521e913ee535f2c1003a96b1114816f8984724d12a801f",
+   "bytes": 26680,
+   "what": "v1 の出力契約の記録（人が差し替えない）"
+  },
+  "skill/scripts/tools/battery/baseline-v1/fixture-folder.json": {
+   "mode": "bytes",
+   "sha": "115d2454f0d233dad817ca4e6bd917bd69ec3d1adc831661b4696f261dab3a90",
+   "bytes": 25104,
+   "what": "v1 の出力契約の記録（人が差し替えない）"
+  },
+  "skill/scripts/tools/battery/baseline-v1/fixture-lam.json": {
+   "mode": "bytes",
+   "sha": "7c6a98cabf0fba1eea6992bc6189cc6f1c6112ce4784b91c36c18d60a6c791ca",
+   "bytes": 25902,
+   "what": "v1 の出力契約の記録（人が差し替えない）"
+  },
+  "skill/scripts/tools/battery/baseline-v1/real-api.json": {
+   "mode": "bytes",
+   "sha": "e4c1ff09c7c5116423aad718e08eced35cfa61e64c8a101250798163b1edfdd5",
+   "bytes": 13516,
+   "what": "v1 の出力契約の記録（人が差し替えない）"
+  },
+  "skill/scripts/tools/battery/baseline-v1/real-handler.json": {
+   "mode": "bytes",
+   "sha": "b08fec57d9da07564b8d010842e799d2032538a7a298c6eb37c10d6818eddec4",
+   "bytes": 13622,
+   "what": "v1 の出力契約の記録（人が差し替えない）"
+  },
+  "skill/scripts/tools/battery/baseline-v1/real-tf.json": {
+   "mode": "bytes",
+   "sha": "1b0d7a730da63656d9a238c29be52739d28ab059cf7a37d8d78049601ed94f0d",
+   "bytes": 1186,
+   "what": "v1 の出力契約の記録（人が差し替えない）"
+  },
+  "skill/scripts/tools/battery/graphs/real.graph.json": {
+   "mode": "json",
+   "sha": "387ed82165d474e90178a97e5faf3f40d09db6803c631e2376085af3e393b0dc",
+   "bytes": 15383,
+   "what": "v1 基準の条件が読む検査のグラフ"
+  },
+  "skill/scripts/tools/battery/graphs/ri.graph.json": {
+   "mode": "json",
+   "sha": "f073e49c28fb73fe3a8e7f56ec844b9b3c517958362d55be3570a87b635c76cf",
+   "bytes": 21702,
+   "what": "v1 基準の条件が読む検査のグラフ"
+  },
+  "skill/scripts/tools/battery/graphs/ri0.graph.json": {
+   "mode": "json",
+   "sha": "54f921730cef7be9d6b823846057077e2e895f10657234163529ac7b48b56dda",
+   "bytes": 20504,
+   "what": "v1 基準の条件が読む検査のグラフ"
+  },
+  "skill/scripts/tools/battery/min-0.json": {
+   "mode": "json",
+   "sha": "a31957ef212881442a7e075365769c799743297337a505dd54b159c970ab1399",
+   "bytes": 1572,
+   "what": "縁順検査のケース（extra を含むケース全体）"
+  },
+  "skill/scripts/tools/battery/min-2.json": {
+   "mode": "json",
+   "sha": "6624c4f475382dc759dc0f0e6b13f6ffdd7abbe6ed72be7e7f9d7b0ec0a5e311",
+   "bytes": 1081,
+   "what": "縁順検査のケース（extra を含むケース全体）"
+  },
+  "skill/scripts/tools/battery/r42-calls-0.json": {
+   "mode": "json",
+   "sha": "4bab1a3d9ff9371a250fa00aa9fb3c8a8bfd1fa07837090f521820b0371fb597",
+   "bytes": 1147,
+   "what": "入れ替え検査のケース"
+  },
+  "skill/scripts/tools/battery/r42-calls-1.json": {
+   "mode": "json",
+   "sha": "bdb81ebb4b5daabed149cbff5d65ac76a69aea15cebce916c40752ab63e29b7d",
+   "bytes": 1147,
+   "what": "入れ替え検査のケース"
+  },
+  "skill/scripts/tools/battery/r43-before.mjs": {
+   "mode": "bytes",
+   "sha": "6b41de69b78476996e32d7f2d0794d5ffc3ac05a99286d0c1fe8ef293c5694c5",
+   "bytes": 172769,
+   "what": "固定した前の版の report.mjs"
+  },
+  "skill/tests/fixtures/ImpactFacts/arrow-priority.graph.json": {
+   "mode": "json",
+   "sha": "96cc53e4d5bd0e53c8d56884d60cda77a584bb0ee438ae7a51456e3537ef818d",
+   "bytes": 3214,
+   "what": "回帰検査の fixture"
+  },
+  "skill/tests/fixtures/ImpactFacts/budget-dominance.graph.json": {
+   "mode": "json",
+   "sha": "542e5a9646ef40665d61d458fe20084331e7f0be5ce16d9d4b7ba084278c147d",
+   "bytes": 3537,
+   "what": "回帰検査の fixture"
+  },
+  "skill/tests/fixtures/ImpactFacts/budget-min.graph.json": {
+   "mode": "json",
+   "sha": "29d169b4565f3124adbdc5286664f3c6a1f0ae2dbcc59a92db44d5665cb6f526",
+   "bytes": 1157,
+   "what": "回帰検査の fixture"
+  },
+  "skill/tests/fixtures/ImpactFacts/budget-normal.graph.json": {
+   "mode": "json",
+   "sha": "5f091ba7bf1372cad7ea78ec41be7c5f1926d006d1e5a2d93d911026f5368ab6",
+   "bytes": 2490,
+   "what": "回帰検査の fixture"
+  },
+  "skill/tests/fixtures/ImpactFacts/budget-reversed.graph.json": {
+   "mode": "json",
+   "sha": "3f9d0684cbe30eb96049f6aa41d1633cc4a713e022dcd3da59e88ce225bed604",
+   "bytes": 2490,
+   "what": "回帰検査の fixture"
+  },
+  "skill/tests/fixtures/ImpactFacts/budget-through-invokes.graph.json": {
+   "mode": "json",
+   "sha": "2bb44f49aa1cd2fff54455e6e077af3fd41101903af455e0568418d55e7e0a98",
+   "bytes": 4336,
+   "what": "回帰検査の fixture"
+  },
+  "skill/tests/fixtures/ImpactFacts/calledout-walk.graph.json": {
+   "mode": "json",
+   "sha": "84241c101a7b01de563b55824c6d4c6a82f135e6598843add99a97bc2ee1fe1b",
+   "bytes": 343,
+   "what": "回帰検査の fixture"
+  },
+  "skill/tests/fixtures/ImpactFacts/code-chain-long.graph.json": {
+   "mode": "json",
+   "sha": "2990155108fb5b0c35f7b785f32cbb6d85ef3c9e2e75fb52da7a7649468ea94a",
+   "bytes": 6754,
+   "what": "回帰検査の fixture"
+  },
+  "skill/tests/fixtures/ImpactFacts/code-chain.graph.json": {
+   "mode": "json",
+   "sha": "41651d12b369a69306c97a43b930f78ea81e6f9fcad04b2ed7a4c5ed0ee896f7",
+   "bytes": 5667,
+   "what": "回帰検査の fixture"
+  },
+  "skill/tests/fixtures/ImpactFacts/cut-primary.graph.json": {
+   "mode": "json",
+   "sha": "fc08a624d3469eb6796abe40bc1bd13c4401cec93faaf7416830b1e29fdd33ad",
+   "bytes": 3047,
+   "what": "回帰検査の fixture"
+  },
+  "skill/tests/fixtures/ImpactFacts/down-inherit-record.graph.json": {
+   "mode": "json",
+   "sha": "91fa8ccd71214985eab56b6430bdfcc2702c2af98e374d2c08f24771d326ed90",
+   "bytes": 1566,
+   "what": "回帰検査の fixture"
+  },
+  "skill/tests/fixtures/ImpactFacts/down-inherit-seed.graph.json": {
+   "mode": "json",
+   "sha": "81c3348fe54c0dfc723965a62db8dd0fb4d5b289dc4aaed3ac43e36bd3ea8f76",
+   "bytes": 1766,
+   "what": "回帰検査の fixture"
+  },
+  "skill/tests/fixtures/ImpactFacts/group-cache.graph.json": {
+   "mode": "json",
+   "sha": "f6c996a00860ee452fb44c56c84f92885731503d9b4986072bd10beec80c4071",
+   "bytes": 2599,
+   "what": "回帰検査の fixture"
+  },
+  "skill/tests/fixtures/ImpactFacts/group-late.graph.json": {
+   "mode": "json",
+   "sha": "dce97ddc6d95755366fd91b1ad6ba87cfbe7b02dc66bc5765c1694edcccda349",
+   "bytes": 2306,
+   "what": "回帰検査の fixture"
+  },
+  "skill/tests/fixtures/ImpactFacts/preempt.graph.json": {
+   "mode": "json",
+   "sha": "a58511bb76866c2deff783b6b0abdf673dbdb5644a54af7a19367a5e001f996f",
+   "bytes": 1651,
+   "what": "回帰検査の fixture"
+  },
+  "skill/tests/fixtures/ImpactFacts/promote-skip.graph.json": {
+   "mode": "json",
+   "sha": "e1f5ad622117d72306e25d005b1bdcf7f04654e83ff4f5588ce2b0ea633d881e",
+   "bytes": 3111,
+   "what": "回帰検査の fixture"
+  },
+  "skill/tests/fixtures/ImpactFacts/six-groups.graph.json": {
+   "mode": "json",
+   "sha": "779c7f1244c5775b6787c989ca0f8c4e3d9a75f021953171c5d8cb9c7bed1ef0",
+   "bytes": 9246,
+   "what": "回帰検査の fixture"
+  },
+  "skill/tests/fixtures/ImpactFacts/touched-api-nocorr.graph.json": {
+   "mode": "json",
+   "sha": "195eb55e9b11a363c6d9af935d41c9a3292ae9b93a1badaf6a01890bccb48b4e",
+   "bytes": 2423,
+   "what": "回帰検査の fixture"
+  },
+  "skill/tests/fixtures/ImpactFacts/touched-api.graph.json": {
+   "mode": "json",
+   "sha": "7013183f642c258162a98155dee70039c5fb94d8b3cf17f45d20f4c9bc2a156b",
+   "bytes": 2687,
+   "what": "回帰検査の fixture"
+  },
+  "skill/tests/fixtures/query/graph.json": {
+   "mode": "json",
+   "sha": "05a4ca662dc42aca9393378280b8c45b2a42af20233b26aee06560defd9bcaed",
+   "bytes": 3566,
+   "what": "query.mjs のテストが読むグラフ"
   }
  }
 }
