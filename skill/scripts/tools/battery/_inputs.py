@@ -314,7 +314,11 @@ def run_json(script, args, out, repo=None, label='', expect_report=True):
     cmd = ['node', str(script)] + [str(a) for a in args] + ['--json', str(out)]
     p = subprocess.run(cmd, cwd=str(repo), capture_output=True, text=True)
     if guard('child-fail') and p.returncode != 0:
-        raise SystemExit(f'report.mjs 失敗 (exit {p.returncode}) {label}:\n{p.stderr[-800:]}')
+        # 第 56 ラウンド agy P2-4: `via-cycle.py` は子失敗時に標準出力の末尾も出していた。
+        # `run_json` 寄せでそれが消えたので、here にまとめて出す（道具ごとに戻さない）
+        raise SystemExit(f'report.mjs 失敗 (exit {p.returncode}) {label}:\n'
+                         f'標準エラーの末尾:\n{p.stderr[-800:]}'
+                         + (f'\n標準出力の末尾:\n{p.stdout[-400:]}' if p.stdout.strip() else ''))
     if guard('json-missing') and not out.exists():
         raise SystemExit(f'report.mjs は終了 0 なのに JSON を書いていない: {out}（{label}）'
                          f'\n標準出力の末尾: {p.stdout[-300:]}')
@@ -395,6 +399,21 @@ def permutation_guards(n_edges, ran, expected, label):
     if guard('perm-count') and expected is not None and ran != expected:
         raise SystemExit(f'{label}: 期待した縁順の通り数 {expected} 件に対して {ran} 件走った'
                          f'（グラフ {n_edges} 本の順列は {want} 通り）')
+
+
+def require_sampled_runs(n_ran, label, cap=None):
+    """間引いたあと**1 とおりしか走らない**比較を止める（第 56 ラウンド Codex P2-2）
+
+    順列を上限で間引くと 1 とおりだけ走ることがある。1 とおりの比較は「完全一致」と出て
+    も何も言わない。実測（第 56 ラウンド Codex）: 縁順で出力が変わる stub に対して
+    `allperm-full.py <stub> min-2.json 1` は「縁順 1 通り / JSON 1 通り / 判定: JSON 完全一致」
+    で終了 0、同じ stub で上限 24 なら「JSON 4 通り」で終了 1"""
+    if guard('perm-cap') and n_ran < 2:
+        raise SystemExit(
+            f'{label}: 実際に走らせた縁順が {n_ran} とおりしかない'
+            + (f'（順列上限 {cap} で間引かれた）。' if cap is not None else '。')
+            + '1 とおりの比較は「完全一致」になっても何も言わないので測ったことにならない。'
+              '順列上限は 2 以上を渡してください')
 
 
 def require_comparison_rows(rows, label, what='表示行'):
@@ -549,6 +568,11 @@ def coverage_shape_errors(exp):
                 v = e.get(k)
                 if isinstance(v, bool) or not isinstance(v, int):
                     bad.append(f'expectations.dirRule.{prof}.{k} が整数ではない（true/false は数にしない）')
+                elif v < 0:
+                    # 第 56 ラウンド agy P2-2: ここは「整数かどうか」だけを見ていた。`agree` を
+                    # 増やして `bad` を引けば合計は同じまま、現実にあり得ない件数で通れた
+                    bad.append(f'expectations.dirRule.{prof}.{k} が負の整数 {v}'
+                               '（同じ行を 2 度数えたり引いた形。件数は 0 以上）')
             by = e.get('byReport')
             if not isinstance(by, dict) or not by:
                 bad.append(f'expectations.dirRule.{prof}.byReport が空（レポート別の比較件数が正本）')
@@ -814,7 +838,9 @@ def validate_required_spec(spec, repo=None):
     if not isinstance(fx, list) or not all(isinstance(x, str) for x in fx):
         bad.append('fixtures は文字列の配列')
         fx = []
-    if len(fx) != len(set(fx)):
+    if guard('dup-fixture') and len(fx) != len(set(fx)):
+        # 集合にすると重複が消える。「19 本ある」と言い張れて走らない検査が隠れる
+        # （第 56 ラウンド agy P2-1: ここだけ `guard()` を通っていなかった）
         for dup in sorted({x for x in fx if fx.count(x) > 1}):
             bad.append(f'fixtures に重複: {dup}')
     # glob の実体と要求一覧を双方向で比べる（新しい fixture を一覧に書かない日は

@@ -145,7 +145,7 @@ python3 skill/scripts/tools/battery/emit-required.py skill/scripts/tools/battery
 python3 skill/scripts/tools/battery/test-contract.py
 ```
 
-`test-contract.py` は**検査の検査**（負控制 32 件・正控制 6 件。負控制は**見張り番を消した
+`test-contract.py` は**検査の検査**（負控制 37 件・正控制 6 件。負控制は**見張り番を消した
 再実行つき**。上の「見張り番を名前 1 個ずつ消せる」参照）。0 行の `report.mjs`、要求一覧の
 `graph` / `args` を書き換えて id を据え置く、条件の重複、fixture を 1 本増やす、指紋台帳の登録を
 1 件消す、`fixture` の縁を全部空にする、期待値を 1 件ずらす・2 件入れ替える、JSON を書かない実行、
@@ -180,23 +180,28 @@ CGD_GUARD_OFF=fp-sha python3 skill/scripts/tools/check-battery-inputs.py   # 実
 `test-contract.py` の `negative(..., guard=..., message=...)` は各制御を **2 度**走らせる —
 素の実行で `message`（その見張り番の案内）が出る → `guard` を消した実行で `message` が
 **出ない**（既定では**通る**ことも要求）— ので、名前を間違えたり別の一の見で通したりした
-制御はその場で失敗する。
+制御はその場で失敗する。見張り番を消すと**後が読めずに別の手前で落ちる**実行系の制御
+（JSON を書かない、JSON が壊れている）だけ `clean=False` を附け、その場合は `fallback` に
+**別の手前の文面**を宣言させる（宣言が無い・想定と違う所で落ちた、はどちらも失敗。
+第 56 ラウンド agy P2-3）
 
 | 名前 | 見ている物 | それを測る制御 |
 | --- | --- | --- |
 | `fp-structural` / `fp-unregistered` / `fp-ledger-extra` / `fp-sha` / `fp-bytes` / `fp-mode` / `fp-type` | 入力点検の 7 見（構造指紋・登録漏れ・台帳の余剰・中身の sha・バイト数・モード・`any` 区分） | 台帳の登録を 1 件消す / fixture の縁を全部空にする / **ノード id を同じ長さで書き換える**（バイト数は不変） |
-| `out-exists` / `child-fail` / `json-missing` / `json-empty` / `json-parse` / `report-shape` | 子を実行して JSON を読む 6 段階 | 出力先が既にある実行 / 終了 0 で JSON を書かない / 壊れた JSON / 欄の無い JSON |
-| `cov-shape` / `coverage` | 期待値一覧の形（合計は条件別の導出。`dirRule` は向き別の合計と `byReport` の合計が同じ行の数え直しであることを突き合わせる）と、走った件数の条件別比較 | 合計をずらす / 内訳を空にする / 1 件ずらす / **件数の違う 2 件**を入れ替える / 1 条件測らない |
-| `cond-shape` / `canonical-id` / `dup-condition` / `dup-id` / `fixture-set` / `condition-set` / `dup-built` | 要求一覧の形・id の再計算・正準形と id の重複・fixture 集合・起動条件の集合 | `graph` / `args` を書き換えて id を据え置く / 重複 / `case` を消す / 値域外の kind / fixture を 1 本増やす / 条件を 1 件消す |
-| `rows-zero` / `proj-buckets` / `proj-fields` / `perm-edges` / `perm-count` | 0 行で合否を出さない・付き合わせる 6 欄と欄の名前・縁の本数・順列の通り数 | 0 行の `report.mjs` × 4 道具 / 欄が消える / 縁が 1 本だけ / 期待縁順の通り数違い |
-| `dir-rule-counters` / `dir-rule-report` / `dir-rule-v1` | 向き別の件数・**レポート別の按分**・v1 の既知差分との中身照合 | 18 本とも 0 行 / **`byReport` の按分だけ**入れ替えた一覧（向き別の合計は同じ） / 18 本そろえて 1 本だけ行を消す |
+| `out-exists` / `child-fail` / `json-missing` / `json-empty` / `json-parse` / `report-shape` | 子を実行して JSON を読む 6 段階 | 出力先が既にある実行 / 終了 0 で JSON を書かない / 壊れた JSON（`json-parse` と `report-shape` を**まとめて**消す。第 56 ラウンド agy P2-3: `json-parse` だけ消すと `doc = {}` が後の形検査で落ちて、別の一で止まっていた） / 欄の無い JSON |
+| `cov-shape` / `coverage` | 期待値一覧の形（合計は条件別の導出。`dirRule` は向き別の合計と `byReport` の合計が同じ行の数え直しであることを突き合わせる。向き別の 5 欄は**負の値も弾く**）と、走った件数の条件別比較 | 合計をずらす / 内訳を空にする / 1 件ずらす / **件数の違う 2 件**を入れ替える / 1 条件測らない / **`agree` を 1 増やして `bad` を 1 引く**（合計は同じまま負の値。第 56 ラウンド agy P2-2） |
+| `cond-shape` / `canonical-id` / `dup-condition` / `dup-id` / `dup-fixture` / `fixture-set` / `condition-set` / `dup-built` | 要求一覧の形・id の再計算・正準形と id の重複・**fixtures の重複**・fixture 集合・起動条件の集合 | `graph` / `args` を書き換えて id を据え置く / 重複 / `case` を消す / 値域外の kind / fixture を 1 本増やす / `fixtures` に同じパスを 2 度書く / 条件を 1 件消す |
+| `rows-zero` / `proj-buckets` / `proj-fields` / `perm-edges` / `perm-count` / `perm-cap` | 0 行で合否を出さない・付き合わせる 6 欄と欄の名前・縁の本数・順列の通り数・**間引き後に実際に走った通り数** | 0 行の `report.mjs` × 4 道具 / 欄が消える / 縁が 1 本だけ / 期待縁順の通り数違い / `allperm-full.py` の順列上限に 1 を渡す（第 56 ラウンド Codex P2-2） |
+| `dir-rule-counters` / `dir-rule-report` / `dir-rule-v1` | 向き別の件数・**レポート別の按分**・v1 の既知差分との中身照合 | 18 本とも 0 行 / **`byReport` の按分だけ**入れ替えた一覧（向き別の合計は同じ） / `byReport` を**実在しないレポート名 1 本**に集め替えた一覧（合計は同じ。形の検査は 18 本という実体を知らない） / 18 本そろえて 1 本だけ行を消す / **既知差分の `id` を別ノードへ動かす**（不一致 55 件のまま中身だけずらす。`dir-rule-v1` を単独で測る。第 56 ラウンド Codex P2-1） |
 | `edge-order-groups` / `none-expectations` / `none-counters` | `edge-order.py` の 4 起動すべて 0 群・`count-none.py` の期待値とサマリカウンタ | 実グラフの縁を全部抜く |
 | `path-empty` / `path-count` / `path-cwd-only` | レポート 0 件・期待件数違い・明示した相対パスを cwd から解決する | 1/18 のディレクトリ / `battery/` から `out/audit-current` を渡す |
 | `v1-derivation` | 既知差分から導いた 向き の差分が 55 件であること | `dir-rule-v1` の制御が同時に落とす |
 
-**名前を付けない判定が 3 種類ある**（消せるようにすると検査自体が読めなくなる物）。①追跡下の入力が
-無い・読めない（要求一覧の `expectations` が無い、指紋台帳の入力が無い）②子プロセスが起動しない
-③JSON の最上位が object ですらない（読む欄が無い）。これらは**スイッチではなく不良**として残す
+**名前を付けない判定が 3 種類ある**（消せるようにすると検査が別の所で壊れるか、そもそも結果を
+読めなくなる物）。①追跡下の入力が無い・読めない（要求一覧のファイルが無い、要求一覧に
+`fixtures` / `conditions` / `expectations` のどれかが無い、既知差分の一覧が無い、指紋台帳の
+入力が無い）②子プロセスが起動しない ③JSON の最上位が object ですらない、要求一覧の
+`conditions` が配列でない（読む形が無い）。これらは**スイッチではなく不良**として残す
 
 `path-cwd-only` だけ意味が逆で、**第 54 ラウンドまでの古い挙動**（cwd に無い相対パスを
 リポジトリ根で探す）を**戻す**スイッチ。その挙動へ戻した日に制御が検出できるかを見るため
@@ -207,7 +212,7 @@ CGD_GUARD_OFF=fp-sha python3 skill/scripts/tools/check-battery-inputs.py   # 実
 | 道具 | 実行例 | 期待する出力 |
 | --- | --- | --- |
 | `allperm.py` / `allperm-corr.py` | `python3 skill/scripts/tools/battery/allperm.py skill/scripts/report.mjs skill/scripts/tools/battery/min-0.json` | 「縁順 720 通り / 表 1 通り」（割れたら終了 1）。**付き合わせているのは 6 欄**（`external` / `entries` / `artifacts` × `in` / `out`）とその欄（`id` / `bucket` / `direction` / `hops` / `switches`。corr は `correspondence` も）で、形が崩れた日は名前で終了 1。第 3 引数で**期待する縁順の通り数**を明示できる（違う数なら走る前に終了 1。縁が 1 本以下のグラフも空振りなので終了 1） |
-| `allperm-full.py` | `python3 skill/scripts/tools/battery/allperm-full.py skill/scripts/report.mjs skill/scripts/tools/battery/min-0.json` | 「判定: JSON 完全一致」。24 通りを見たいなら第 3 引数に `min-2.json 24`。入力が無い・全実行失敗なら **測らずに**終了 1。第 55 ラウンド agy 指摘で `allperm.py` / `allperm-corr.py` と同じ**縁が 1 本以下なら空振り**検査を足した |
+| `allperm-full.py` | `python3 skill/scripts/tools/battery/allperm-full.py skill/scripts/report.mjs skill/scripts/tools/battery/min-0.json` | 「判定: JSON 完全一致」。24 通りを見たいなら第 3 引数に `min-2.json 24`。**上限は 2 以上**（1 を渡すと間引き後に比較が起きないので終了 1。第 56 ラウンド Codex P2-2）。入力が無い・全実行失敗なら **測らずに**終了 1。第 55 ラウンド agy 指摘で `allperm.py` / `allperm-corr.py` と同じ**縁が 1 本以下なら空振り**検査を足した |
 | `r43-permute.py` | `python3 skill/scripts/tools/battery/r43-permute.py skill/scripts/report.mjs` | 固定 2 条件（`r42-calls-*.json`）で 120 入れ替え → 表 1 通り |
 | `find-splits.py` | `python3 skill/scripts/tools/battery/find-splits.py skill/scripts/report.mjs 250 <種> out/splits/splits-rNN.json` | 「入れ替えで割れた例 0 / 試行 250」（割れた例があれば終了 1）。**種は毎回新しく**（使った種は protocol に記録）、出力先も毎回新しいパスを渡す。親ディレクトリは作る |
 | `via-cycle.py` | `python3 skill/scripts/tools/battery/via-cycle.py skill/scripts/report.mjs` | 「18 レポート / 違反合計 0」。書き出し先を指定しない限りリポジトリへ何も書かない |

@@ -174,7 +174,7 @@ def _guards_restore(state):
         os.environ['CGD_GUARD_OFF'] = prev_env
 
 
-def negative(name, fn, guard=None, message=None, clean=True):
+def negative(name, fn, guard=None, message=None, clean=True, fallback=None):
     """失敗しなければならない制御。**その見張り番が落ちたこと**まで確かめる
 
     第 55 ラウンド agy P1 の実測で、負控制の 3 件は「別の一の見張り番が先に落ちる」だけで
@@ -186,7 +186,9 @@ def negative(name, fn, guard=None, message=None, clean=True):
        要求する（他の見張り番に遮われている間は、その制御は対象を測っていない）
 
     `clean=False` は「見張り番を消すと後が読めずに別の手前で落ちる」実行系の制御だけ
-    （JSON を書かない、JSON が壊れている）。そこは `message` が出ないことを検出とみなす"""
+    （JSON を書かない、JSON が壊れている）。その場合は `fallback` に**その別の手前の文面**を
+    書く（第 56 ラウンド agy P2-3）。文面を宣言させていないと、Run 2 が何で落ちたか不明の
+    まま「別の一で落ちた＝検出成功」と数えてしまう"""
     ran['negative'] += 1
     names = (guard,) if isinstance(guard, str) else tuple(guard or ())
     try:
@@ -218,6 +220,14 @@ def negative(name, fn, guard=None, message=None, clean=True):
     if clean and det2:
         failed.append(f'{name}: 見張り番 {" / ".join(names)} を消しても別の所で落ちる'
                       f'（他の見張り番に遮われて対象を測っていない）: {text2[:200]}')
+    elif not clean:
+        # 見張り番を消しても実行系が最後まで読めない制御は、**何が落ちたか**を宣言させる
+        if not fallback:
+            failed.append(f'{name}: clean=False は fallback に「別の手前の文面」を書く'
+                          '（何も言わないと Run 2 が何で止まったか不明のまま通る）')
+        elif not det2 or fallback not in text2:
+            failed.append(f'{name}: 見張り番 {" / ".join(names)} を消した実行が'
+                          f'「{fallback}」で止まらない（想定と違う所で落ちた）: {text2[:200]}')
 
 
 def positive(name, fn):
@@ -443,6 +453,95 @@ def dir_rule_broken_rows():
     doc['entries']['out'] = []
     victim.write_text(json.dumps(doc, ensure_ascii=False), encoding='utf-8')
     return py('check-dir-rule.py', '--profile', 'v1', str(src))
+
+
+def dir_rule_v1_ledger_moved():
+    """既知差分の 1 件目の `id` を別ノードへ動かす（**件数も向き別も動かさない**）
+
+    第 56 ラウンド Codex P2-1: 上の `dir_rule_broken_rows` は行を消すので向き別とレポート別の
+    見張り番が先に落ち、`CGD_GUARD_OFF=dir-rule-v1` でも検出成功になっていた（＝v1 の内容照合を
+    単独で測っていなかった）。ここでは不一致 55 件という件数を変えずに**中身だけ**ずらすので、
+    他の見張り番は素通りし、`dir-rule-v1` を消した実行は通る"""
+    rel = f'{BATTERY}/known-v1-diffs.json'
+    p = stash(rel)
+    led = json.loads(p.read_text(encoding='utf-8'))
+    rows = [d for d in led['diffs'] if d.get('kind') == 'row'
+            and len(d.get('old') or []) >= 2 and len(d.get('new') or []) >= 2
+            and d['old'][1] != d['new'][1]]
+    if len(rows) != 55:
+        raise NotDetected(f'既知差分の「向きが変わる行差分」が {len(rows)} 件'
+                          '（この制御は 55 件の前提で組む。台帳の作り直しは人の判断）')
+    moved = None
+    for d in rows:
+        used = {x['id'] for x in rows if x['cond'] == d['cond']}
+        doc = json.loads((HERE / 'baseline-v1' / d['cond']).read_text(encoding='utf-8'))
+        cand = sorted({r['id'] for _, r in _rows_of(doc)
+                       if r.get('id') and r['id'] not in used and r['id'] != d['id']})
+        if cand:
+            d['id'], moved = cand[0], d['cond']
+            break
+    if not moved:
+        raise NotDetected('id を動かす先が 1 件も無い（この制御が空振りになるので中断）')
+    p.write_text(json.dumps(led, ensure_ascii=False, indent=1) + '\n', encoding='utf-8')
+    try:
+        return py('check-dir-rule.py', '--profile', 'v1')
+    finally:
+        restore()
+
+
+def dir_rule_report_fake_key():
+    """`byReport` を実在しないレポート名 1 本に集め替えた一覧（合計は同じ。agy P2-2 の ①）
+
+    形の検査は 18 本という実体を知らない（それは要求一覧の fixture 側が持つ）。ここで測るのは
+    `check-dir-rule.py` が**レポート別**に実測と突き合わせる一かどうか"""
+    rel = f'{BATTERY}/required-checks.json'
+    p = stash(rel)
+    doc = json.loads(p.read_text(encoding='utf-8'))
+    by = doc['expectations']['dirRule']['current']['byReport']
+    total = sum(by.values())
+    doc['expectations']['dirRule']['current']['byReport'] = {'not-a-report.json': total}
+    p.write_text(json.dumps(doc, ensure_ascii=False, indent=1) + '\n', encoding='utf-8')
+    try:
+        return py('check-dir-rule.py', '--profile', 'current', 'out/audit-current')
+    finally:
+        restore()
+
+
+def dir_rule_negative_counter():
+    """向き別の件数に負の値を置く（`agree` を 1 増やして `bad` を 1 引く。合計は同じ。agy P2-2 の ③）
+
+    形を検査する `coverage_shape_errors` は 0 以上の整数を見ていたが、向き別の 5 欄は
+    「整数かどうか」だけを見ていた（`bad = -1` が通る）。+1 / -1 の組みにして、`bad` が 0 の
+    プロファイル（current は 441 / 0）でも同じ制御が働くようにした"""
+    spec = spec_copy()
+    e = spec['expectations']['dirRule']['current']
+    e['agree'], e['bad'] = e['agree'] + 1, e['bad'] - 1
+    IN.validate_required_spec(spec, REPO)
+
+
+def fixtures_duplicated():
+    """要求一覧の `fixtures` に同じパスを 2 度書く（集合にすると消える。第 56 ラウンド agy P2-1）"""
+    spec = spec_copy()
+    spec['fixtures'].append(spec['fixtures'][0])
+    IN.validate_required_spec(spec, REPO)
+
+
+def allperm_full_cap_one():
+    """`allperm-full.py` の順列上限を 1 にする（間引き後の 1 とおり比較は空振り。Codex P2-2）
+
+    実測（第 56 ラウンド Codex）: 縁順で出力が変わる stub に対して上限 1 は「縁順 1 通り /
+    レポート JSON 1 通り / 判定: JSON 完全一致」で終了 0、上限 24 なら割れて終了 1"""
+    return py('allperm-full.py', str(REPO / 'skill/scripts/report.mjs'),
+              str(REPO / BATTERY / 'min-2.json'), '1')
+
+
+def _rows_of(doc):
+    """レポート JSON の行を (欄名, 行) でならべる（`check-dir-rule.py` の `rows_of` と同じもの）"""
+    for b in ('external.in', 'external.out', 'entries.in', 'entries.out',
+              'artifacts.in', 'artifacts.out', 'sameApi', 'siblingEndpoints', 'wiring'):
+        part = doc[b.split('.')[0]][b.split('.')[1]] if '.' in b else doc[b]
+        for x in part:
+            yield b, x
 
 
 SEQ = [0]
@@ -689,7 +788,7 @@ def main():
         negative('allperm.py に期待縁順の通り数違いを渡す', allperm_wrong_expected_permutations,
                  guard='perm-count', message='期待した縁順の通り数')
         negative('allperm.py の行から突き合わせる欄が消える', allperm_row_missing_field,
-                 guard='proj-fields', message='行に欄が無い', clean=False)
+                 guard='proj-fields', message='行に欄が無い', clean=False, fallback='KeyError')
         negative('実グラフの縁を全部抜いて edge-order.py', edge_order_no_edges,
                  guard='edge-order-groups', message='すべて群が 0 件')
         negative('18 本とも 0 行のレポートで check-dir-rule.py --profile current',
@@ -702,12 +801,30 @@ def main():
                  dir_rule_broken_rows,
                  guard=('dir-rule-counters', 'dir-rule-report', 'dir-rule-v1'),
                  message='の比較件数（レポート別）')
+        # 第 56 ラウンド Codex P2-1: 上の制御は行を消すので件数の見張り番が先に落ちる。
+        # v1 の**内容**照合を単独で測るため、件数を動かさずに不一致の中身だけずらす
+        negative('既知差分の id を別ノードへ動かす（不一致 55 件のまま）',
+                 dir_rule_v1_ledger_moved,
+                 guard='dir-rule-v1', message='既知差分に無い不一致')
+        negative('byReport を実在しないレポート名 1 本に集め替えた一覧',
+                 dir_rule_report_fake_key,
+                 guard='dir-rule-report', message='の比較件数（レポート別）')
+        negative('向き別の件数に負の値を置く（agree を増やして bad を引く）',
+                 dir_rule_negative_counter, guard='cov-shape', message='負の整数')
+        negative('要求一覧の fixtures に同じパスを 2 度書く',
+                 fixtures_duplicated, guard='dup-fixture', message='fixtures に重複')
+        negative('allperm-full.py の順列上限を 1 にする',
+                 allperm_full_cap_one, guard='perm-cap', message='縁順が 1 とおりしかない')
         negative('終了 0 で JSON を書かない実行', run_json_silent,
-                 guard='json-missing', message='終了 0 なのに JSON を書いていない', clean=False)
+                 guard='json-missing', message='終了 0 なのに JSON を書いていない',
+                 clean=False, fallback='出力先が無い')
         negative('出力先が既にある実行', run_json_stale_output,
                  guard='out-exists', message='出力先がもう有る')
+        # 第 56 ラウンド agy P2-3: `json-parse` だけ消すと `doc = {}` が `report-shape` で
+        # 落ち、別の一で止まっていた。壊れた JSON を読む制御が測るのは「読めないこと」なので、
+        # 読み終わった後の形検査もまとめて消して**通る**ことを要求する
         negative('壊れた JSON を読む実行', run_json_broken_json,
-                 guard='json-parse', message='JSON が読めない', clean=False)
+                 guard=('json-parse', 'report-shape'), message='JSON が読めない')
         negative('欄の無い JSON をレポートとして読む実行', run_json_wrong_shape,
                  guard='report-shape', message='にレポートの欄が揃っていない')
         negative('battery/ から渡した根からなら実在する相対パスを補わない', bad_relative_path,

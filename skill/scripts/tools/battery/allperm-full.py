@@ -5,6 +5,7 @@
 # `metadata` や `count` が混ざる問題）を見ていなかった。ここでは生 JSON を正規化して丸ごと比べる。
 #
 # 使い方: python3 skill/scripts/tools/battery/allperm-full.py <report.mjs> <ケース json> [順列上限]
+#   順列上限は既定 720。**2 以上**を渡す（1 を渡すと間引き後に比較が起きないので終了 1）
 def _diff(ra, rb):
     if ra is None: return '行が無い → 有る'
     if rb is None: return '行が有る → 無い'
@@ -17,7 +18,7 @@ import _inputs as IN
 REPO = IN.repo_root()
 if len(sys.argv) < 3:
     raise SystemExit('使い方: python3 skill/scripts/tools/battery/allperm-full.py '
-                     '<report.mjs> <ケース json> [順列上限]')
+                     '<report.mjs> <ケース json> [順列上限（既定 720。2 以上）]')
 # 対象と入力の所在を先に確かめる（第 52 ラウンド agy: 入力が無いと Traceback になっていた）
 script = str(IN.require_script(sys.argv[1]))
 graph_file = str(IN.require(IN.resolve_cli_path(sys.argv[2], default=None),
@@ -65,6 +66,9 @@ perms = all_perms
 if len(perms) > cap:
     step = len(perms) // cap
     perms = perms[::step][:cap]
+# 間引いたあとの**実際に走る通り数**を見る（第 56 ラウンド Codex P2-2: 上限 1 では
+# 「縁順 1 通り / レポート JSON 1 通り / 判定: JSON 完全一致」で終了 0 になった）
+IN.require_sampled_runs(len(perms), 'allperm-full.py', cap)
 res = collections.OrderedDict()
 for perm in perms:
     res[','.join('e%d' % i for i in perm)] = run([g['edges'][i] for i in perm])
