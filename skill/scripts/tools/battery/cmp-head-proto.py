@@ -50,5 +50,8 @@ for name,n in percond: print(' -',name,'差分',n,'行')
 print('動いた項目',dict(field))
 print('switches>=2 の行',dict(sw2))
 
-# 差分があれば終了 1（読み手で合否を決めさせない。第 51 ラウンド双人レビューの系統）
-sys.exit(1 if percond else 0)
+# 差分があれば終了 1（読み手で合否を決めさせない。第 51 ラウンド双人レビューの系統）。
+# 第 52 ラウンド Codex P2: 行の差分 `percond` だけ見ていたため、`summary.primaryCount` を
+# 18 条件すべてで変えた負の対照が「動いた項目 {\'summary.primaryCount\': 18}」で終了 0 だった。
+# 集計の差分も終了判定に入れる
+sys.exit(1 if (percond or field) else 0)

@@ -1,0 +1,1219 @@
+{
+ "note": "v1 基準（`baseline-v1`）と今の report.mjs の差分のうち、既知と認めた一覧。人が v1 基準を差し替えないと決めている間の許容差分で、`--verify-known` が内容の一致を見る。このファイル自体が「何を許容したか」の記録なので実行結果から自動更新しない（更新は `--emit-known` で作り直して人がレビューする）",
+ "diffs": [
+  {
+   "cond": "demo-api.json",
+   "kind": "row",
+   "id": "project:src/Orders.Api/Orders.Api.csproj",
+   "old": [
+    "artifacts.out",
+    "out",
+    "primary",
+    3,
+    "deploys"
+   ],
+   "new": [
+    "artifacts.in",
+    "in",
+    "primary",
+    3,
+    "deploys"
+   ]
+  },
+  {
+   "cond": "demo-api.json",
+   "kind": "summary",
+   "id": "summary.artifactsIn",
+   "old": 0,
+   "new": 1
+  },
+  {
+   "cond": "demo-api.json",
+   "kind": "summary",
+   "id": "summary.artifactsOut",
+   "old": 3,
+   "new": 2
+  },
+  {
+   "cond": "demo-api.json",
+   "kind": "row",
+   "id": "tf:aws_api_gateway_deployment.live",
+   "old": [
+    "sameApi",
+    "in",
+    "wiring",
+    2,
+    "references"
+   ],
+   "new": [
+    "sameApi",
+    "none",
+    "wiring",
+    2,
+    "references"
+   ]
+  },
+  {
+   "cond": "demo-api.json",
+   "kind": "row",
+   "id": "tf:aws_api_gateway_integration.post_order",
+   "old": [
+    "sameApi",
+    "in",
+    "primary",
+    1,
+    "references"
+   ],
+   "new": [
+    "sameApi",
+    "none",
+    "primary",
+    1,
+    "references"
+   ]
+  },
+  {
+   "cond": "demo-api.json",
+   "kind": "row",
+   "id": "tf:aws_api_gateway_resource.orders_path",
+   "old": [
+    "sameApi",
+    "in",
+    "wiring",
+    1,
+    "references"
+   ],
+   "new": [
+    "sameApi",
+    "none",
+    "wiring",
+    1,
+    "references"
+   ]
+  },
+  {
+   "cond": "demo-api.json",
+   "kind": "row",
+   "id": "tf:aws_api_gateway_rest_api.orders",
+   "old": [
+    "sameApi",
+    "in",
+    "wiring",
+    1,
+    "references"
+   ],
+   "new": [
+    "sameApi",
+    "none",
+    "wiring",
+    1,
+    "references"
+   ]
+  },
+  {
+   "cond": "demo-iam.json",
+   "kind": "row",
+   "id": "tf:aws_api_gateway_method.get_order",
+   "old": [
+    "wiring",
+    "out",
+    "wiring",
+    4,
+    "references"
+   ],
+   "new": [
+    "wiring",
+    "in",
+    "wiring",
+    4,
+    "references"
+   ]
+  },
+  {
+   "cond": "demo-iam.json",
+   "kind": "row",
+   "id": "tf:aws_api_gateway_method.post_order",
+   "old": [
+    "wiring",
+    "out",
+    "wiring",
+    4,
+    "references"
+   ],
+   "new": [
+    "wiring",
+    "in",
+    "wiring",
+    4,
+    "references"
+   ]
+  },
+  {
+   "cond": "demo-iam.json",
+   "kind": "row",
+   "id": "tf:aws_api_gateway_resource.orders_path",
+   "old": [
+    "wiring",
+    "out",
+    "wiring",
+    4,
+    "references"
+   ],
+   "new": [
+    "wiring",
+    "in",
+    "wiring",
+    4,
+    "references"
+   ]
+  },
+  {
+   "cond": "demo-iam.json",
+   "kind": "row",
+   "id": "tf:aws_api_gateway_rest_api.orders",
+   "old": [
+    "wiring",
+    "out",
+    "wiring",
+    4,
+    "references"
+   ],
+   "new": [
+    "wiring",
+    "in",
+    "wiring",
+    4,
+    "references"
+   ]
+  },
+  {
+   "cond": "demo-iam.json",
+   "kind": "row",
+   "id": "tf:aws_dynamodb_table.orders",
+   "old": [
+    "wiring",
+    "in",
+    "wiring",
+    1,
+    "references"
+   ],
+   "new": [
+    "wiring",
+    "none",
+    "wiring",
+    1,
+    "references"
+   ]
+  },
+  {
+   "cond": "demo-iam.json",
+   "kind": "row",
+   "id": "tf:aws_iam_role.lambda_role",
+   "old": [
+    "wiring",
+    "in",
+    "wiring",
+    1,
+    "references"
+   ],
+   "new": [
+    "wiring",
+    "none",
+    "wiring",
+    1,
+    "references"
+   ]
+  },
+  {
+   "cond": "demo-iam.json",
+   "kind": "row",
+   "id": "tf:aws_lambda_function.notify",
+   "old": [
+    "wiring",
+    "out",
+    "wiring",
+    2,
+    "references"
+   ],
+   "new": [
+    "wiring",
+    "none",
+    "wiring",
+    2,
+    "references"
+   ]
+  },
+  {
+   "cond": "demo-iam.json",
+   "kind": "row",
+   "id": "tf:aws_lambda_function.orders_api",
+   "old": [
+    "wiring",
+    "out",
+    "wiring",
+    2,
+    "references"
+   ],
+   "new": [
+    "wiring",
+    "none",
+    "wiring",
+    2,
+    "references"
+   ]
+  },
+  {
+   "cond": "demo-iam.json",
+   "kind": "row",
+   "id": "tf:aws_sqs_queue.fulfilment",
+   "old": [
+    "wiring",
+    "out",
+    "wiring",
+    3,
+    "references"
+   ],
+   "new": [
+    "wiring",
+    "none",
+    "wiring",
+    3,
+    "references"
+   ]
+  },
+  {
+   "cond": "demo-order.json",
+   "kind": "row",
+   "id": "member:Orders.Api.Functions.CreateOrder",
+   "old": [
+    "entries.out",
+    "out",
+    "primary",
+    1,
+    "accesses"
+   ],
+   "new": [
+    "entries.in",
+    "in",
+    "primary",
+    1,
+    "accesses"
+   ]
+  },
+  {
+   "cond": "demo-order.json",
+   "kind": "row",
+   "id": "member:Orders.Infrastructure.NotifyHandler.FunctionHandler",
+   "old": [
+    "entries.out",
+    "out",
+    "primary",
+    1,
+    "calls"
+   ],
+   "new": [
+    "entries.in",
+    "in",
+    "primary",
+    1,
+    "calls"
+   ]
+  },
+  {
+   "cond": "demo-order.json",
+   "kind": "summary",
+   "id": "summary.entryIn",
+   "old": 3,
+   "new": 5
+  },
+  {
+   "cond": "demo-order.json",
+   "kind": "summary",
+   "id": "summary.entryOut",
+   "old": 6,
+   "new": 4
+  },
+  {
+   "cond": "demo-order.json",
+   "kind": "row",
+   "id": "tf:aws_api_gateway_resource.orders_path",
+   "old": [
+    "wiring",
+    "out",
+    "wiring",
+    3,
+    "references"
+   ],
+   "new": [
+    "wiring",
+    "in",
+    "wiring",
+    3,
+    "references"
+   ]
+  },
+  {
+   "cond": "demo-order.json",
+   "kind": "row",
+   "id": "tf:aws_api_gateway_rest_api.orders",
+   "old": [
+    "wiring",
+    "out",
+    "wiring",
+    3,
+    "references"
+   ],
+   "new": [
+    "wiring",
+    "in",
+    "wiring",
+    3,
+    "references"
+   ]
+  },
+  {
+   "cond": "demo-order.json",
+   "kind": "row",
+   "id": "tf:aws_dynamodb_table.orders",
+   "old": [
+    "wiring",
+    "out",
+    "wiring",
+    3,
+    "references"
+   ],
+   "new": [
+    "wiring",
+    "in",
+    "wiring",
+    3,
+    "references"
+   ]
+  },
+  {
+   "cond": "demo-order.json",
+   "kind": "row",
+   "id": "tf:aws_iam_role.lambda_role",
+   "old": [
+    "wiring",
+    "out",
+    "wiring",
+    4,
+    "references"
+   ],
+   "new": [
+    "wiring",
+    "in",
+    "wiring",
+    4,
+    "references"
+   ]
+  },
+  {
+   "cond": "demo-order.json",
+   "kind": "row",
+   "id": "tf:aws_iam_role_policy.lambda_dynamo_policy",
+   "old": [
+    "wiring",
+    "out",
+    "wiring",
+    5,
+    "references"
+   ],
+   "new": [
+    "wiring",
+    "in",
+    "wiring",
+    5,
+    "references"
+   ]
+  },
+  {
+   "cond": "demo-proj.json",
+   "kind": "summary",
+   "id": "summary.primaryIn",
+   "old": 7,
+   "new": 5
+  },
+  {
+   "cond": "demo-proj.json",
+   "kind": "summary",
+   "id": "summary.primaryOut",
+   "old": 3,
+   "new": 5
+  },
+  {
+   "cond": "demo-proj.json",
+   "kind": "row",
+   "id": "tf:aws_api_gateway_method.get_order",
+   "old": [
+    "wiring",
+    "out",
+    "wiring",
+    3,
+    "references"
+   ],
+   "new": [
+    "wiring",
+    "in",
+    "wiring",
+    3,
+    "references"
+   ]
+  },
+  {
+   "cond": "demo-proj.json",
+   "kind": "row",
+   "id": "tf:aws_api_gateway_resource.orders_path",
+   "old": [
+    "wiring",
+    "out",
+    "wiring",
+    2,
+    "references"
+   ],
+   "new": [
+    "wiring",
+    "in",
+    "wiring",
+    2,
+    "references"
+   ]
+  },
+  {
+   "cond": "demo-proj.json",
+   "kind": "row",
+   "id": "tf:aws_api_gateway_rest_api.orders",
+   "old": [
+    "wiring",
+    "out",
+    "wiring",
+    2,
+    "references"
+   ],
+   "new": [
+    "wiring",
+    "in",
+    "wiring",
+    2,
+    "references"
+   ]
+  },
+  {
+   "cond": "demo-proj.json",
+   "kind": "row",
+   "id": "tf:aws_lambda_function.notify",
+   "old": [
+    "external.in",
+    "in",
+    "primary",
+    2,
+    "deploys"
+   ],
+   "new": [
+    "external.out",
+    "out",
+    "primary",
+    2,
+    "deploys"
+   ]
+  },
+  {
+   "cond": "demo-proj.json",
+   "kind": "row",
+   "id": "tf:aws_lambda_function.orders_api",
+   "old": [
+    "external.in",
+    "in",
+    "primary",
+    1,
+    "deploys"
+   ],
+   "new": [
+    "external.out",
+    "out",
+    "primary",
+    1,
+    "deploys"
+   ]
+  },
+  {
+   "cond": "demo-tf.json",
+   "kind": "row",
+   "id": "member:Orders.Infrastructure.NotifyHandler.FunctionHandler",
+   "old": [
+    "entries.out",
+    "out",
+    "primary",
+    1,
+    "writes"
+   ],
+   "new": [
+    "entries.in",
+    "in",
+    "primary",
+    1,
+    "writes"
+   ]
+  },
+  {
+   "cond": "demo-tf.json",
+   "kind": "row",
+   "id": "project:src/Orders.Api/Orders.Api.csproj",
+   "old": [
+    "artifacts.out",
+    "out",
+    "primary",
+    1,
+    "deploys"
+   ],
+   "new": [
+    "artifacts.in",
+    "in",
+    "primary",
+    1,
+    "deploys"
+   ]
+  },
+  {
+   "cond": "demo-tf.json",
+   "kind": "row",
+   "id": "project:src/Orders.Infrastructure/Orders.Infrastructure.csproj",
+   "old": [
+    "artifacts.out",
+    "out",
+    "primary",
+    1,
+    "deploys"
+   ],
+   "new": [
+    "artifacts.in",
+    "in",
+    "primary",
+    1,
+    "deploys"
+   ]
+  },
+  {
+   "cond": "demo-tf.json",
+   "kind": "summary",
+   "id": "summary.artifactsIn",
+   "old": 0,
+   "new": 2
+  },
+  {
+   "cond": "demo-tf.json",
+   "kind": "summary",
+   "id": "summary.artifactsOut",
+   "old": 3,
+   "new": 1
+  },
+  {
+   "cond": "demo-tf.json",
+   "kind": "summary",
+   "id": "summary.entryIn",
+   "old": 3,
+   "new": 4
+  },
+  {
+   "cond": "demo-tf.json",
+   "kind": "summary",
+   "id": "summary.entryOut",
+   "old": 10,
+   "new": 9
+  },
+  {
+   "cond": "fixture-api.json",
+   "kind": "summary",
+   "id": "summary.siblingDefs",
+   "old": 0,
+   "new": 4
+  },
+  {
+   "cond": "fixture-api.json",
+   "kind": "summary",
+   "id": "summary.siblingEndpointsOnly",
+   "old": 1,
+   "new": 2
+  },
+  {
+   "cond": "fixture-api.json",
+   "kind": "summary",
+   "id": "summary.siblings",
+   "old": 1,
+   "new": 6
+  },
+  {
+   "cond": "fixture-api.json",
+   "kind": "summary",
+   "id": "summary.wiring",
+   "old": 15,
+   "new": 10
+  },
+  {
+   "cond": "fixture-api.json",
+   "kind": "row",
+   "id": "tf:aws_api_gateway_deployment.admin_live",
+   "old": [
+    "wiring",
+    "in",
+    "wiring",
+    6,
+    "references"
+   ],
+   "new": [
+    "siblingEndpoints",
+    "in",
+    "wiring",
+    6,
+    "references"
+   ]
+  },
+  {
+   "cond": "fixture-api.json",
+   "kind": "row",
+   "id": "tf:aws_api_gateway_deployment.live",
+   "old": [
+    "sameApi",
+    "in",
+    "wiring",
+    2,
+    "references"
+   ],
+   "new": [
+    "sameApi",
+    "none",
+    "wiring",
+    2,
+    "references"
+   ]
+  },
+  {
+   "cond": "fixture-api.json",
+   "kind": "row",
+   "id": "tf:aws_api_gateway_integration.get_users",
+   "old": [
+    "wiring",
+    "in",
+    "wiring",
+    4,
+    "triggers"
+   ],
+   "new": [
+    "siblingEndpoints",
+    "in",
+    "wiring",
+    4,
+    "triggers"
+   ]
+  },
+  {
+   "cond": "fixture-api.json",
+   "kind": "row",
+   "id": "tf:aws_api_gateway_integration.post_order",
+   "old": [
+    "sameApi",
+    "in",
+    "wiring",
+    2,
+    "references"
+   ],
+   "new": [
+    "sameApi",
+    "none",
+    "wiring",
+    2,
+    "references"
+   ]
+  },
+  {
+   "cond": "fixture-api.json",
+   "kind": "row",
+   "id": "tf:aws_api_gateway_method.get_order",
+   "old": [
+    "siblingEndpoints",
+    "in",
+    "wiring",
+    2,
+    "references"
+   ],
+   "new": [
+    "siblingEndpoints",
+    "none",
+    "wiring",
+    2,
+    "references"
+   ]
+  },
+  {
+   "cond": "fixture-api.json",
+   "kind": "row",
+   "id": "tf:aws_api_gateway_method.get_users",
+   "old": [
+    "wiring",
+    "out",
+    "wiring",
+    6,
+    "references"
+   ],
+   "new": [
+    "siblingEndpoints",
+    "in",
+    "wiring",
+    6,
+    "references"
+   ]
+  },
+  {
+   "cond": "fixture-api.json",
+   "kind": "row",
+   "id": "tf:aws_api_gateway_resource.admin_users",
+   "old": [
+    "wiring",
+    "out",
+    "wiring",
+    5,
+    "references"
+   ],
+   "new": [
+    "siblingEndpoints",
+    "in",
+    "wiring",
+    5,
+    "references"
+   ]
+  },
+  {
+   "cond": "fixture-api.json",
+   "kind": "row",
+   "id": "tf:aws_api_gateway_resource.orders",
+   "old": [
+    "sameApi",
+    "in",
+    "wiring",
+    1,
+    "references"
+   ],
+   "new": [
+    "sameApi",
+    "none",
+    "wiring",
+    1,
+    "references"
+   ]
+  },
+  {
+   "cond": "fixture-api.json",
+   "kind": "row",
+   "id": "tf:aws_api_gateway_rest_api.admin_api",
+   "old": [
+    "wiring",
+    "out",
+    "wiring",
+    5,
+    "references"
+   ],
+   "new": [
+    "siblingEndpoints",
+    "in",
+    "wiring",
+    5,
+    "references"
+   ]
+  },
+  {
+   "cond": "fixture-api.json",
+   "kind": "row",
+   "id": "tf:aws_api_gateway_rest_api.orders_api",
+   "old": [
+    "sameApi",
+    "in",
+    "wiring",
+    1,
+    "references"
+   ],
+   "new": [
+    "sameApi",
+    "none",
+    "wiring",
+    1,
+    "references"
+   ]
+  },
+  {
+   "cond": "fixture-api0.json",
+   "kind": "row",
+   "id": "tf:aws_api_gateway_deployment.live",
+   "old": [
+    "sameApi",
+    "in",
+    "wiring",
+    2,
+    "references"
+   ],
+   "new": [
+    "sameApi",
+    "none",
+    "wiring",
+    2,
+    "references"
+   ]
+  },
+  {
+   "cond": "fixture-api0.json",
+   "kind": "row",
+   "id": "tf:aws_api_gateway_integration.post_order",
+   "old": [
+    "sameApi",
+    "in",
+    "wiring",
+    2,
+    "references"
+   ],
+   "new": [
+    "sameApi",
+    "none",
+    "wiring",
+    2,
+    "references"
+   ]
+  },
+  {
+   "cond": "fixture-api0.json",
+   "kind": "row",
+   "id": "tf:aws_api_gateway_method.get_order",
+   "old": [
+    "siblingEndpoints",
+    "in",
+    "wiring",
+    2,
+    "references"
+   ],
+   "new": [
+    "siblingEndpoints",
+    "none",
+    "wiring",
+    2,
+    "references"
+   ]
+  },
+  {
+   "cond": "fixture-api0.json",
+   "kind": "row",
+   "id": "tf:aws_api_gateway_resource.admin_users",
+   "old": [
+    "siblingEndpoints",
+    "out",
+    "wiring",
+    5,
+    "references"
+   ],
+   "new": [
+    "siblingEndpoints",
+    "in",
+    "wiring",
+    5,
+    "references"
+   ]
+  },
+  {
+   "cond": "fixture-api0.json",
+   "kind": "row",
+   "id": "tf:aws_api_gateway_resource.orders",
+   "old": [
+    "sameApi",
+    "in",
+    "wiring",
+    1,
+    "references"
+   ],
+   "new": [
+    "sameApi",
+    "none",
+    "wiring",
+    1,
+    "references"
+   ]
+  },
+  {
+   "cond": "fixture-api0.json",
+   "kind": "row",
+   "id": "tf:aws_api_gateway_rest_api.admin_api",
+   "old": [
+    "siblingEndpoints",
+    "out",
+    "wiring",
+    5,
+    "references"
+   ],
+   "new": [
+    "siblingEndpoints",
+    "in",
+    "wiring",
+    5,
+    "references"
+   ]
+  },
+  {
+   "cond": "fixture-api0.json",
+   "kind": "row",
+   "id": "tf:aws_api_gateway_rest_api.orders_api",
+   "old": [
+    "sameApi",
+    "in",
+    "wiring",
+    1,
+    "references"
+   ],
+   "new": [
+    "sameApi",
+    "none",
+    "wiring",
+    1,
+    "references"
+   ]
+  },
+  {
+   "cond": "fixture-folder.json",
+   "kind": "row",
+   "id": "tf:aws_dynamodb_table.orders",
+   "old": [
+    "wiring",
+    "out",
+    "wiring",
+    4,
+    "references"
+   ],
+   "new": [
+    "wiring",
+    "in",
+    "wiring",
+    4,
+    "references"
+   ]
+  },
+  {
+   "cond": "fixture-folder.json",
+   "kind": "row",
+   "id": "type:ReportImpact.Order",
+   "old": [
+    "entries.out",
+    "out",
+    "primary",
+    1,
+    "references"
+   ],
+   "new": [
+    "entries.out",
+    "out",
+    "primary",
+    1,
+    "creates"
+   ]
+  },
+  {
+   "cond": "fixture-lam.json",
+   "kind": "summary",
+   "id": "summary.primaryIn",
+   "old": 2,
+   "new": 3
+  },
+  {
+   "cond": "fixture-lam.json",
+   "kind": "summary",
+   "id": "summary.primaryOut",
+   "old": 2,
+   "new": 1
+  },
+  {
+   "cond": "fixture-lam.json",
+   "kind": "row",
+   "id": "tf:aws_api_gateway_method.get_users",
+   "old": [
+    "external.out",
+    "out",
+    "primary",
+    3,
+    "references"
+   ],
+   "new": [
+    "external.in",
+    "in",
+    "primary",
+    3,
+    "references"
+   ]
+  },
+  {
+   "cond": "fixture-lam.json",
+   "kind": "row",
+   "id": "tf:aws_dynamodb_table.orders",
+   "old": [
+    "wiring",
+    "out",
+    "wiring",
+    3,
+    "references"
+   ],
+   "new": [
+    "wiring",
+    "none",
+    "wiring",
+    3,
+    "references"
+   ]
+  },
+  {
+   "cond": "fixture-lam.json",
+   "kind": "row",
+   "id": "tf:aws_iam_role.lambda_role",
+   "old": [
+    "wiring",
+    "in",
+    "wiring",
+    1,
+    "references"
+   ],
+   "new": [
+    "wiring",
+    "none",
+    "wiring",
+    1,
+    "references"
+   ]
+  },
+  {
+   "cond": "fixture-lam.json",
+   "kind": "row",
+   "id": "tf:aws_iam_role_policy.dynamo_policy",
+   "old": [
+    "wiring",
+    "in",
+    "wiring",
+    2,
+    "references"
+   ],
+   "new": [
+    "wiring",
+    "none",
+    "wiring",
+    2,
+    "references"
+   ]
+  },
+  {
+   "cond": "real-api.json",
+   "kind": "row",
+   "id": "tf:aws_api_gateway_deployment.example_deployment_dev",
+   "old": [
+    "sameApi",
+    "out",
+    "wiring",
+    1,
+    "references"
+   ],
+   "new": [
+    "sameApi",
+    "none",
+    "wiring",
+    1,
+    "references"
+   ]
+  },
+  {
+   "cond": "real-api.json",
+   "kind": "row",
+   "id": "tf:aws_api_gateway_deployment.example_deployment_prod",
+   "old": [
+    "sameApi",
+    "out",
+    "wiring",
+    1,
+    "references"
+   ],
+   "new": [
+    "sameApi",
+    "none",
+    "wiring",
+    1,
+    "references"
+   ]
+  },
+  {
+   "cond": "real-api.json",
+   "kind": "row",
+   "id": "tf:aws_api_gateway_integration.example_api_method-integration",
+   "old": [
+    "sameApi",
+    "in",
+    "primary",
+    1,
+    "references"
+   ],
+   "new": [
+    "sameApi",
+    "none",
+    "primary",
+    1,
+    "references"
+   ]
+  },
+  {
+   "cond": "real-api.json",
+   "kind": "row",
+   "id": "tf:aws_api_gateway_resource.example_api_resource",
+   "old": [
+    "sameApi",
+    "out",
+    "wiring",
+    1,
+    "references"
+   ],
+   "new": [
+    "sameApi",
+    "none",
+    "wiring",
+    1,
+    "references"
+   ]
+  },
+  {
+   "cond": "real-api.json",
+   "kind": "row",
+   "id": "tf:aws_api_gateway_rest_api.example_api",
+   "old": [
+    "sameApi",
+    "out",
+    "wiring",
+    1,
+    "references"
+   ],
+   "new": [
+    "sameApi",
+    "none",
+    "wiring",
+    1,
+    "references"
+   ]
+  },
+  {
+   "cond": "real-api.json",
+   "kind": "row",
+   "id": "tf:aws_lambda_permission.allow_api_gateway",
+   "old": [
+    "wiring",
+    "out",
+    "wiring",
+    1,
+    "references"
+   ],
+   "new": [
+    "wiring",
+    "none",
+    "wiring",
+    1,
+    "references"
+   ]
+  }
+ ]
+}

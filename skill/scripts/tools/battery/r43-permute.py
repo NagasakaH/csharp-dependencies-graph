@@ -10,18 +10,7 @@ import subprocess
 import sys
 import tempfile
 
-def _repo_root(start):
-    # 段数のハードコードはやめた（道具を動かした日に別ディレクトリを根と誤認した）
-    a = start
-    while not os.path.exists(os.path.join(a, 'skill', 'scripts', 'report.mjs')):
-        up = os.path.dirname(a)
-        if up == a:
-            raise SystemExit('リポジトリの根が見つからない（skill/scripts/report.mjs を含む祖先）')
-        a = up
-    return a
-
-
-import _inputs as IN
+import _inputs as IN   # 根の探索と入力の所在はここに一本化（第 52 ラウンド agy 指摘の未使用関数を削除）
 
 REPO = IN.repo_root()
 REPORT = str(IN.require_script(sys.argv[1] if len(sys.argv) > 1

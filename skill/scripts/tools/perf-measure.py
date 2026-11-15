@@ -7,14 +7,15 @@
 #   python3 skill/scripts/tools/perf-measure.py --inputs   ... 必要な入力パスを 1 行 1 件で出す
 #
 # 第 50 ラウンド双人レビュー（Codex 指摘 F4）で、この測定道具の唯一のコピーが `out/tmp-*`
-# （ディスク掃除の対象）にあると指摘された。`out/tmp-r26/perf.py` の追跡下における正式版。
+# （ディスク掃除の対象）にあると指摘された。第 26 ラウンドまでそこに有った測定道具の
+# 追跡下における正式版。
 # 前版からの違い:
 #   - **入力の存在を測る前に自分で確かめる**。第 48 ラウンドでは入力（`--changed` の変更一覧）が
 #     消えて 250 回すべて ENOENT・終了 1 なのに、集計が倍率だけを見てゲートが「適合」になった。
 #     入力が無ければ**測らずに**終了 1。条件が黙って減る形（`if os.path.exists(...)` で
 #     ケースを足していた前版の `v2-mix`）も同じ事故なので、条件は 4 とおりに固定した
 #   - `v2-mix` の入力は `out/perf-inputs/v2-big.graph.json`（`skill/scripts/tools/make-v2-graph.py`
-#     で作り直せる）。`out/tmp-r26/` の残骸は測定の入力にしない
+#     で作り直せる）。掃除対象の一時ディレクトリの残骸は測定の入力にしない
 import json, os, pathlib, resource, statistics, subprocess, sys, time
 
 PERF_DIR = os.environ.get('CGD_PERF_DIR', 'out/tmp-perf')

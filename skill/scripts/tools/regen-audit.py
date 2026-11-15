@@ -27,8 +27,9 @@ if out.exists() and any(out.glob('*.json')) and not force:
     raise SystemExit(f'{out} に既に JSON がある（上書きするには --force）')
 out.mkdir(parents=True, exist_ok=True)
 
+# 条件の数を先に確かめる（1〜17 件を「成功」として再生成しない。第 52 ラウンド Codex P2）
 n = 0
-for p in sorted(base.glob('*.json')):
+for p in IN.report_paths(base, expect=18, what='再生成する条件（baseline-v1）'):
     doc = json.loads(p.read_text(encoding='utf-8'))
     s = doc['summary']
     # `summary.graph` の記録パスが掃除で消えたものは移設した実体へ（第 51 ラウンド双人レビュー agy P2）

@@ -1,0 +1,52 @@
+{
+ "note": "out/ の固定入力の構造指紋（第 52 ラウンド Astra 裁定 3「固定入力にはハッシュと元ソースの版と省略のない生成コマンドを記録しろ」への対応）。graph.json は `generatedAt` と `rootPath` が実行ごとに違うのでバイト一致は使えない。ノード id の集合と縁 `source|kind|target` の集合のsha256 を見る。指紋が違う日は「入力が別のものへ差し替わった」合図で、書き換えてよいか人の判断。`python3 skill/scripts/tools/check-battery-inputs.py --emit <ファイル>`で今の値を書き出せるが、それは**作り直しを認めたあとの作成手順**（自動更新はしない）",
+ "inputs": {
+  "out/demo/graph.json": {
+   "nodes": 74,
+   "edges": 66,
+   "ids": "1e54869dedea32109ed0b6647a9306dfe7aa96deb987dd532c57419d613c3b83",
+   "rels": "f8bcdca2fcadf09770eb19fdf41cfdd536079a22e80753fc46ec02f8c736a81b",
+   "source": "このリポジトリの demo/ を解析したグラフ。`out/loop/protocol.md` §0 のビルド",
+   "regen": "node skill/scripts/build.mjs --root demo/orders-api-lambda --out-dir out/demo --name demo --annotation skill/examples/annotations.orders-api.json --annotation skill/examples/annotations.storage.json",
+   "reproducible": true,
+   "reproducibleNote": "上のコマンドを作り直してノード id と縁の集合が一致することを第 53 ラウンドで実測（`--root demo` と `--exclude test,tests` は**別物**になる。実測 75/66・51309/53475 で不一致）",
+   "freshAtHead": {
+    "nodes": 74,
+    "edges": 66
+   }
+  },
+  "out/elsa/graph.json": {
+   "nodes": 51179,
+   "edges": 53521,
+   "ids": "220474fbb788f46fb7fe83465d23ba516efcc7b0e02d6ea2437367347e1ec503",
+   "rels": "2db47cf2bbeb160b6b322fd6eed3357567920fe9f8267177a3cfd76d39c8af0d",
+   "source": "https://github.com/elsa-workflows/elsa-core.git の commit b74bc3c7740929106d52807d1d89f88a72eed8a7（2026-11-13、`repos/elsa-core`）を解析したもの。生成に使った解析機のビルドは未記録（第 53 ラウンドまで）",
+   "regen": "git clone https://github.com/elsa-workflows/elsa-core.git repos/elsa-core && git -C repos/elsa-core checkout b74bc3c7740929106d52807d1d89f88a72eed8a7 && export DOTNET_ROOT=$HOME/.dotnet PATH=\"$HOME/.dotnet:$PATH\" CGD_BIN=$PWD/skill/analyzer/bin/Release/net9.0/cgd && node skill/scripts/build.mjs --root repos/elsa-core --out-dir out/elsa --name elsa-core --exclude test,docs",
+   "reproducible": true,
+   "reproducibleNote": "上のコマンド（`--exclude test,docs`）を作り直して 51179 ノード / 53521 縁・id と縁の集合が一致することを第 53 ラウンドで実測。`--exclude test,tests` にすると 51309 / 53475 で不一致（違いを推測させないためコマンドを省略しない）",
+   "freshAtHead": {
+    "nodes": 51179,
+    "edges": 53521
+   },
+   "builtWith": {
+    "cgd": "skill/analyzer/bin/Release/net9.0/cgd（sha256 1842d323c282436b…、.NET SDK 9.0.321）"
+   }
+  },
+  "out/perf-inputs/v2-big.graph.json": {
+   "nodes": 2727,
+   "edges": 5800,
+   "ids": "39b25392aad5d802f0d7ac58190fc826ff58ab21380540b3aafa35acbd8d1204",
+   "rels": "e96fa7c9a0bbb6c4fe4c4849d48a24f18f61aa45c91a1c24f99e63194db1c75d",
+   "source": "合成の入力グラフ（性能ゲートの v2-mix 条件と不変条件検査）",
+   "regen": "python3 skill/scripts/tools/make-v2-graph.py out/perf-inputs/v2-big.graph.json",
+   "reproducible": true,
+   "reproducibleNote": "作り直してノード id と縁の集合が一致することを第 53 ラウンドで実測",
+   "freshAtHead": {
+    "nodes": 2727,
+    "edges": 5800,
+    "ids": "39b25392aad5d802f0d7ac58190fc826ff58ab21380540b3aafa35acbd8d1204",
+    "rels": "e96fa7c9a0bbb6c4fe4c4849d48a24f18f61aa45c91a1c24f99e63194db1c75d"
+   }
+  }
+ }
+}

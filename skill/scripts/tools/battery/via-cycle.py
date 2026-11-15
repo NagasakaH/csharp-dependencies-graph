@@ -153,7 +153,8 @@ def main():
     for p in IN.report_paths(IN.HERE / 'baseline-v1', expect=18, what='v1 基準の 18 条件'):
         old = json.loads(p.read_text())
         s = old['summary']
-        args = ['--graph', s['graph'], '--hops', str(s['hops']),
+        # 記録パスのまま渡すと report.mjs が ENOENT（第 52 ラウンド双人レビュー両名 P2）
+        args = ['--graph', str(IN.graph_path(s['graph'])), '--hops', str(s['hops']),
                 '--wiring-hops', str(s['wiringHops']), '--limit', str(s.get('limit') or 100000)]
         for st in old['starts']:
             args += ['--from', st['id']]

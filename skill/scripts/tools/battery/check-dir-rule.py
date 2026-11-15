@@ -67,8 +67,9 @@ def check_dir(d):
   examples = []
   for p in IN.report_paths(d):
     doc = json.loads(p.read_text())
-    gp = pathlib.Path(doc['summary']['graph'])
-    graph = json.loads(gp.read_text())
+    # 記録された作者パスは今のリポジトリの実体へ解決する（第 52 ラウンド双人レビュー両名 P2:
+    # ここを生パスで開くと別クローンと掃除後に FileNotFoundError になった）
+    graph = json.loads(IN.graph_path(doc['summary']['graph']).read_text())
     pairs = {}
     for e in graph['edges']:
       pairs.setdefault((e['source'], e['target']), []).append(e)

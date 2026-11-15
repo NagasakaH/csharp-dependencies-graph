@@ -12,7 +12,13 @@ def _diff(ra, rb):
                       for k in sorted(set(ra) | set(rb)) if ra.get(k) != rb.get(k))
 import json, subprocess, sys, itertools, tempfile, os, collections
 
-script, graph_file = sys.argv[1], sys.argv[2]
+import _inputs as IN
+if len(sys.argv) < 3:
+    raise SystemExit('使い方: python3 skill/scripts/tools/battery/allperm-full.py '
+                     '<report.mjs> <ケース json> [順列上限]')
+# 対象と入力の所在を先に確かめる（第 52 ラウンド agy: 入力が無いと Traceback になっていた）
+script = str(IN.require_script(sys.argv[1]))
+graph_file = str(IN.require(sys.argv[2], '順列検査のケース'))
 cap = int(sys.argv[3]) if len(sys.argv) > 3 else 720
 case = json.load(open(graph_file))
 extra = case.get('extra', [])

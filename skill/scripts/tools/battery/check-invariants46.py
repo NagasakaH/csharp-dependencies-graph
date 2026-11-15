@@ -34,7 +34,8 @@ from collections import Counter
 # リポジトリの根・入力の所在・失敗の扱いを `_inputs.py` にまとめた（第 51 ラウンド双人レビュー）
 import _inputs as IN
 
-NOTE = '（第 51 ラウンドの入力で 219 件。EXTRA のグラフを減らすとここで止まる）'
+NOTE = ('（第 51 ラウンドの入力で 219 件。入力が無い日は上の `require` が測る前に落ちる。'
+        ' ここは走り終えた後の見張り番で、条件を組み立てる側が黙って減った日を捕まえる）')
 
 REPO = IN.repo_root()
 REPORT = str(IN.require_script(sys.argv[1] if len(sys.argv) > 1 else 'skill/scripts/report.mjs'))

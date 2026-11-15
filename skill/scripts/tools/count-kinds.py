@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 # レポート JSON の枠別・縁別の延べ回数を出す（`skill/reference/review-workflows.md` の枠表の根拠）。
 # 使い方: python3 skill/scripts/tools/count-kinds.py <監査ディレクトリ>
-#   例: python3 skill/scripts/tools/regen-audit.py skill/scripts/report.mjs out/tmp-r49/audit
-#       python3 skill/scripts/tools/count-kinds.py out/tmp-r49/audit
+#   例: python3 skill/scripts/tools/regen-audit.py skill/scripts/report.mjs out/audit-current --force
+#       python3 skill/scripts/tools/count-kinds.py out/audit-current
+#   （第 49 ラウンドまで監査出力を一時ディレクトリに置いていたので、この道具の例もそこを
+#   指していた。いまは `out/audit-current` が既定の再生成先）
 import collections, glob, json, sys
 
 if len(sys.argv) < 2:

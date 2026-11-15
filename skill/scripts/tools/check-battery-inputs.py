@@ -19,6 +19,20 @@
 #      → 一覧を `_inputs.py` に一本化し、ここはそれを読む
 #   3. 実行される道具のコードが掃除対象の場所を指していないかを機械で確かめていなかった
 #      → `skill/scripts/tools/` の道具のソースを走査して古い一時パスの残りを挙げる
+#
+# 第 52 ラウンド双人レビュー（対象 `91b59e9`、両名 P2）で残った穴:
+#   1. 記録グラフ 18 件の**件数**を要求していなかった。1 件を除くと「記録グラフ 17 件が
+#      揃っている」で終了 0（Codex 実測）→ `baseline-v1` は `expect=18` で数える
+#   2. `edge-order.py`（この日で追跡下へ移した）と、`build.mjs` / `verify.mjs` が読む
+#      `scan.mjs` / `scan-terraform.mjs` / `render.mjs` / `skill/viewer/template.html`、
+#      注釈 JSON が点検リストに入っていなかった（agy）
+#   3. 一時パスの走査が、ラウンド名の付いたディレクトリ指定だけ（末尾のファイル名なし）、
+#      ラウンド名に接尾辞の付いたもの（`-docs` など）、`-full` の付かない監査出力、
+#      文字列を `out` と `tmp-r<数字>` に分けて結合する形を見逃していた（agy / Codex）
+#
+# ただし走査は**補助**である（Codex の見解どおり、完全性の保証には使わない）。文字列を
+# 組み合わせたパス・変数経由・実行時に作るパスは構文を見ないので、入力の完全性は
+# 上記 1 と `_inputs.py` の `require()` / `graph_path()` が測る前に落とす側で担保する
 import json
 import pathlib
 import re
@@ -58,6 +72,15 @@ FILES = [
     'skill/scripts/tools/battery/r43-permute.py',
     'skill/scripts/tools/battery/r42-calls-0.json', 'skill/scripts/tools/battery/r42-calls-1.json',
     'skill/scripts/tools/battery/same-output.py', 'skill/scripts/tools/battery/r43-before.mjs',
+    'skill/scripts/tools/battery/edge-order.py',
+    # 第 52 ラウンド agy P2: ビルドと検証が読む本体とテンプレート、注釈の見本
+    'skill/scripts/scan.mjs', 'skill/scripts/scan-terraform.mjs', 'skill/scripts/render.mjs',
+    'skill/viewer/template.html',
+    'skill/examples/annotations.orders-api.json', 'skill/examples/annotations.storage.json',
+    # 解析機の実体（再生成とスイートが読む。`dotnet clean` の日で黙って落ちないように）
+    'skill/analyzer/bin/Release/net9.0/cgd',
+    'skill/scripts/tools/battery/input-fingerprints.json',
+    'skill/scripts/tools/battery/known-v1-diffs.json',
     # `baseline-v1` が記録する入力グラフの実体（掃除で消える場所に有った唯一のコピー）
     'skill/scripts/tools/battery/graphs/ri.graph.json',
     'skill/scripts/tools/battery/graphs/ri0.graph.json',
@@ -69,34 +92,64 @@ missing = [p for p in FILES if not (REPO / p).exists()]
 # 18 条件が記録している入力グラフ（作者環境の一時出力先）が実在するか。
 # 掃除や別クローンで壊れたら、ここで終了 1 にする（第 51 ラウンド agy P2）
 base = REPO / 'skill' / 'scripts' / 'tools' / 'battery' / 'baseline-v1'
-if base.is_dir():
-    for p in sorted(base.glob('*.json')):
-        rec = p.name
-        try:
-            got = IN.graph_path(json.loads(p.read_text())['summary']['graph'])
-            if not got.exists():
-                missing.append(f'{rec} の記録グラフ → {got}（解決先が無い）')
-        except SystemExit as e:
-            missing.append(f'{rec} の記録グラフ: {e}')
+# 件数を先に要求する（17 件でも「揃っている」と言っていた。第 52 ラウンド Codex P2）
+reps = IN.report_paths(base, expect=18, what='v1 基準の条件（baseline-v1）')
+for p in reps:
+    try:
+        got = IN.graph_path(json.loads(p.read_text())['summary']['graph'])
+        if not got.exists():
+            missing.append(f'{p.name} の記録グラフ → {got}（解決先が無い）')
+    except SystemExit as e:
+        missing.append(f'{p.name} の記録グラフ: {e}')
 
 # 検査の道具が足す実グラフ（一覧は `_inputs.extra_graphs()` が正本）
 for g in IN.extra_graphs(REPO):
     if not g.exists():
         missing.append(f'{g.relative_to(REPO)}（_inputs.extra_graphs が足す検査のグラフ）')
 
+# out/ の固定入力が「別のもの」に差し替わっていないか（構造指紋）。第 52 ラウンド Astra 裁定 3
+EMIT = '--emit' in sys.argv
+if EMIT:
+    out = pathlib.Path(sys.argv[sys.argv.index('--emit') + 1])
+    spec = json.loads((IN.HERE / 'input-fingerprints.json').read_text(encoding='utf-8'))
+    for rel in spec['inputs']:
+        d = IN.fingerprint(IN.require(REPO / rel, f'指紋を書き出す入力（{rel}）'))
+        spec['inputs'][rel].update({'nodes': d['nodes'], 'edges': d['edges'],
+                                    'ids': d['ids'], 'rels': d['rels']})
+        spec['inputs'][rel].pop('freshAtHead', None)
+    out.write_text(json.dumps(spec, ensure_ascii=False, indent=1) + '\n', encoding='utf-8')
+    print(f'今の指紋を {out} に書き出した（作り直しを人が認めたあとの作成手順。'
+          '日常の実行では --emit を付けない）')
+    raise SystemExit(0)
+
+bad_fp = IN.check_fingerprints(REPO)
+
 # 道具のソースに掃除対象の一時パスが残っていないか。保存済み条件（`baseline-v1`）の中の
 # 記録パスは歴史の記録なので対象外。`_inputs.py` の対応表も移設の実体へ橋渡しするための記述
-STALE = re.compile(r"out/tmp-r\d+/[^\s)`,、。]*?(?:graph\.json|audit-full)")
+STALE = re.compile(r"out[/\\]tmp-r\d+(?:[-A-Za-z0-9_]*)?(?:[/\\][^\s)`,、'\"]*)?")
+STALE_JOIN = re.compile(r"['\"]out['\"]\s*/\s*['\"]tmp-r\d+")
+# 走査から除く 2 本: `_inputs.py` は掃除対象の記録を移設実体へ橋渡しする対応表そのもの、
+# `r43-before.mjs` は第 43 ラウンドの比較に使う固定コピーで、内部のコメントは当時の作業記録
+# （書き換えると「前版と同一」の比較対象が崩れる。実行結果には出ない）
+SKIP_SCAN = {'_inputs.py', 'r43-before.mjs'}
 stale = []
 tools = REPO / 'skill' / 'scripts' / 'tools'
 for p in sorted(tools.rglob('*')):
     if not p.is_file() or p.suffix not in ('.py', '.sh', '.mjs'):
         continue
-    if p.name == '_inputs.py':
+    if p.name in SKIP_SCAN:
         continue
     for i, line in enumerate(p.read_text(encoding='utf-8', errors='ignore').split('\n'), 1):
-        for m in STALE.finditer(line):
+        for m in list(STALE.finditer(line)) + list(STALE_JOIN.finditer(line)):
             stale.append(f'{p.relative_to(REPO)}:{i}: {m.group(0)}')
+
+if bad_fp:
+    print(f'out/ の固定入力 {len(bad_fp)} 件の構造指紋が基準と違う（入力が別のものに差し替わった。'
+          '作り直してよいは人の判断。`--emit <ファイル>` は人が作り直しを認めたあとの作成手順）:',
+          file=sys.stderr)
+    for m in bad_fp:
+        print(f'  - {m}', file=sys.stderr)
+    raise SystemExit(1)
 
 if missing:
     print(f'バッテリーの入力が {len(missing)} 件無い（無い状態で走ると、黙って前版を測るか、'
@@ -105,7 +158,10 @@ if missing:
         print(f'  - {p}', file=sys.stderr)
     print('out/tmp-* はディスク掃除の対象。追跡下のものは git checkout -- <パス>、'
           '作り直せるものは README.md の手順（build.mjs / make-v2-graph.py / make-changed-list.py）で'
-          '再生成して使う', file=sys.stderr)
+          '再生成して使う。'
+          '性能ゲートの固定旧版 out/wt-head/ が無いときは '
+          '`git worktree add out/wt-head a44b7c7`（人が「消さない」と決めた比較対象。'
+          '作らないまま測ると旧版の標本が消えてゲートが落ちる）', file=sys.stderr)
     raise SystemExit(1)
 if stale:
     print(f'バッテリーの道具 {len(stale)} 箇所に掃除対象の一時パスが有る'
@@ -114,5 +170,6 @@ if stale:
     for s in stale:
         print(f'  - {s}', file=sys.stderr)
     raise SystemExit(1)
-print(f'バッテリーの入力 {len(FILES)} 件 + 記録グラフ {len(list(base.glob("*.json")))} 件 + '
-      f'検査のグラフ {len(IN.extra_graphs(REPO))} 件が揃っている（道具のソースに一時パスの残り 0 件）')
+print(f'バッテリーの入力 {len(FILES)} 件 + 記録グラフ {len(reps)} 件 + '
+      f'検査のグラフ {len(IN.extra_graphs(REPO))} 件が揃っている'
+      f'（道具のソースに一時パスの残り 0 件 / out/ 固定入力 {len(bad_fp)} 件の差し替えなし）')

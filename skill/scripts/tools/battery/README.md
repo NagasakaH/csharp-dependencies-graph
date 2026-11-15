@@ -25,6 +25,19 @@
   書き換えない（基準データは人が「差し替えない」と決まっている）
 - 検査器は**終了コードで合否を返す**（`allperm.py`・`cmp-head-proto.py`・`edge-order.py` は
   割れた／差分がある／不一致があれば終了 1）。件数だけ見て人が判断する道具にしない
+- `graph_path()` は**対応表を先に引く**（第 52 ラウンド Codex・agy P2）。作者環境に残骸が有る日も、
+  別クローンで作者の絶対パスが残り記録も読む。ルート前の付かない相対パスでたどるので `/tmp` と
+  `/private/tmp` の違いで落ちない。解決できない日は**作り直し手順付きで終了 1**（素通ししない）
+- `input-fingerprints.json` は `out/` の固定入力 3 本の**構造指紋**（ノード id と縁
+  `source|kind|target` の sha256。`generatedAt` と `rootPath` は機械ごとに違うのでバイトは使わない）。
+  入力が別のものへ差し替わった日を入力点検が終了 1 で止める。出所（elsa-core commit
+  `b74bc3c7…`）と作り直しコマンドもここに置く。**3 本ともコマンドを作り直して指紋が
+  戻ることを実測**した（第 53 ラウンド。前に書いていた手順は `--exclude` と `--root` が違って別物に
+  なっていた。手順を書き直したら走らせて確かめる）
+- `known-v1-diffs.json` は v1 基準との**既知差分 74 件の内容**（行 id・欄・向き・tier・段数・
+  根拠の縁の種類と summary キーの、変更前と変更後の値）。`v1diff.py --verify-known` がこれと
+  完全一致のときだけ終了 0（Astra 裁定。件数だけ的一致は同件数の入れ替わりを通すので使わない）。
+  `--emit-known` は人が作り直しを認めたあとの作成手順で、実行結果から自動更新しない
 
 ## v1 の出力契約を突き合わせる
 
@@ -32,6 +45,7 @@
 | --- | --- | --- |
 | `../regen-audit.py` | `python3 skill/scripts/tools/regen-audit.py skill/scripts/report.mjs out/audit-current --force` | 18 件の JSON を今の版で作り直す |
 | `v1diff.py` | `CGD_AUDIT_OUT=out/audit-current python3 skill/scripts/tools/battery/v1diff.py` | 「**レポート 18 件 / 差分 74 件**」（行 58 + 集計 16。人が差し替えないと決めた既知の定数なので**終了 1 が正常**。内訳は決 69 / 決 71） |
+| `v1diff.py --verify-known` | `python3 skill/scripts/tools/battery/v1diff.py --verify-known skill/scripts/tools/battery/known-v1-diffs.json` | 「差分の内容が既知差分と完全一致」で**終了 0**（バッテリーの機械判定）。新規差分・消えた既知差分・同じ値への入れ替わり・不良（実行失敗 / 読みけない JSON / `unresolved` / 行 id 重複）はすべて終了 1 |
 | `check-dir-rule.py` | `python3 skill/scripts/tools/battery/check-dir-rule.py out/audit-current skill/scripts/tools/battery/baseline-v1` | 「一致 441 / 不一致 0」（v1 基準との突き合わせは 386 一致 / 55 不一致で、55 は既知） |
 | `count-none.py` | `python3 skill/scripts/tools/battery/count-none.py out/audit-current` | 「none の行 28 件（同じ API 17 / 定義上の関連 9 / 兄弟 2）」・サマリカウンタ不一致 0・裁定の再集計と一致 |
 | `cmp-head-proto.py` | `git show HEAD:skill/scripts/report.mjs > /tmp/head.mjs && python3 skill/scripts/tools/battery/cmp-head-proto.py /tmp/head.mjs skill/scripts/report.mjs` | 「動いた項目 {}」。JSON に触らない変更なら 差分のある条件 0（差分があれば終了 1） |
@@ -50,14 +64,14 @@
 起動条件は `skill/tests/fixtures/ImpactFacts/*.graph.json`（追跡下）+ `_inputs.extra_graphs()`
 （`out/demo/graph.json`・`out/elsa/graph.json`・`out/perf-inputs/v2-big.graph.json`）+
 `baseline-v1/` の 18 条件。掃除対象の `out/tmp-*` は読まない。条件数が極端に減ったら
-（200 件未満）入力が減った日なので途中で止める
+（200 件未満）入力が減った日なので走り終えたあとに止める
 
 ## 縁順・入れ替えで表示が変わらないことを確かめる
 
 | 道具 | 実行例 | 期待する出力 |
 | --- | --- | --- |
 | `allperm.py` / `allperm-corr.py` | `python3 skill/scripts/tools/battery/allperm.py skill/scripts/report.mjs skill/scripts/tools/battery/min-0.json` | 「縁順 720 通り / 表 1 通り」（割れたら終了 1） |
-| `allperm-full.py` | `python3 skill/scripts/tools/battery/allperm-full.py skill/scripts/report.mjs skill/scripts/tools/battery/min-0.json` | 「判定: JSON 完全一致」。24 とおり想看うなら第 3 引数に `min-2.json 24`。入力が無い・全実行失敗なら **測らずに**終了 1 |
+| `allperm-full.py` | `python3 skill/scripts/tools/battery/allperm-full.py skill/scripts/report.mjs skill/scripts/tools/battery/min-0.json` | 「判定: JSON 完全一致」。24 通りを見たいなら第 3 引数に `min-2.json 24`。入力が無い・全実行失敗なら **測らずに**終了 1 |
 | `r43-permute.py` | `python3 skill/scripts/tools/battery/r43-permute.py skill/scripts/report.mjs` | 固定 2 条件（`r42-calls-*.json`）で 120 入れ替え → 表 1 通り |
 | `find-splits.py` | `python3 skill/scripts/tools/battery/find-splits.py skill/scripts/report.mjs 250 <種> out/splits/splits-rNN.json` | 「入れ替えで割れた例 0 / 試行 250」（割れた例があれば終了 1）。**種は毎回新しく**（使った種は protocol に記録）、出力先も毎回新しいパスを渡す。親ディレクトリは作る |
 | `via-cycle.py` | `python3 skill/scripts/tools/battery/via-cycle.py skill/scripts/report.mjs` | 「18 レポート / 違反合計 0」。書き出し先を指定しない限りリポジトリへ何も書かない |
