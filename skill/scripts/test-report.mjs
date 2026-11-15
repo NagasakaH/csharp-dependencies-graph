@@ -897,6 +897,24 @@ check('--limit で一覧が切れてもカウンタの不変条件は保たれ�
       && bareTruncLine.includes('--json を付ければ summary') && !bareTruncLine.includes('Markdown'),
     bareTrunc.status === 0 ? bareTruncLine.slice(0, 190) : '実行失敗');
 
+  // 第 51 ラウンド双人レビュー（agy）。`--json` を**付けた**実行でも同じ注記が
+  // 「--json を付ければ」と言っていた（付けているものを「付ければ」と言う）。
+  // 付けた実行は「--json の summary の件数で」と言う
+  const bothTrunc = spawnSync(process.execPath, [join(HERE, 'report.mjs'),
+    '--graph', join(FACTS, 'code-chain.graph.json'), '--from', 'member:M0', '--limit', '1',
+    '--md', join(dir, 'trunc-both.md'), '--json', join(dir, 'trunc-both.json')],
+    { cwd: root, encoding: 'utf8' });
+  const bothLines = [
+    bothTrunc.status === 0 ? (bothTrunc.stdout.split('\n').find((l) => l.includes('打ち切られていて')) || '') : '',
+    bothTrunc.status === 0 && existsSync(join(dir, 'trunc-both.md'))
+      ? readFileSync(join(dir, 'trunc-both.md'), 'utf8').split('\n')
+          .filter((l) => l.includes('打ち切られていて')).join('\n') : '',
+  ].join('\n');
+  check('--json を付けた実行の打ち切り注記は「--json を付ければ」と言わない',
+    bothTrunc.status === 0 && bothLines.includes('--json の summary の件数で')
+      && !bothLines.includes('--json を付ければ'),
+    bothTrunc.status === 0 ? bothLines.slice(0, 190) : '実行失敗');
+
   // 同じく agy P1: ターミナルに出す外部リソースの一覧は 12 件固定で `--limit` を無視し、
   // 13 件目以降を黙って落としていた（Markdown は 2 件なのにここだけ 4 件並ぶ）
   const outLim = runOn('code-chain.graph.json', ['--from', 'member:M0', '--limit', '2'], 'stdout-limit');

@@ -6,6 +6,8 @@ import pathlib
 import sys
 from collections import Counter
 
+import _inputs as IN
+
 
 if len(sys.argv) > 1:
     AUDIT = pathlib.Path(sys.argv[1])
@@ -24,7 +26,8 @@ none_rows = []
 by_bucket = Counter()
 per_file = Counter()
 bad_counters = []
-for p in sorted(AUDIT.glob('*.json')):
+REPORTS = IN.report_paths(AUDIT, expect=18, what='向き none 数えのレポート')
+for p in REPORTS:
   doc = json.loads(p.read_text())
   s = doc['summary']
   total_rows += s['rows']
@@ -49,7 +52,7 @@ for p in sorted(AUDIT.glob('*.json')):
       and s['directionlessPrimary'] != pri:
     bad_counters.append((p.name, f"directionlessPrimary={s['directionlessPrimary']} 実測={pri}"))
 
-print(f'レポート {len(list(AUDIT.glob("*.json")))} 件 / 総行数 {total_rows}'
+print(f'レポート {len(REPORTS)} 件 / 総行数 {total_rows}'
       f'（裁定の再集計 {RULING["rows"]} 行）')
 print(f'none の行 {len(none_rows)} 件（裁定 {RULING["none"]} 件）')
 for b in ['sameApi', 'wiring', 'siblingEndpoints']:

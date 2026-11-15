@@ -29,7 +29,8 @@
   消えない）。同じ版で `summary.directionless` / `summary.directionlessPrimary` の 2 キーを
   追加している。**`schemaVersion` はレポート出力へ入れない**（2026-11-15 に人が決定。
   `docs/decisions.md` の決 71）。上の 2 キーの有無で判別する運用で確定させる。
-  比較基準の `out/tmp-r29/audit-full`（v1 基準）も**差し替えない**ので、同じ条件で再生成しても
+  比較基準の v1 基準（`skill/scripts/tools/battery/baseline-v1`。第 50 ラウンドまで一時
+  ディレクトリに有った唯一のコピーを追跡下へ移した）も**差し替えない**ので、同じ条件で再生成しても
   **既知差分 74 件**が残る（内訳と理由も決 69 / 決 71 に書いてある）
 - `direction === "none"` と `movementEvidence === null` は同義ではない（無方向の連鎖でも以前の
   有向縁から 向き を継承して `in` / `out` になる行がある）

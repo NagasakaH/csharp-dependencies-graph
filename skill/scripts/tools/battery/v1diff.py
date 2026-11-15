@@ -1,9 +1,12 @@
 # v1 の出力契約が変わっていないかの突き合わせ（第 29 ラウンドの更新後基準）。
 # 基準値は skill/scripts/tools/battery/baseline-v1（第 24 ラウンドの監査レポートを第 29
 # ラウンドの裁定で作り直したもの。**人が「差し替えない」と決めた基準**で、第 50 ラウンドまで
-# out/tmp-r29/audit-full に有った唯一のコピーをここへ移した（掃除で消える場所には置かない）。
+# 一時ディレクトリ（第 29 ラウンドの監査出力）に有った唯一のコピーをここへ移した
+# （掃除で消える場所には置かない）。
 # 同じ条件で今の report.mjs を走らせ、行（id / 向き / tier / 段数 / 根拠の縁）と欄の件数を比べる。
 import json, os, pathlib, subprocess, sys
+
+import _inputs as IN
 
 BASE = pathlib.Path(os.environ.get('CGD_AUDIT_BASE', 'skill/scripts/tools/battery/baseline-v1'))
 OUT = pathlib.Path(os.environ.get('CGD_AUDIT_OUT', 'out/audit-current'))
@@ -20,17 +23,19 @@ def rows_of(r):
     return out
 
 diffs = []
-for p in sorted(BASE.glob('*.json')):
+REPORTS = IN.report_paths(BASE, expect=18, what='v1 基準の 18 条件')
+for p in REPORTS:
     old = json.loads(p.read_text())
     s = old['summary']
-    args = ['node', 'skill/scripts/report.mjs', '--graph', s['graph'],
+    args = ['node', str(IN.require_script(os.environ.get('CGD_V1DIFF_REPORT', 'skill/scripts/report.mjs'))),
+            '--graph', str(IN.graph_path(s['graph'])),
             '--hops', str(s['hops']), '--wiring-hops', str(s['wiringHops']),
             '--limit', str(s.get('limit') or 100000)]
     for item in old['starts']:
         args += ['--from', item['id']]
     dest = OUT / p.name
     args += ['--json', str(dest)]
-    run = subprocess.run(args, text=True, capture_output=True)
+    run = subprocess.run(args, text=True, capture_output=True, cwd=str(IN.repo_root()))
     if run.returncode != 0:
         diffs.append((p.name, '実行失敗', run.stdout[-300:] + run.stderr[-300:]))
         continue
@@ -46,7 +51,7 @@ for p in sorted(BASE.glob('*.json')):
     if new['summary']['unresolved']:
         diffs.append((p.name, 'unresolved', 'true'))
 
-print(f'レポート {len(list(BASE.glob("*.json")))} 件 / 差分 {len(diffs)} 件')
+print(f'レポート {len(REPORTS)} 件 / 差分 {len(diffs)} 件')
 for d in diffs[:int(os.environ.get('CGD_V1DIFF_SHOW', '60'))]:
     print(' -', d[0], d[1], d[2] if len(d) > 2 else '')
 sys.exit(1 if diffs else 0)

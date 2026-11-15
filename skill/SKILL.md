@@ -335,8 +335,8 @@ node $SKILL/scripts/report.mjs --graph out/graph/graph.json --api "POST /orders"
 `paired-gate.sh`。第 50 ラウンド双人レビューで、唯一のコピーが `out/tmp-*`（ディスク掃除の対象）に
 あると指摘された）。入力の作り直しも同じ場所にある。`out/perf-inputs/elsa-50.txt` は
 `skill/scripts/tools/make-changed-list.py`、`out/perf-inputs/v2-big.graph.json` は
-`skill/scripts/tools/make-v2-graph.py`（旧残骸 `out/tmp-r26/v2-big.graph.json` とノード・縁が
-1 件も違わないことを実測）で生える。入力が欠けた日はゲートが測らずに落ちるので、
+`skill/scripts/tools/make-v2-graph.py`（第 48 ラウンドまで一時ディレクトリに有った旧残骸と
+ノード・縁が 1 件も違わないことを実測）で生える。入力が欠けた日はゲートが測らずに落ちるので、
 消えたまま合格することができない
 
 `elsa-folder`（`--from folder:. --limit 100000`）は他の入力より重く、縁の本数ぶんの表示用コピーを
@@ -352,7 +352,8 @@ demo-api 1.01 / elsa-50 1.00 / **elsa-folder 1.67（超過）** / v2-mix 1.02。
 「対照が 1 件しかないノードを選び直し対象から外す」ことで速くすることは、表示結果の選択規則を
 変える仕様変更として裁定で却下されている（`out/loop/r43-astra.log` 裁定 2 / 決定事項 66）。
 
-参考（絶対値としての 5 回中央値。第 40 ラウンドの実測 `out/tmp-r26/perf-r40v.json`、commit `03d9c48`、
+参考（絶対値としての 5 回中央値。第 40 ラウンドの実測（当時の生ログは一時ディレクトリの
+`perf-r40v.json`。掃除で消える場所に置く習慣はやめた）、commit `03d9c48`、
 2026-11-14 計測、4 とおりとも失敗 0）。**この 1.0 秒をゲートとして扱う運用は終わっている**:
 
 | 入力 | 5 回中央値 | 最大 | 最大 RSS | UX 目標 1.0 秒との関係 |
@@ -372,7 +373,8 @@ demo-api 1.01 / elsa-50 1.00 / **elsa-folder 1.67（超過）** / v2-mix 1.02。
 | v2-mix | `out/perf-inputs/v2-big.graph.json` 2,727 ノード / 5,800 縁（HTTP API v2 40 × 20 route。`make-v2-graph.py` で作り直せる） | `--graph out/perf-inputs/v2-big.graph.json --api POST /v2/a7/r3` |
 
 測定環境: macOS 26.3（ビルド 25D125）、Apple M4（`Mac16,10`）・16 GB・arm64、Node v26.5.0。
-測定方法: `bash out/tmp-r26/perf-run.sh r40v`（実体は `out/tmp-r26/perf.py`）。4 とおりを交互に
+測定方法: 同じ道具の現在地 `bash skill/scripts/tools/perf-run.sh <タグ>`（第 40 ラウンド当時は
+一時ディレクトリに有った）。4 とおりを交互に
 5 ラウンド回し、1 とおりにつきウォームアップ 1 回のあと 5 回実行して中央値と最大を取る
 （1 とおり 25 実行）。集計は ラウンド中央値の中央値 を 5 回中央値、ラウンド最大の最大 を 最大
 として出し、RSS は `getrusage(RUSAGE_CHILDREN)` の最大を使う（同じプロセスで複数とおりを測ると

@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 # 全縁順（n! 通り、最大 7 縁 = 5040 は多いので 6 縁まで）で表を比較し、割れる並びを列挙する
 import json, subprocess, sys, itertools, tempfile, os, collections
-script, graph_file = sys.argv[1], sys.argv[2]
+import _inputs as IN
+
+# 存在しない report.mjs を渡して「全通り一致」で合格しない（第 51 ラウンド双人レビュー Codex P2）
+script = str(IN.require_script(sys.argv[1]))
+graph_file = str(IN.require(sys.argv[2], '順列検査の固定グラフ'))
 extra = json.load(open(graph_file)).get('extra', [])
 g = json.load(open(graph_file))['graph']
 def run(edges):
@@ -13,7 +17,8 @@ def run(edges):
     p = subprocess.run(['node', script, '--graph', path, *extra, '--json', out],
                        capture_output=True, text=True)
     os.unlink(path)
-    if p.returncode: return 'ERR ' + p.stderr[-200:]
+    if p.returncode:
+        raise SystemExit(f'report.mjs 失敗 (exit {p.returncode}): {p.stderr[-800:]}')
     d = json.load(open(out)); os.unlink(out)
     rows = []
     for b in ['external','entries','artifacts']:
@@ -31,3 +36,6 @@ for v, ks in uniq.items():
     print(f"-- {len(ks)} 通り（例: {ks[0]}）")
     for line in v.split('\n'): print('   ', line)
     if len(uniq) > 1: print('    ...')
+
+# 割れたら終了 1（検査器は終了コードで合否を返す。第 47 ラウンドの約束）
+sys.exit(1 if len(uniq) > 1 else 0)

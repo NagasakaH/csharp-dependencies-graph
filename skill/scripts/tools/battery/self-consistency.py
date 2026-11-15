@@ -20,29 +20,24 @@ import sys
 import tempfile
 from collections import Counter
 
-def _repo_root(start):
-    # __file__ からの段数ハードコードはやめる（道具の置き場所を動かした日に黙って別の
-    # ディレクトリをリポジトリの根と誤認した。第 50 ラウンド双人レビュー後に実測）
-    for a in [start, *start.parents]:
-        if (a / 'skill' / 'scripts' / 'report.mjs').exists():
-            return a
-    raise SystemExit('リポジトリの根が見つからない（skill/scripts/report.mjs を含む祖先を探した）')
+# リポジトリの根・入力の所在・失敗の扱いを `_inputs.py` にまとめた（第 51 ラウンド双人レビュー）
+import _inputs as IN
 
+NOTE = '（第 51 ラウンドの入力で 219 件。EXTRA のグラフを減らすとここで止まる）'
 
-REPO = _repo_root(pathlib.Path(__file__).resolve().parent)
-REPORT = sys.argv[1] if len(sys.argv) > 1 else 'skill/scripts/report.mjs'
-REPORT = str(REPO / REPORT) if not os.path.isabs(REPORT) else REPORT
+REPO = IN.repo_root()
+REPORT = str(IN.require_script(sys.argv[1] if len(sys.argv) > 1 else 'skill/scripts/report.mjs'))
 MOVEMENT = {'triggers', 'invokes', 'handler', 'exposed-by'}
 BUCKETS = ['external.in', 'external.out', 'entries.in', 'entries.out', 'artifacts.in', 'artifacts.out',
            'sameApi', 'siblingEndpoints', 'wiring']
 
 FIXTURES = sorted((REPO / 'skill' / 'tests' / 'fixtures' / 'ImpactFacts').glob('*.graph.json'))
-EXTRA = [REPO / 'skill' / 'tests' / 'fixtures' / 'query' / 'graph.json',
-         REPO / 'out' / 'tmp-r42' / 'demo' / 'graph.json',
-         REPO / 'out' / 'tmp-r44' / 'demo' / 'graph.json',
-         REPO / 'out' / 'tmp-r45' / 'dbg' / 'ri' / 'graph.json',
-         REPO / 'out' / 'tmp-r45' / 'dbg' / 'ri2' / 'graph.json']
-AUDIT = sorted((REPO / 'out' / 'tmp-r29' / 'audit-full').glob('*.json'))
+if len(FIXTURES) < 10:
+    raise SystemExit(f'tracked の fixture が {len(FIXTURES)} 件しかない '
+                     '(skill/tests/fixtures/ImpactFacts/*.graph.json。0 件で合格にしない)')
+# 掃除対象の `out/tmp-*` は読まない（第 51 ラウンド双人レビュー両名 P2）
+EXTRA = [IN.require(x, '検査のグラフ') for x in IN.extra_graphs(REPO)]
+AUDIT = IN.report_paths(IN.HERE / 'baseline-v1', expect=18, what='v1 基準の 18 条件')
 
 TMP = tempfile.mkdtemp(prefix='cgd-selfcons-')
 
@@ -92,12 +87,10 @@ def rows_of(result):
 
 
 def run_report(graph_path, extra_args):
-  out = os.path.join(TMP, 'r-%d.json' % len(os.listdir(TMP)))
-  p = subprocess.run(['node', REPORT, '--graph', str(graph_path), *extra_args, '--json', out],
-                     cwd=str(REPO), capture_output=True, text=True)
-  if p.returncode != 0:
-    return None
-  return json.loads(pathlib.Path(out).read_text())
+  # 失敗を「実行しなかった」に変えない（第 51 ラウンド双人レビュー）
+  return IN.run_json(REPORT, ['--graph', str(graph_path), *extra_args],
+                     os.path.join(TMP, 'r-%d.json' % len(os.listdir(TMP))),
+                     REPO, label=str(graph_path))
 
 
 mismatches = []
@@ -158,13 +151,10 @@ def check_run(label, graph_doc, result):
                            f"子={r['direction']} 期待=none 経路={'|'.join(path)}"))
 
 
-for gp in FIXTURES + [p for p in EXTRA if p.exists()]:
+for gp in FIXTURES + EXTRA:
   doc = json.loads(gp.read_text())
   for kind, args in runs_for(gp):
-    res = run_report(gp, args)
-    if res is None:
-      continue
-    check_run(f'{gp.name}[{kind}]', doc, res)
+    check_run(f'{gp.name}[{kind}]', doc, run_report(gp, args))
 
 for cond in AUDIT:
   doc = json.loads(cond.read_text())
@@ -173,16 +163,12 @@ for cond in AUDIT:
           '--limit', str(s.get('limit') or 100000)]
   for item in doc['starts']:
     args += ['--from', item['id']]
-  gp = pathlib.Path(s['graph'])
-  if not gp.is_absolute():
-    gp = REPO / gp
-  if not gp.exists():
-    continue
-  res = run_report(gp, args)
-  if res is None:
-    continue
-  check_run(f'{cond.name}[audit-full]', json.loads(gp.read_text()), res)
+  gp = IN.graph_path(s['graph'])
+  check_run(f'{cond.name}[audit-full]', json.loads(gp.read_text()), run_report(gp, args))
 
+if conditions < 200:
+  raise SystemExit(f'検査した起動条件が {conditions} 件しかない'
+                   f'{NOTE}。0 件合格を作らないためにここで止める')
 print(f'検査した起動条件 {conditions} 件 / 無方向の一歩で親と突き合わせた行 {compared} 件'
       f'（うち 表示経路全体が無方向の行 {undirected_only} 件）')
 print(f'不一致 {len(mismatches)} 件')

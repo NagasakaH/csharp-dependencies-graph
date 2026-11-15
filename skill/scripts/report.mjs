@@ -2464,7 +2464,12 @@ const truncNote = (total, shown, fileCap, stem = '他', extra = '') => {
   }
   if (nowhere > 0) {
     bits.push(`${stem} ${nowhere} 件は --limit ${fileCap} で打ち切られていて、どの出力にも入っていません`);
-    bits.push('--limit を上げるのが一番早く、--json を付ければ summary の件数で全体量も見られます');
+    // 「--json を付ければ」は --json を付けていない実行だけ。付けた実行に同じことを言うのは
+    // 第 50 ラウンドに直した「出ていない出力を名指す」と同じ形なので分ける
+    // （第 51 ラウンド双人レビュー agy の指摘）
+    bits.push(opts.json
+      ? '--limit を上げるのが一番早く、--json の summary の件数で全体量も見られます'
+      : '--limit を上げるのが一番早く、--json を付ければ summary の件数で全体量も見られます');
   }
   if (extra) bits.push(extra);
   return `（${bits.join('。')}）`;

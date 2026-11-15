@@ -12,7 +12,14 @@
 #       order_process の代表 via=notify の相互循環になる（第 39 ラウンド agy 指摘 1）
 #   (2) 実事例: demo-iam（起点 tf:aws_iam_role_policy.lambda_dynamo_policy）の 4 行
 #   (3) 保存済み 18 レポート（skill/scripts/tools/battery/baseline-v1 と同じ条件）の全行
-import json, os, pathlib, subprocess, sys, tempfile
+import json
+import os
+import pathlib
+import subprocess
+import sys
+import tempfile
+
+import _inputs as IN
 
 def _repo_root(start):
     # __file__ からの段数ハードコードはやめる（道具の置き場所を動かした日に黙って別の
@@ -143,7 +150,7 @@ def main():
     # ---- (3) 18 レポート全行 ----
     print('== (3) 保存済み 18 レポートと同じ条件 ==')
     nrep = 0
-    for p in sorted((ROOT / 'skill' / 'scripts' / 'tools' / 'battery' / 'baseline-v1').glob('*.json')):
+    for p in IN.report_paths(IN.HERE / 'baseline-v1', expect=18, what='v1 基準の 18 条件'):
         old = json.loads(p.read_text())
         s = old['summary']
         args = ['--graph', s['graph'], '--hops', str(s['hops']),

@@ -30,8 +30,9 @@ git diff --name-only origin/main... | node skill/scripts/report.mjs \
 出方は枠に分けてある（混ぜるほど読み間違えるので分けたまま読む）。**どの行も必ずどれか 1 つの枠にしか
 入らない**ので、`summary.rows` と各枠の合計は常に一致する。下の「縁」列の数字は**現在の HEAD で
 再生成した 18 レポート**で実際に出た縁の延べ回数（再生成
-`python3 skill/scripts/tools/regen-audit.py skill/scripts/report.mjs out/tmp-r49/audit --force` → 数え直し
-`python3 skill/scripts/tools/count-kinds.py out/tmp-r49/audit`）。v1 基準 `out/tmp-r29/audit-full` とは
+`python3 skill/scripts/tools/regen-audit.py skill/scripts/report.mjs out/audit-current --force` → 数え直し
+`python3 skill/scripts/tools/count-kinds.py out/audit-current`）。v1 基準
+`skill/scripts/tools/battery/baseline-v1` とは
 既知差分 74 件のぶんずれる（決 69 / 決 71）。縁の名前だけ見て枠を推測しないこと:
 
 | 枠 | 意味 | 縁 |
@@ -177,7 +178,7 @@ file 単位の集計: 4 グループ（表 4 行）（実縁で届いた 17 ノ�
 - 集計は「最初に届いた 1 経路」ではなく**そのノードに届いた実縁の全数**で決める。実縁と階縁が
   同じ段で届いたノードは実縁として数えるので、縁の列挙順を入れ替えても JSON は変わらない
   （`test-query.mjs` が反転・id 順・source 順・交互の 4 とおり × `--via-parent` ありなしで一致を固定し、
-  実グラフ side でも `out/tmp-r43-docs/check-edge-order.py` で不一致 0 件を確かめた）
+  実グラフ side でも `python3 skill/scripts/tools/battery/edge-order.py` で不一致 0 件を確かめた）
 - `--dir both` にするのは、参照する側（`out`）と参照される側（`in`）を合わせて見たいから。
   **逆向きだけが見たいときは起点を型かメンバーにする**。ファイル起点の `--dir in` は
   `--via-parent` を付けても階層を登るだけで実縁に届かず、2 段でも 3 段でも集計は 0 件のまま

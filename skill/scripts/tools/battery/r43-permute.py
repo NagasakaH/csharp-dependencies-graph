@@ -21,9 +21,11 @@ def _repo_root(start):
     return a
 
 
-REPO = _repo_root(os.path.dirname(os.path.abspath(__file__)))
-REPORT = os.path.abspath(sys.argv[1] if len(sys.argv) > 1
-                         else os.path.join(REPO, 'skill', 'scripts', 'report.mjs'))
+import _inputs as IN
+
+REPO = IN.repo_root()
+REPORT = str(IN.require_script(sys.argv[1] if len(sys.argv) > 1
+                               else os.path.join(REPO, 'skill', 'scripts', 'report.mjs')))
 LIMIT = int(sys.argv[2]) if len(sys.argv) > 2 else 10 ** 9
 BUCKETS = ['external.in', 'external.out', 'entries.in', 'entries.out',
            'artifacts.in', 'artifacts.out', 'sameApi', 'siblingEndpoints', 'wiring']

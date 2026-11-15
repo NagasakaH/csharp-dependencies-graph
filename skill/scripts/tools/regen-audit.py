@@ -10,9 +10,13 @@
 # 黙って上書きしない（`--force` が要る）。子プロセスが 1 件でも非 0 で終われば非 0 で終了する
 import json, os, pathlib, subprocess, sys
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'battery'))
+import _inputs as IN
+
 args = [a for a in sys.argv[1:] if a != '--force']
 force = '--force' in sys.argv
-script = args[0] if len(args) > 0 else 'skill/scripts/report.mjs'
+script = str(IN.require_script(args[0] if len(args) > 0 else 'skill/scripts/report.mjs'))
+REPO = IN.repo_root()
 base = pathlib.Path(os.environ.get('CGD_AUDIT_BASE', 'skill/scripts/tools/battery/baseline-v1'))
 out = pathlib.Path(args[1] if len(args) > 1 else 'out/audit-current')
 if not base.is_dir():
@@ -27,12 +31,13 @@ n = 0
 for p in sorted(base.glob('*.json')):
     doc = json.loads(p.read_text(encoding='utf-8'))
     s = doc['summary']
-    cmd = ['--graph', s['graph'], '--hops', str(s['hops']), '--wiring-hops', str(s['wiringHops']),
+    # `summary.graph` の記録パスが掃除で消えたものは移設した実体へ（第 51 ラウンド双人レビュー agy P2）
+    cmd = ['--graph', str(IN.graph_path(s['graph'])), '--hops', str(s['hops']), '--wiring-hops', str(s['wiringHops']),
            '--limit', str(s.get('limit') or 100000)]
     for item in doc['starts']:
         cmd += ['--from', item['id']]
     q = subprocess.run(['node', script] + cmd + ['--json', str(out / p.name)],
-                       cwd=os.path.abspath('.'), capture_output=True, text=True)
+                       cwd=str(REPO), capture_output=True, text=True)
     if q.returncode != 0:
         raise SystemExit(f'{p.name} 失敗（終了コード {q.returncode}）: {q.stderr[-400:]}')
     n += 1

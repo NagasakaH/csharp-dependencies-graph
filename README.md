@@ -36,7 +36,7 @@ UX 目標**、最大応答時間はゲートにしない。4 とおりの入力�
 
 ```sh
 node skill/scripts/test-analyzer.mjs                          # 静的解析の精度（96 項目、ブラウザ不要）
-node skill/scripts/test-report.mjs                            # 影響範囲レポート（129 項目）
+node skill/scripts/test-report.mjs                            # 影響範囲レポート（130 項目）
 node skill/scripts/test-query.mjs                             # 逆引き・影響範囲の照会（28 項目、.NET 不要）
 node skill/scripts/test-merge.mjs                             # Lambda handler の解決規則（12 項目、.NET 必要）
 node skill/scripts/test-terraform.mjs                         # API Gateway のパス組み立てと HTTP API (v2) の `target`（46 項目、.NET 不要）
@@ -268,9 +268,12 @@ skill/
   scripts/             build / scan / scan-terraform / merge / render / query / report / verify
                        + test-analyzer / test-query / test-merge / test-terraform / test-report（回帰テスト）
   scripts/tools/       測定と再生成の道具（regen-audit / count-kinds / make-changed-list /
-                       make-v2-graph / perf-measure.py / perf-run.sh / paired-gate.sh）
+                       make-v2-graph / perf-measure.py / perf-run.sh / paired-gate.sh /
+                       check-battery-inputs.py）
   scripts/tools/battery/  v1 の出力契約を突き合わせる照合器・順列と入れ替えの検査器と、
-                       それが入力に固定する 18 レポート（開発側の回帰バッテリー）
+                       それが入力に固定する 18 レポート（開発側の回帰バッテリー）。
+                       入力の所在と終了コードを揃える `_inputs.py`、`baseline-v1` が記録する
+                       入力グラフの実体 `graphs/` もここ
   tests/fixtures/      静的解析と照会のテスト用データ（C# と graph.json）
   viewer/template.html 単一ファイルのビューア（データ埋め込み）
   reference/schema.md  データ契約
@@ -279,3 +282,17 @@ skill/
 demo/orders-api-lambda Lambda + Terraform のデモ対象
 out/                   生成物（gitignore 済み）
 ```
+
+### 回帰バッテリーの置き場所と終了コード（保守向け）
+
+`skill/scripts/tools/battery/` の検査器は、次の 3 つを約束している（第 48 〜 51 ラウンドの
+双人レビューで実際に出た事故の形。`out/loop/protocol.md` §4-3 が実行手順）。
+
+- **入力を目の前の `out/tmp-*` から読まない。** `out/tmp-*` はディスク掃除の対象で、消えた日に
+  検査が「該当 0 件」で終了 0 になる。追跡下に必要な実体（`baseline-v1` と `graphs/`）を置き、
+  `out/` に残すものは作り直しが決まっているもの（`out/demo/graph.json`、`out/perf-inputs/` など）だけにする
+- **実行前に所在を点検する。** `python3 skill/scripts/tools/check-battery-inputs.py` が
+  手書き一覧 + `baseline-v1` が記録する入力グラフ + 検査器が足す実グラフを確かめ、
+  道具のソースに掃除対象の一時パスが残っていれば終了 1
+- **無いものと失敗を成功にしない。** 入力が無い・子が失敗したら測る前に終了 1。
+  存在しない `report.mjs` を渡して「全通り一致」が出る検査器は検査器ではない

@@ -6,6 +6,8 @@ import json
 import pathlib
 import sys
 
+import _inputs as IN
+
 # `skill/scripts/tools/battery/check-invariants46.py` の `arrow_at` / `step_dir` / `fold` と同じ規則を、
 # レポート JSON を読むだけのために書き写したもの（あの検査器は import すると 18 起動条件を
 # 実行してしまうので、ここでは import しない）。実装 `report.mjs` の `dirOfStep` との一致は
@@ -63,7 +65,7 @@ def rows_of(doc):
 def check_dir(d):
   agree = bad = loose = nopath = bad_domain = 0
   examples = []
-  for p in sorted(pathlib.Path(d).glob('*.json')):
+  for p in IN.report_paths(d):
     doc = json.loads(p.read_text())
     gp = pathlib.Path(doc['summary']['graph'])
     graph = json.loads(gp.read_text())
@@ -98,6 +100,8 @@ def check_dir(d):
   return agree, bad, loose, nopath, bad_domain, examples
 
 
+if len(sys.argv) < 2:
+  raise SystemExit('使い方: python3 skill/scripts/tools/battery/check-dir-rule.py <レポートディレクトリ> [.. 追加のディレクトリ]')
 for d in sys.argv[1:]:
   agree, bad, loose, nopath, bad_domain, examples = check_dir(d)
   print(f'{d}: 一致 {agree} / 不一致 {bad} / 並行縁で不定 {loose} / 経路を読めない {nopath}'

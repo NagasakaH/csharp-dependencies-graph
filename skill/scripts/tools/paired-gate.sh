@@ -9,7 +9,9 @@
 #   2. 同じタグの**集計でも生ログでも**何か有れば断る。中断して生ログだけ残った日に
 #      同じタグで再実行すると、前の標本が混ざった集計が通る（第 50 ラウンド Codex 指摘）
 #   3. 子プロセスの失敗回数が 1 件でもあれば不合格（倍率を見る前に落とす）
-#   4. 条件ごとの倍率（新 / 旧）の中央値が 1.20 を越えたら不合格
+#   4. 条件ごとの倍率（新 / 旧）の中央値が 1.20 を越えたら不合格。落ちた日は組ごとの幅と
+#      いまの load を一緒に印字する（第 50 ラウンド p50d は load 4.7 で 1.49 が出た）。
+#      混雑を理由に**免除はしない**ので、静かな窓で新しいタグを使い直すのが唯一の通り方
 #   5. 新側の最大 RSS が 800 MB を越えたら不合格
 # ほかの測定と同時実行しない（他プロセスが混ざると倍率が読めない）
 set -euo pipefail
@@ -61,6 +63,10 @@ def load(t):
         return json.load(f)
 
 
+def load_now():
+    return subprocess.run(['uptime'], text=True, capture_output=True).stdout.split('users,')[-1].strip()
+
+
 bad = []
 print('| 条件 | 旧 5 組中央値 | 新 5 組中央値 | 組ごとの倍率 | 倍率の中央値 | 判定（1.20 以内） '
       '| 失敗回数 旧・新 | 旧 RSS | 新 RSS |')
@@ -78,8 +84,16 @@ for c in conds:
                            f'コマンド {r.get("コマンド")}）')
     ratios = [n['秒_中央値'] / o['秒_中央値'] for o, n in zip(old, new)]
     med = statistics.median(ratios)
+    lo, hi = min(ratios), max(ratios)
     if med > 1.20:
-        bad.append(f'{c}: 倍率の中央値 {med:.2f} が 1.20 を超過')
+        # 第 50 ラウンド p50d は load 4.7 で elsa-folder 1.49 が出た。中央値だけの判定なので、
+        # 落ちた日は組ごとの幅と負荷を一緒に見せる（混雑を理由に**免除はしない**。
+        # 静かな窓で新しいタグで測り直すことだけが唯一の通り方）
+        bad.append(f'{c}: 倍率の中央値 {med:.2f} が 1.20 を超過'
+                   f'（組ごと {lo:.2f}〜{hi:.2f}、幅 {hi - lo:.2f}。'
+                   f'組の幅が大きい日は他プロセスの混雑を疑う。いま {load_now()} で、'
+                   f'測る窓として不適かもしれない。それでも不合格は同じなので、'
+                   f'静かな窓で**新しいタグ**（{tag} は使い回さない）で測り直す）')
     rss = max(x['最大RSS_MB'] for x in new)
     if rss > 800:
         bad.append(f'{c}: 新側の最大 RSS {rss:.1f} MB が 800 MB を超過')
@@ -89,7 +103,7 @@ for c in conds:
           f"| {'適合' if med <= 1.20 else '**超過**'} "
           f"| {sum(x['失敗'] for x in old)}・{sum(x['失敗'] for x in new)} "
           f"| {max(x['最大RSS_MB'] for x in old):.1f} MB | {rss:.1f} MB |")
-print('load:', subprocess.run(['uptime'], text=True, capture_output=True).stdout.split('users,')[-1].strip())
+print('load:', load_now())
 if bad:
     print('ゲート不合格:')
     for b in bad:
