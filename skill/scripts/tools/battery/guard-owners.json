@@ -90,10 +90,19 @@
   "exempt-dup-entry": [
    "_inputs.py"
   ],
+  "exempt-loader-attrs": [
+   "test-contract.py"
+  ],
   "exempt-loader-name": [
    "_inputs.py"
   ],
+  "exempt-map-expand": [
+   "test-contract.py"
+  ],
   "exempt-scan-parity": [
+   "test-contract.py"
+  ],
+  "exempt-scope-attr": [
    "test-contract.py"
   ],
   "fixture-set": [
@@ -123,7 +132,16 @@
   "fp-unregistered": [
    "_inputs.py"
   ],
+  "guard-unbound": [
+   "test-contract.py"
+  ],
   "import-binds-guard": [
+   "test-contract.py"
+  ],
+  "import-granted": [
+   "test-contract.py"
+  ],
+  "import-star": [
    "test-contract.py"
   ],
   "import-unregistered": [
@@ -142,6 +160,9 @@
    "_inputs.py"
   ],
   "md-fence-form": [
+   "test-contract.py"
+  ],
+  "md-marker-form": [
    "test-contract.py"
   ],
   "none-counters": [

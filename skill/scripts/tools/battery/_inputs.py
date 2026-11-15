@@ -1368,11 +1368,16 @@ _EXEMPT_ENTRY_KEYS = ('file', 'imports', 'note')
 _NAME_SHAPE_RE = re.compile(r'[a-z][a-z0-9]*(?:-[a-z0-9]+)*')
 # 豁免で**名乗ってはいけない**名前（`test-contract.py` の `_LOADER_NAMES` と対）。Astra 第 64
 # ラウンド 問 2 裁定 (i): 「豁免の登録を拒否する」と「実装上も禁止する」の両方を持つので、
-# ここは台帳の形の段階で落とし、走査側も別の列表で穴にしている（どちらか一方を消しても落ちる）
+# ここは台帳の形の段階で落とし、走査側も別の一覧で穴にしている（どちらか一方を消しても落ちる）
 _LEDGER_LOADER_NAMES = frozenset({
     'exec', 'eval', 'globals', 'locals', 'vars', 'getattr', '__import__', 'compile',
     'import_module', 'FunctionType', 'make_function', 'currentframe', 'getframe',
     'f_locals', 'f_globals', 'modules', '_getframe', 'f_builtins',
+    # Astra 第 65 ラウンド 問 1 (c) 1: 登録禁止は `test-contract.py` の `_LOADER_NAMES` と
+    # `_LOADER_ATTRS` の**両方**を反映する（属性名だけ書いた豁免で `importlib.__loader__` を
+    # 解禁できた実測。対応表の照合が 2 つの一覧の内包も確かめる）
+    '__loader__', '__subclasses__', '__bases__', '__mro__', '__class__', '__class_getitem__',
+    '__dict__', '__globals__', '__code__', '__call__', '__builtins__',
 })
 
 
@@ -1426,6 +1431,8 @@ def _exempt_entry_errors(entry, where):
     if not imports:
         errs.append(f'{where} の imports が空（何を許すか書いていない豁免は、ファイル全体の豁免に'
                     '見えるので置かない）')
+    # 見張り番 `exempt-loader-name` はこの関数で 1 箇所だけ読む（1 名前 = 1 箇所の規則）
+    mod_banned = guard('exempt-loader-name')
     for mod, granted in imports.items():
         if not isinstance(mod, str) or not mod.strip():
             errs.append(f'{where} の imports のモジュール名が空でない文字列ではない: {mod!r}')
@@ -1438,8 +1445,14 @@ def _exempt_entry_errors(entry, where):
             errs.append(f'{where} の imports[{mod!r}] に空でない文字列でない名前がある: {bad[:4]}')
             continue
         # Astra 第 64 ラウンド 問 2 裁定 (i): 実行・取り出しの機構その物を豁免で除外登録できない
+        # 禁止名は**許す名前側だけでなく import の名前自身**でも見る（`{"getattr": ["x"]}` は
+        # 実行機構その物を許す豁免になる。Astra 第 65 ラウンド 問 1 (c) 1）
+        if mod_banned and (mod in _LEDGER_LOADER_NAMES or mod.split('.')[0] in _LEDGER_LOADER_NAMES):
+            errs.append(f'{where} の imports のモジュール名 {mod!r} が動的機構の名前'
+                            '（豁免は未登録の import を通す為のもので、禁止した機構を解禁する物では'
+                            'ない。Astra 第 65 ラウンド 問 1）')
         banned = sorted(x for x in granted if isinstance(x, str) and x in _LEDGER_LOADER_NAMES)
-        if banned and guard('exempt-loader-name'):
+        if banned and mod_banned:
             errs.append(f'{where} の imports[{mod!r}] に動的機構の名前 {banned[:4]} が登録されている'
                         '（豁免は未登録の import を通す為のもので、禁止した機構を解禁する物ではない。'
                         '`from types import FunctionType` を豁免で通したのが agy / Codex 第 63 ラウンド'
@@ -1497,7 +1510,7 @@ def guard_ledger_shape_errors(doc):
             errs += _exempt_entry_errors(entry, f'exemptions[{i}]')
         # Astra 第 64 ラウンド 問 2 裁定 (iv): 同じファイルの豁免を二重に登録して「片方で許し
         # 片方で消す」ような置き方をする（同じ import の重複登録もここで落ちる）
-        files, pairs, twice = [], [], []
+        files, pairs, folded_pairs, twice = [], [], [], []
         for entry in ex:
             if not isinstance(entry, dict) or not isinstance(entry.get('file'), str):
                 continue
@@ -1508,9 +1521,14 @@ def guard_ledger_shape_errors(doc):
             mods = entry.get('imports')
             if isinstance(mods, dict):
                 for mod in mods:
-                    if (key, mod) in pairs:
+                    # Astra 第 65 ラウンド 問 1 (c) 3: 展開は**親へ畳んだ形**で行うので、検査も
+                    # 畳んだキーで重複を見る（`{"importlib": ["util"], "importlib.util": [...]}` は
+                    # 展開すると同じ `importlib` の許可になり、後勝ちで中身が入れ替わる）
+                    folded = mod.split('.')[0] if isinstance(mod, str) else mod
+                    if (key, mod) in pairs or (key, folded) in folded_pairs:
                         twice.append(f'{key} の import「{mod}」')
                     pairs.append((key, mod))
+                    folded_pairs.append((key, folded))
         if twice and guard('exempt-dup-entry'):
             errs.append(f'豁免に同じファイル・同じ import の重複登録がある: {sorted(set(twice))[:4]}'
                         '（1 ファイルにつき 1 件にまとめる。分けて置くと片方だけが読まれたのか'
