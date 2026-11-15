@@ -2407,10 +2407,16 @@ const siblingDefRows = siblingRows().filter((r) => !r.endpoint);
 const siblingListShown = siblingShown.filter((r) => !!r.endpoint);
 const siblingDefsShown = siblingShown.length - siblingListShown.length;
 // 定義ノードは一覧に出さないため「Markdown にも」は嘘になる。JSON に入った分と打たれた分を分けて言う
+// 「--json に入ります」は **--json を出した実行だけ**が真実。付けていない実行に
+// 「--json に入っています」と言っても、そのファイルは作られていない（第 49 ラウンド Codex 指摘の
+// 「出しています」と同じ形。第 50 ラウンドで一覧側の注記を直したとき、この 2 か所が残っていた）
+const defInto = opts.json ? `--json の \`siblingEndpoints\` に入り、`
+  : `--json を指定すると \`siblingEndpoints\` に入り、`;
+const defRest = opts.json ? 'JSON にも入っていません' : '--json を指定しても入りません';
 const siblingDefNote = siblingDefRows.length > siblingDefsShown
-  ? `（定義ノード ${siblingDefRows.length} 件中 ${siblingDefsShown} 件が --json の \`siblingEndpoints\` に入り、`
-    + `他 ${siblingDefRows.length - siblingDefsShown} 件は \`--limit ${opts.limit}\` で打ち切られているため JSON にも入っていません。`
-    + `ルートの一覧とは別枠です）`
+  ? `（定義ノード ${siblingDefRows.length} 件中 ${siblingDefsShown} 件が ${defInto}`
+    + `他 ${siblingDefRows.length - siblingDefsShown} 件は \`--limit ${opts.limit}\` で`
+    + `打ち切られているため ${defRest}。ルートの一覧とは別枠です）`
   : '';
 const result = {
   summary,
@@ -2499,10 +2505,14 @@ const endpointShown = endpointRows.slice(0, opts.limit);
 // （この 2 つは --limit で切らない）。一覧自体には入らないのでそう書く
 // ターミナル行に Markdown の記号をそのまま出さない
 const plain = (s) => s.replace(/`/g, '');
+const epInto = opts.json
+  ? `--json の \`summary.startEndpoints\` と \`summary.reachedEndpoints\` に全件入ります`
+  : `--json を指定すると \`summary.startEndpoints\` と \`summary.reachedEndpoints\` に全件入ります`
+    + `（いまはターミナルだけ）`;
 const endpointNote = endpointRows.length > endpointShown.length
   ? `（表示 ${endpointShown.length} / ${endpointRows.length} 件。他のエンドポイント `
-    + `${endpointRows.length - endpointShown.length} 件はこの一覧に出しませんが --json の `
-    + `\`summary.startEndpoints\` と \`summary.reachedEndpoints\` に全件入ります。一覧を長くするには --limit を上げます）`
+    + `${endpointRows.length - endpointShown.length} 件はこの一覧に出しませんが ${epInto}。`
+    + `一覧を長くするには --limit を上げます）`
   : '';
 const SIBLING_LIST_HINT = '一覧は `--list-siblings`（本数は `--limit`）';
 let md = `# 影響範囲レポート\n\n- グラフ: \`${summary.graph}\`\n- 起点 ${summary.starts} 件（展開後 ${summary.expandedStarts} 件、グラフに無く起点にしなかった変更 ${summary.fallbacks} 件）\n- 探索 ${summary.hops} ホップ（向きの変えは探索中 1 回まで許可、表示経路で向き変えを含む行 ${summary.secondOrder} 件）/ Terraform の定義単位は ${summary.wiringHops} 段まで無方向で閉じる / 階層（parent・contains）は起点の展開にのみ使用\n- 本命: 影響する先 ${summary.primaryOut} / 影響を受ける入口 ${summary.primaryIn} / コード 出口 ${summary.entryOut}・入口 ${summary.entryIn} / 成果物 先 ${summary.artifactsOut}・受 ${summary.artifactsIn} / 定義上の関連 ${summary.wiring} / 同じ API の定義 ${summary.sameApi} / 同じコードを使う別の API ${summary.siblings}（エンドポイント ${summary.siblingEndpointsOnly}・定義ノード ${summary.siblingDefs}）/ 向き を決める関係が無い行 ${summary.directionless}（うち 本命 の資格を持つ行 ${summary.directionlessPrimary}）。**「本命」は「最短」を意味しません**\n- 行の 向き（JSON の direction）は in（影響を受ける入口）/ out（影響する先）/ none（**この表示経路に 向き を決める関係が無い**。Terraform の定義の縁だけを辿った行。一覧の 向き 列では「—」と書きます）。none は「そのノードに他の有向関係が存在しない」意味ではなく、動きの根拠 が無いこととは同義ではありません（以前の有向縁から 向き を継承した行があります）。継承した in / out は、その無方向の縁自体が動作方向を証明した値ではありません。none の行は 定義上の関連・同じ API の定義・同じコードを使う別の API に並び、tier（本命の資格）はそのまま保ちます（同じコードを使う別の API の一覧は 向き 列を出さないので、そこは JSON の \`siblingEndpoints\` で見ます）\n- 各段数欄は**表示経路の段数**です（起点 0 段、表示経路の関係 1 本を 1 段。表の値と行の経路表示は一致させます）。**最短とは限りません**。経路全体の整合性を保つため、より長い代表経路を表示する場合があります。この段数は影響の強さやレビューの優先度を示しません\n- 根拠の由来: ${Object.entries(summary.byProvenance).map(([k, v]) => `${provLabel(k)} ${v}`).join(' / ') || 'なし'}（**注釈由来 ${summary.annotationRows} 件**は静的解析では決まらない対応付け）\n\n`;
@@ -2558,7 +2568,9 @@ if (startIsEndpoint) md += mdSection('起点と同じ API を定義するノー�
 if (startIsEndpoint && siblingRows().length) {
   md += `### 同じコードを使う別の API（エンドポイント ${summary.siblingEndpointsOnly} 件と、それを定義するノード ${summary.siblingDefs} 件。起点の定義ではなく、共有しているコードを変えたときに一緒に見る）\n\n`;
   md += `兄弟ルート ${summary.siblingEndpointsOnly} 件 / その API を定義しているノード ${summary.siblingDefs} 件`
-    + `（**起点の 本命 の結果には入りません**。\`--json\` の \`siblingEndpoints\` は**この一覧のルートを先頭に**、`
+    + `（**起点の 本命 の結果には入りません**。`
+    + `${opts.json ? '`--json` の `siblingEndpoints` は' : '`--json` を付けると出る `siblingEndpoints` は'}`
+    + `**この一覧のルートを先頭に**、`
     + `そのうしろに定義ノードを並べて \`--limit\` まで入ります。${SIBLING_LIST_HINT}）\n\n`;
 if (opts.listSiblings) {
     md += (siblingListShown.map((r) => `- \`${r.name}\`（\`${r.id}\`、段数 ${r.hops}（最短とは限りません）、根拠 \`${r.evidence.kind}\`、理由 \`${r.siblingReason}\`）`).join('\n') || '（なし）') + '\n\n';

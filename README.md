@@ -36,7 +36,7 @@ UX 目標**、最大応答時間はゲートにしない。4 とおりの入力�
 
 ```sh
 node skill/scripts/test-analyzer.mjs                          # 静的解析の精度（96 項目、ブラウザ不要）
-node skill/scripts/test-report.mjs                            # 影響範囲レポート（122 項目）
+node skill/scripts/test-report.mjs                            # 影響範囲レポート（125 項目）
 node skill/scripts/test-query.mjs                             # 逆引き・影響範囲の照会（28 項目、.NET 不要）
 node skill/scripts/test-merge.mjs                             # Lambda handler の解決規則（12 項目、.NET 必要）
 node skill/scripts/test-terraform.mjs                         # API Gateway のパス組み立てと HTTP API (v2) の `target`（46 項目、.NET 不要）
@@ -192,6 +192,12 @@ true になり、`summary` の各欄の数は**打ち切る前**のままなの�
 （第 50 ラウンド双人レビュー。前の版はファイルを 1 つも出していない実行で同じ嘘を言っていた）。
 `--limit` は Markdown・JSON・ターミナルのすべてに掛かるので、`--limit` で打った分が
 `--json` の中から見つかることはない（第 48 ラウンド双人レビューの実測）
+
+同じ理屈で、**JSON の欄を指す案内も `--json` を出した実行だけが断定できる**。`--json` を
+付けていない実行では「`--json` を指定すると `summary.startEndpoints` … に全件入ります」
+「`--json` を付けると出る `siblingEndpoints` は」と言い方を変える（第 50 ラウンド。
+一覧の注記を直したあと、定義ノードの注記と Markdown の見出しに「`--json` に入る」言い方が
+残っていたので検査にした）
 
 同じコードを使う別の API の一覧は、**ルートを先頭・そのうしろに定義ノード**という 1 本の順で
 `--limit` を切る（JSON の `siblingEndpoints`・Markdown・ターミナルが同じ順を向く）。

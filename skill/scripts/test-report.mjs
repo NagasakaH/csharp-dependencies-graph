@@ -975,6 +975,16 @@ check('--limit で一覧が切れてもカウンタの不変条件は保たれ�
         && /この一覧に出しませんが/.test(epNote) && !/Markdown にも/.test(epNote)
         && !/JSON にも/.test(epNote) && !sec.includes('（表示 1 /'),
       x ? JSON.stringify([mdIds, termIds, sec.split('\n').find((l) => l.startsWith('（表示')) || '']) : '実行失敗');
+
+    // 出力ファイルを 1 つも作らない実行で「--json に入ります」と断定しない（第 49 ラウンド Codex の
+    // 「出しています」と同じ形）。第 50 ラウンドで一覧側の注記を直したとき、ここが残っていた
+    const bare = spawnSync(process.execPath, [join(HERE, 'report.mjs'), '--graph', join(dir, 'ep-list.graph.json'),
+      '--api', 'POST /a', '--limit', '2'], { cwd: root, encoding: 'utf8' });
+    const bareTerm = bare.status === 0 ? (bare.stdout.split('\n')[0] || '') : '';
+    check('--json を付けない実行はエンドポイント欄で --json を断定しない',
+      bare.status === 0 && /--json を指定すると/.test(bareTerm) && /いまはターミナルだけ/.test(bareTerm)
+        && !/この一覧に出しませんが --json の/.test(bareTerm),
+      bare.status === 0 ? bareTerm.slice(0, 170) : '実行失敗');
   }
 
   const d = runOn('code-chain-long.graph.json', ['--from', 's', '--hops', '100'], 'code-rounds');
@@ -1286,6 +1296,31 @@ check('--limit で一覧が切れてもカウンタの不変条件は保たれ�
       x ? JSON.stringify([x.result.summary.siblingEndpointsOnly, x.result.summary.siblingDefs,
         x.result.siblingEndpoints.map((r) => r.id.split('.').pop()), mdLine.slice(0, 120),
         term.slice(0, 120)]) : '実行失敗');
+
+    // 同じグラフで --json を付けずに走らせると、定義ノードの注記は「--json に入る」と言えない
+    const bareArgs = ['--api', 'POST /a', '--list-siblings', '--limit', '3'];
+    const bare = spawnSync(process.execPath, [join(HERE, 'report.mjs'),
+      '--graph', join(dir, 'sib-defs.graph.json'), ...bareArgs], { cwd: root, encoding: 'utf8' });
+    const bareTerm = bare.status === 0
+      ? (bare.stdout.split('\n').find((l) => l.includes('定義ノード') && l.includes('件')) || '') : '';
+    check('--json を付けない実行は定義ノードの注記で --json を断定しない',
+      bare.status === 0 && bareTerm.includes('--json を指定すると')
+        && bareTerm.includes('--json を指定しても入りません')
+        && !bareTerm.includes('JSON にも入っていません'),
+      bare.status === 0 ? bareTerm.slice(0, 170) : '実行失敗');
+
+    // Markdown 側も見出しで `--json` の `siblingEndpoints` を参照している（--md だけの実行では
+    // そのファイルが無いので「付けると出る」と言い方を変える）
+    const mdOnlyFile = join(dir, 'sib-defs-md-only.md');
+    const mdOnly = spawnSync(process.execPath, [join(HERE, 'report.mjs'),
+      '--graph', join(dir, 'sib-defs.graph.json'), ...bareArgs, '--md', mdOnlyFile],
+      { cwd: root, encoding: 'utf8' });
+    const mdHead = mdOnly.status === 0
+      ? (readFileSync(mdOnlyFile, 'utf8').split('\n').find((l) => l.startsWith('兄弟ルート')) || '') : '';
+    check('--md だけの実行は見出しで --json を「付けると出る」と言う',
+      mdOnly.status === 0 && mdHead.includes('`--json` を付けると出る')
+        && !mdHead.includes('`--json` の'),
+      mdOnly.status === 0 ? mdHead.slice(0, 170) : '実行失敗');
   }
 
   // 一覧を既定で出すのをやめたぶん、JSON 単体で「どの欄の・なぜこの行なのか」が読めること
