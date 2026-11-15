@@ -191,7 +191,7 @@ Astra 問 2 で「実行系の制御（JSON を書かない、JSON が壊れて�
 | 名前 | 見ている物 | それを測る個別負控制（**見張り番を消した再実行で実在を確かめた物だけ**書く） |
 | --- | --- | --- |
 | `fp-structural` / `fp-unregistered` / `fp-ledger-extra` / `fp-sha` / `fp-bytes` / `fp-mode` / `fp-type` | 入力点検の 7 見（構造指紋・登録漏れ・台帳の余剰・中身の sha・バイト数・読み方・`any` 区分） | 台帳の登録を 1 件消す（`fp-unregistered`）/ fixture の縁を全部空にする（`fp-sha`・`fp-bytes`）/ **ノード id を同じ長さで書き換える**（`fp-sha`。バイト数は不変）/ **台帳に入力の一覧に無い物を 1 件足す**（`fp-ledger-extra`）/ **台帳の読み方だけを 1 件書き換える**（`fp-mode`）/ **読み方に json でも bytes でもない値を置く**（`fp-type`。消した実行は `fp-mode` が別の診断で拾う）/ **固定入力のノード数を台帳だけ 1 ずらす**（`fp-structural`）/ **台帳のバイト数だけを 1 件書き換える**（`fp-bytes`。sha と読み方を据え置くので `fp-sha` が手前に落ちない。第 58 ラウンド agy P2-1: `and False:` に完全無力化しても検査の検査が終了 0 だった。名指しが `guard=(fp-sha, fp-bytes)` の組だけだった） |
-| `out-exists` / `child-fail` / `json-missing` / `json-empty` / `json-parse` / `report-shape` / `edge-child-fail` / `edge-json-parse` / `edge-out-shape` | 子を実行して JSON を読む 6 段階 と `edge-order.py` 自身の子実行の 3 段階 | 出力先が既にある実行（`out-exists`）/ **正しい JSON を書いて非 0 で終わる実行**（`child-fail`。第 57 ラウンド agy P2-2: ここに「終了 0 で JSON を書かない」を載せていたが、あれは `json-missing` の制御で消すと `json-missing` が落ちる空振りだった）/ 終了 0 で JSON を書かない（`json-missing`）/ **終了 0 で空のファイルを書く**（`json-empty`。消した実行は `json-parse` が止める）/ 壊れた JSON（`json-parse` と `report-shape` を**まとめて**消す。第 56 ラウンド agy P2-3: `json-parse` だけ消すと `doc = {}` が後の形検査で落ちて、別の一で止まっていた）/ 欄の無い JSON（`report-shape`）。**終了 0 で JSON でない文字列を書く実行**（`json-parse`。`expect_report=False` で後段の `report-shape` を退けて単独に測る）/ 欄の無い JSON（`report-shape`）。`edge-order.py` の子実行は**別名の 3 本**（`edge-child-fail` / `edge-json-parse` / `edge-out-shape`。第 60 ラウンドの分割まで共有の名前を借りていたので、`edge-order.py` の 1 箇所だけを消す無力化を単独名指しが検出できていなかった。Astra 裁定 問 4「追加した判定は**当該呼び出し経路**で確かめよ」）|
+| `out-exists` / `child-fail` / `json-missing` / `json-empty` / `json-parse` / `report-shape` / `edge-child-fail` / `edge-json-parse` / `edge-out-shape` | 子を実行して JSON を読む 6 段階 と `edge-order.py` 自身の子実行の 3 段階 | 出力先が既にある実行（`out-exists`）/ **正しい JSON を書いて非 0 で終わる実行**（`child-fail`。第 57 ラウンド agy P2-2: ここに「終了 0 で JSON を書かない」を載せていたが、あれは `json-missing` の制御で消すと `json-missing` が落ちる空振りだった）/ 終了 0 で JSON を書かない（`json-missing`）/ **終了 0 で空のファイルを書く**（`json-empty`。消した実行は `json-parse` が止める）/ 壊れた JSON（`json-parse` と `report-shape` を**まとめて**消す。第 56 ラウンド agy P2-3: `json-parse` だけ消すと `doc = {}` が後の形検査で落ちて、別の一で止まっていた）/ **終了 0 で JSON でない文字列を書く実行**（`json-parse`。`expect_report=False` で後段の `report-shape` を退けて単独に測る）/ 欄の無い JSON（`report-shape`）。`edge-order.py` の子実行は**別名の 3 本**（`edge-child-fail` / `edge-json-parse` / `edge-out-shape`。第 60 ラウンドの分割まで共有の名前を借りていたので、`edge-order.py` の 1 箇所だけを消す無力化を単独名指しが検出できていなかった。Astra 裁定 問 4「追加した判定は**当該呼び出し経路**で確かめよ」）|
 | `cov-shape` / `cov-keys` / `coverage` | 期待値一覧の形（型・非負整数・必須欄・合計は条件別の導出。`dirRule` は向き別の合計と `byReport` の合計が同じ行の数え直し。向き別と向き none の数えは**負の値も `true` も欄の欠落も弾く**）、**どのレポート・条件を数えるか**のキー集合、走った件数の条件別比較 | 合計をずらす / 内訳を空にする / 1 件ずらす / **件数の違う 2 件**を入れ替える / 1 条件測らない / **`agree` を 1 増やして `bad` を 1 引く**（合計は同じまま負の値。第 56 ラウンド agy P2-2）/ 向き none の数えに `true`・負の値・`none` の欠落（第 57 ラウンド agy P2-2 の横展開漏れ）/ **`byCondition` の id を 1 件だけ要求一覧に無い値へ差し替える**、**`byReport` のキーを 1 本だけ実在しない名前に差し替える**（`cov-keys`。件数も合計もそのままなので形の検査は素通りする。第 57 ラウンド agy P2-4 の `{"": 441}` 系）|
 | `cond-keys` / `cond-graph` / `cond-case` / `cond-args` / `cond-kind-args` / `canonical-id` / `dup-condition` / `dup-id` / `dup-fixture` / `fixture-shape` / `fixture-set` / `condition-set` / `dup-built` | 要求一覧の形（`graph` の型・空・`#`・絶対パス・`..` を含む）・id の再計算・正準形と id の重複・**fixtures の重複**・**fixtures の要素の型**・fixture 集合・起動条件の集合・**組み上げた条件の重複** | `graph` / `args` を書き換えて id を据え置く / 重複 / `case` を消す / 値域外の kind / **`graph` を絶対パスにする**（id も同じ中身から作り直す。`cov-keys` も一緒に消して単独に測る）/ **`fixtures` に文字列でない値を置く**（`fixture-shape`。消した実行は `fixture-set` が別の診断で拾う）/ fixture を 1 本増やす / `fixtures` に同じパスを 2 度書く / **要求一覧を壊して入力点検を走らせる**（`dup-fixture`。測定道具と同じ入口を通るようになった証拠。第 57 ラウンド agy P2-3）/ 条件を 1 件消す / **builder へ重複した fixture 列を渡す**（`dup-built`。要求一覧は壊さない。第 57 ラウンド agy P2-2 で名前だけだった）/ **`graph` に `#` を混ぜて id と条件別の期待値のキーまで揃える**（`cond-graph`。素で `#` を足すと id が割れて `canonical-id` が手前に落ちる。第 59 ラウンド Astra 問 1 の実測レシピ）/ **`fixtures` から 1 本消す**（`fixture-set`。条件はそのままなので重複検査は素通り）/ **要求一覧を壊して起動条件を組み立てる**（`fixture-shape` を `launch_conditions()` の入口で測る。第 58 ラウンド agy P2-2: `check-invariants46.py` / `self-consistency.py` が `KeyError` の traceback だった）/ **同じ起動内容を 2 件並べる制御を目の違う 2 本に割った**（`dup-condition` と `dup-id`。相手の案内を `fallback` に宣言。第 58 ラウンド agy P2-1 でこの 2 名前は組の名指しだけだった）/**条件に無い欄を 1 つ足す**（`cond-keys`。id は 4 欄から作る細工なので `canonical-id` は割れない）/**`case` に文字列以外（1）を置く**（`cond-case`。Astra 第 60 ラウンド 問 2 が A 案の弱点として示した入力）/**`args` の 1 つを数値にする**（`cond-args`。id は欄を文字列化して作る細工なので消した実行はそのまま通る）/**`kind` を値域外へ変える**（`cond-kind-args`。id を同じ中身から作り直す）|
 | `trial-count` / `rows-zero` / `proj-buckets` / `proj-fields` / `perm-edges` / `perm-declared` / `perm-count` / `perm-expected` / `perm-cap` / `perm-runs-min` | **入れ替え試行の本数**・0 行で合否を出さない・付き合わせる 6 欄と欄の名前・縁の本数・順列の通り数・**順列の上限と間引き後に実際に走った通り数** | **`r43-permute.py` の試行を 1 とおりにする**（`trial-count`。実測は「表 1 通り」で終了 0 だった。消した実行は `perm-cap` が別の診断で拾う）/ 0 行の `report.mjs` × 4 道具 / **`external.out` が無い JSON を `projection_rows` へ直接渡す**（`proj-buckets`。9 欄の形その物が崩れた JSON は道具の手前で `report-shape` が止まるので、内側のこの見張り番は関数へ直接渡して測る）/ 欄が消える（`proj-fields`）/ 縁が 1 本だけ / 期待縁順の通り数違い（`perm-declared`。走る前の食い違いを名指し、消した実行は `perm-expected` が「999 件に対して 720 件走った」で拾うので `fallback` 宣言）/ 縁 3 本の順列 6 通りに 5 件走った（`perm-count`）/ 宣言 7 件に 6 件走った（`perm-expected`。組み立てる側が壊れないと CLI では作れない形なので関数へ直接渡す）/ 順列上限に **1** と **0** を渡す（`perm-cap`。0 は割り算の前で止める。第 57 ラウンド agy P2-1 の `ZeroDivisionError`。消した実行は `perm-runs-min` が別の診断で拾う）/ 間引き後に 1 とおりしか走らない比較（`perm-runs-min`。CLI では `trial-count` と `perm-cap` が先に拾うので関数へ直接渡す）|
@@ -208,6 +208,15 @@ Astra 問 2 で「実行系の制御（JSON を書かない、JSON が壊れて�
 しても他の箇所が生きているので単独名指しの控制がそのまま通り、網羅の実測が空振りになった
 （第 59 ラウンド agy P2-3 の 2 の実測）。**判定が違うなら名前を分け、同じ判定ならスイッチの読みを
 1 箇所へまとめる**（`none-counters` の 2 箇所を実測でまとめた）。
+
+見張り番を**直接呼んでいるファイル**別の一覧（Astra 第 61 ラウンド 問 5 の機械検査 `readme_guard_names_match_code` はこの箇条書きと上の「名前」列だけを読む。歴史説明に旧名を書くのは自由だが、この一覧と「名前」列に旧名や実在しない名を残すと失敗する。上の表は判定のまとめで道具と対応付けていないので、道具別の対応はここで宣言する）:
+
+<!-- 見張り番の道具別一覧:この箇条書きだけを解析する -->
+- `_inputs.py`（共有ヘルパー。各道具はここを経由して呼ぶ。直接呼ぶのは下の 3 ファイル）: `canonical-id` / `child-fail` / `cond-args` / `cond-case` / `cond-graph` / `cond-keys` / `cond-kind-args` / `condition-set` / `cov-keys` / `cov-shape` / `coverage` / `dup-built` / `dup-condition` / `dup-fixture` / `dup-id` / `fixture-set` / `fixture-shape` / `fp-bytes` / `fp-ledger-extra` / `fp-mode` / `fp-sha` / `fp-structural` / `fp-type` / `fp-unregistered` / `json-empty` / `json-missing` / `json-parse` / `out-exists` / `path-count` / `path-cwd-only` / `path-empty` / `perm-cap` / `perm-count` / `perm-declared` / `perm-edges` / `perm-expected` / `perm-runs-min` / `proj-buckets` / `proj-fields` / `report-shape` / `rows-zero` / `trial-count` / `v1-derivation`
+- `check-dir-rule.py`: `dir-rule-counters` / `dir-rule-report` / `dir-rule-v1`
+- `count-none.py`: `none-counters` / `none-expectations`
+- `edge-order.py`: `edge-child-fail` / `edge-group-empty` / `edge-json-parse` / `edge-out-shape`
+<!-- /見張り番の道具別一覧 -->
 この内訳は毎回
 `test-contract.py` の正控制が機械に数える — ツリーを AST で読んで `guard('名前')` を付けた
 判定の集合を作り、**実際に通った単独名指しの制御だけ**を対応として数えるので、制御を 1 本
@@ -216,12 +225,17 @@ Astra 問 2 で「実行系の制御（JSON を書かない、JSON が壊れて�
 第 59 ラウンド Astra 問 4 の裁定で「例外台帳は作らず、網羅不足は失敗にする」に決めた。
 名前集計を文字列検索から AST に替えた実測: 古い文字列検索は新しい制御の追加だけで
 `['utf-8']` という実在しない見張り番の名前列を作り、数も 43 に化けた
-（`out/tmp-r59/contract-2.log`）。第 60 ラウンド実測: **負控制 77 件・正控制 9 件**、
+（`out/tmp-r59/contract-2.log`）。第 61 ラウンド実測: **負控制 90 件・正控制 11 件**、
 見張り番 **52 名 = 呼び出し 52 箇所**、単独名指し 52 / 52（成功だけの控制 39 名・診断消失確認だけ
-13 名・両方が並ぶ 0 名。通った控制 67 本を名前ごとに保持し、後勝ちで潰さない）（`out/tmp-r60/contract-5.log`）。
+13 名・両方が並ぶ 0 名（無し）。通った控制 69 本を名前ごとに保持し、後勝ちで潰さない）
+（`out/tmp-r61/contract-10.log`）。
 同じ AST 走査は `guard()` の引数が文字列リテラルでない呼び出しと `guard` の別名代入も見て、
 **静的に読めない形を穴として失敗にする**（第 59 ラウンド Codex P2-1。`before= 42 after= 42` で
-網羅の分母から黙って消える穴。実ツリーは 52 名・穴 0 を実測）
+網羅の分母から黙って消える穴。第 61 ラウンド Codex P2-2 は `IN2 = IN` という別名を付けた呼び出しを実ツリーへ混ぜれば穴 0 のまま通過できることを実測した。Astra 第 61 ラウンド 問 2 の
+裁定で **`IN.guard('名前')` / `guard('名前')` の 2 形だけを数え**、見張り番の別名代入・
+`getattr` / `globals()` などの動的な取り出し・見張り番を返しただけのラッパ・仮引数やループ
+変数での `IN` / `guard` の再束縛まで穴として落ちるようにした。実ツリーは 52 名・呼び出し
+52 箇所・穴 0 を実測（`out/tmp-r61/contract-10.log`）
 第 57 ラウンド agy P2-2 は「表に載っているのに走っていない」制御を 13 名分数えた。Astra 裁定
 問 3 は 13 個すべてを今回の必須とはしなかったが、追加できる物（`path-empty` / `path-count` /
 `dup-built` / `child-fail` など）を諦める理由にもしていないので、全名前に 1 本ずつ置いた
@@ -253,7 +267,7 @@ Astra 問 2 で「実行系の制御（JSON を書かない、JSON が壊れて�
 | `r43-permute.py` | `python3 skill/scripts/tools/battery/r43-permute.py skill/scripts/report.mjs` | 固定 2 条件（`r42-calls-*.json`）で 120 入れ替え → 表 1 通り。第 3 引数で試行を変える（**1 以下は走る前に終了 1**。第 57 ラウンド agy P2-1 実測: 旧実装は 1 とおりで「表 1 通り」と合格した）。間引きは `allperm-full.py` と同じ等間隔標本（原順・完全逆順を含む） |
 | `find-splits.py` | `python3 skill/scripts/tools/battery/find-splits.py skill/scripts/report.mjs 250 <種> out/splits/splits-rNN.json` | 「入れ替えで割れた例 0 / 試行 250」（割れた例があれば終了 1）。**種は毎回新しく**（使った種は protocol に記録）、出力先も毎回新しいパスを渡す。親ディレクトリは作る |
 | `via-cycle.py` | `python3 skill/scripts/tools/battery/via-cycle.py skill/scripts/report.mjs` | 「18 レポート / 違反合計 0」。書き出し先を指定しない限りリポジトリへ何も書かない |
-| `edge-order.py` | `python3 skill/scripts/tools/battery/edge-order.py` | 「不一致 0 件（0 が期待値）/ 集計された群 13 件」。`query.mjs` の `--group-by` 集計が縁順に依存しないことの実グラフ side の証拠。**4 本の起動すべてが 0 群なら比較する相手が無いので終了 1**（単一の起動が 0 群その物は正当。`--dir in` の起点はそうなる）。`query.mjs` の子実行に対する 3 見も名前を付けた（非 0 終了は `child-fail`、stdout の JSON が読めないのは `json-parse`、`groups` / `summary` の形は `edge-order-groups`。第 57 ラウンド agy P2-2。Astra 裁定 問 4 どおり `.mjs` は変えず、追加した判定がこの呼び出し経路で働くことを制御で確かめる） |
+| `edge-order.py` | `python3 skill/scripts/tools/battery/edge-order.py` | 「不一致 0 件（0 が期待値）/ 集計された群 13 件」。`query.mjs` の `--group-by` 集計が縁順に依存しないことの実グラフ side の証拠。**4 本の起動すべてが 0 群なら比較する相手が無いので終了 1**（単一の起動が 0 群その物は正当。`--dir in` の起点はそうなる）。`query.mjs` の子実行まわりは**子実行の 3 判定＋合計 0 群の 1 判定**の 4 個に別名で名前を付けた（子実行の非 0 終了は `edge-child-fail`、stdout の JSON が読めないのは `edge-json-parse`、`groups` / `summary` の形は `edge-out-shape`、4 起動の合計が 0 群は `edge-group-empty`。第 60 ラウンド双人レビューでこの行が改名前の 3 名前と`edge-order-groups` を載せたままだった（第 61 ラウンド agy P2-4）。第 57 ラウンド agy P2-2。Astra 裁定 問 4 どおり `.mjs` は変えず、追加した判定がこの呼び出し経路で働くことを制御で確かめる） |
 
 第 56 ラウンドで `allperm.py` / `allperm-corr.py` / `allperm-full.py` / `via-cycle.py` /
 `r43-permute.py` の**子の JSON 読みを `IN.run_json` へ寄せた**（それまで `json.load(open(out))`

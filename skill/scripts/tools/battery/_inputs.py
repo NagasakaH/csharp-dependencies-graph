@@ -710,24 +710,114 @@ def expectations(repo=None):
     return exp
 
 
-def expected_direction_diffs(repo=None):
-    """既知差分（`known-v1-diffs.json`）から **向き が変わった行差分**を導く
+KNOWN_HEADER = '既知差分（known-v1-diffs.json）が壊れている'
 
-    v1 基準との照合は 55 件不一致が正しい。新しい一覧を増やさないため、人が承認済みの
-    行差分 58 件の組（`[欄, 向き, 階層, 縁数, 縁]`）のうち `向き` が違う 55 件を here で
-    導出して突き合わせる（第 55 ラウンド Astra 裁定 問 4）"""
-    p = require(HERE / 'known-v1-diffs.json', '既知差分の一覧', want_file=True)
-    doc = json.loads(p.read_text(encoding='utf-8'))
-    out = set()
-    for i, d in enumerate(doc['diffs']):
+
+def _known_row_shape_errors(doc):
+    """既知差分の行の形を検査して説明文の列で返す（共通見出しは足さない）
+
+    第 60 ラウンド Codex P2-3 の実測どおり、`d.get('old') or []` は `old` が辞書でも文字列でも
+    真偽値化して `[0]` / `[1]` を読む。だから `old: {}` は `KeyError: 0`、`old: 'abc'` は
+    文字列の添字で `['a', 'b']` になり、`old: null` は 55 件の検査へ化けた値を渡す。形が
+    おかしい行は**導出から外して**案内にまとめる（Astra 第 61 ラウンド 問 3 の追記裁定）。
+    欄の数と型は**実測あわせ**にする（第 61 ラウンドの実測台帳（追跡下の道具からは読まない測定結果）: 58 件すべて 5 欄で、
+    縁数だけ数値。全部を文字列にすると正常な一覧が 116 件壊れていることになってしまう）"""
+    diffs = doc.get('diffs') if isinstance(doc, dict) else None
+    if not isinstance(diffs, list):
+        return [f'diffs が配列ではない: {type(diffs).__name__}'
+                '（各行は `{{"kind": "row", "cond", "id", "old": [欄, 向き, …], "new": [...]}}` の辞書）']
+    errs = []
+    for i, d in enumerate(diffs):
+        where = f'diffs[{i}]'
+        if not isinstance(d, dict):
+            errs.append(f'{where} が辞書ではない: {type(d).__name__}')
+            continue
+        for fld in ('kind', 'cond', 'id', 'old', 'new'):
+            if fld not in d:
+                errs.append(f'{where} に {fld} が無い')
         if d.get('kind') != 'row':
             continue
-        old, new = d.get('old') or [], d.get('new') or []
-        if len(old) < 2 or len(new) < 2:
-            raise SystemExit(f'既知差分の行差分 {i} 件目の組が短い（欄と向きを読む）: {d}')
+        for fld in ('old', 'new'):
+            v = d.get(fld)
+            if not isinstance(v, list):
+                errs.append(f'{where} の {fld} が配列ではない: {type(v).__name__}'
+                            '（[欄, 向き, 階層, 縁数, 縁] の組）')
+                continue
+            if len(v) != 5:
+                errs.append(f'{where} の {fld} が 5 欄ではない（[欄, 向き, 階層, 縁数, 縁]）: '
+                            f'{len(v)} 要素')
+                continue
+            if not all(isinstance(x, str) for x in v[:2]):
+                errs.append(f'{where} の {fld} の欄・向きが文字列ではない: '
+                            f'{[type(x).__name__ for x in v[:2]]}')
+            tail = [x for x in v[2:] if isinstance(x, bool) or not isinstance(x, (str, int))]
+            if tail:
+                errs.append(f'{where} の {fld} の階層・縁数・縁に文字列でも数値でもない欄がある: '
+                            f'{[type(x).__name__ for x in tail]}')
+    return errs
+
+
+def fail_known_diffs(bad):
+    """既知差分の不備を**同じ見出し・同じ作り直し手順**で終了させる（Astra 第 61 ラウンド 問 3）
+
+    要求一覧と同じ形に揃える（壊れた入力の案内は 1 入口 1 文面）。件数の検査と違い、形の
+    検査は見張り番を置かない（形が壊れた一覧から導いた 55 件を正しいとは数えられない）"""
+    tail = f'\n  …ほか {len(bad) - 24} 件' if len(bad) > 24 else ''
+    fail(KNOWN_HEADER + ':\n  ' + '\n  '.join(bad[:24]) + tail +
+         '\n  作り直し（この順で。壊れた一覧のままでは v1 照合の道具も入口の検査で同じ案内に止まる）:'
+         '\n    1) 追跡下の既知差分を戻す: git checkout -- '
+         'skill/scripts/tools/battery/known-v1-diffs.json'
+         '\n    2) 今の差分から候補を書き出す: python3 skill/scripts/tools/battery/v1diff.py '
+         '--emit-known skill/scripts/tools/battery/known-v1-diffs.json'
+         '\n    3) 作られた一覧を人がレビューしてコミットする（既知差分の作り直しは人の判断。'
+         '実行結果からの自動更新はしない）')
+
+
+def _direction_diffs_from_doc(doc):
+    """形の通った行だけから **向き** の差分を導く（形のおかしい行は `_known_row_shape_errors` 側）"""
+    out = set()
+    diffs = doc.get('diffs') if isinstance(doc, dict) else None
+    if not isinstance(diffs, list):
+        return out
+    for d in diffs:
+        if not isinstance(d, dict) or d.get('kind') != 'row':
+            continue
+        old, new = d.get('old'), d.get('new')
+        if not (isinstance(old, list) and isinstance(new, list) and len(old) >= 2 and len(new) >= 2):
+            continue
+        if not (isinstance(old[1], str) and isinstance(new[1], str)):
+            continue
         if old[1] == new[1]:
             continue
-        out.add((d['cond'], d['id'], old[1], new[1]))
+        cond, cid = d.get('cond'), d.get('id')
+        if not (isinstance(cond, str) and isinstance(cid, str)):
+            continue
+        out.add((cond, cid, old[1], new[1]))
+    return out
+
+
+def expected_direction_diffs(repo=None):
+    """既知差分（`known-v1-diffs.json`）から **向き** が変わった行差分を導く
+
+    v1 基準との照合は 55 件不一致が正しい。新しい一覧を増やさないため、人が承認済みの
+    行差分 58 件の組（`[欄, 向き, 階層, 縁数, 縁]`）のうち `向き` が違う 55 件をここで
+    導出して突き合わせる（第 55 ラウンド Astra 裁定 問 4）。
+
+    順序は **読み取れる形か → 導出 → 件数**（Astra 第 61 ラウンド 問 3）。JSON として読めない日と
+    行の形が壊れている日は生の `JSONDecodeError` / `KeyError` / `TypeError` にせず、既知差分専用の
+    見出しと作り直し手順で止まる"""
+    p = require(HERE / 'known-v1-diffs.json', '既知差分の一覧', want_file=True)
+    try:
+        doc = json.loads(p.read_text(encoding='utf-8'))
+    except (json.JSONDecodeError, UnicodeDecodeError) as e:
+        fail_known_diffs([f'{p.name} を JSON として読み取れない: {type(e).__name__}: {e}'])
+    if not isinstance(doc, dict):
+        fail_known_diffs([f'{p.name} のトップレベルが辞書ではない: {type(doc).__name__}'
+                          '（`{{"diffs": [...]}}` の辞書）'])
+    bad = _known_row_shape_errors(doc)
+    if bad:
+        fail_known_diffs(bad)
+    out = _direction_diffs_from_doc(doc)
     if guard('v1-derivation') and len(out) != 55:
         raise SystemExit(f'既知差分から導いた 向き の差分が {len(out)} 件（55 件のはず。'
                          '既知差分の作り直しは人の判断。`v1diff.py --emit-known` で候補が出る）')
@@ -1022,7 +1112,9 @@ def validate_required_spec(spec, repo=None):
         if set(c) != want_keys and guard('cond-keys'):
             bad.append(f'{where} の欄が期待と違う（有る欄 {sorted(c)} / 必要 {sorted(want_keys)}）')
         cid, graph, kind = c.get('id'), c.get('graph'), c.get('kind')
-        args, case = c.get('args') or [], c.get('case')
+        # `or []` を付けない（第 60 ラウンド agy P2-2 の実測: `null` が空配列に潰れて型検査が
+        # 発火せず、見張り番を消すと素通りした。Astra 第 61 ラウンド 問 3）
+        args, case = c.get('args'), c.get('case')
         # `graph` の型・空・`#`・絶対パス・`..` は要求一覧の内容に対する契約なので、
         # `args` や `kind` の検査と同じ段に置く（第 57 ラウンド agy P2-2 の実測で
         # 「`cond-shape` を消したのに `graph` の `#` で REJECTED」＝消せない穴が出ていた。
@@ -1039,9 +1131,21 @@ def validate_required_spec(spec, repo=None):
         if case is not None and not isinstance(case, str) and guard('cond-case'):
             bad.append(f'{where} の case は null か文字列')
         if not isinstance(args, list) or not all(isinstance(a, str) for a in args):
+            # 型が不正な条件に正準形は定義しない（Astra 第 61 ラウンド 問 3）。第 60 ラウンドまで
+            # ここで `args = [str(a) for a in args]` としていたので、`args = 123` の日は
+            # `TypeError: 'int' object is not iterable` が共通案内の代わりに出ていた
+            # （Codex P2-3）
             if guard('cond-args'):
-                bad.append(f'{where} の args は文字列の配列')
-            args = [str(a) for a in args]
+                if isinstance(args, list):
+                    j = next(k for k, a in enumerate(args) if not isinstance(a, str))
+                    detail = f'要素 [{j}] の型が {type(args[j]).__name__}'
+                else:
+                    detail = f'実際の型: {type(args).__name__}'
+                bad.append(f'{where} の args は文字列の配列（{detail}）')
+            # 仮の `args` を作って後段に流し込まない。**この条件の後続計算（`cond-kind-args` と
+            # 正準形）を飛ばす**（見張り番を消した側でも同じ動作にして、OFF 時に別の診断が
+            # 混ざる形を防ぐ。他の条件の検査は続く）
+            continue
         if guard('cond-kind-args'):
             for e in spec_shape_errors(kind, args):
                 bad.append(f'{where} {graph} [{kind}]: {e}')
