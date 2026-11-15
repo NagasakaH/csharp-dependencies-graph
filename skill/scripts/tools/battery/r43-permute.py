@@ -6,7 +6,6 @@
 import itertools
 import json
 import os
-import subprocess
 import sys
 import tempfile
 
@@ -38,19 +37,17 @@ bad = 0
 for name in CASES:
   base = json.loads(open(os.path.join(HERE, name)).read())
   shapes = {}
+  # 縁が 1 本の条件だと「入れ替えても 1 とおり」で空振りになる（allperm と同じ決まり）
+  IN.permutation_guards(len(base['edges']), None, None, f'r43-permute.py {name}')
   for perm in itertools.islice(itertools.permutations(base['edges']), LIMIT):
     g = {'nodes': base['nodes'], 'edges': list(perm)}
     with tempfile.TemporaryDirectory() as td:
       gp, op = os.path.join(td, 'g.json'), os.path.join(td, 'o.json')
       open(gp, 'w').write(json.dumps(g))
-      p = subprocess.run(['node', REPORT, '--graph', gp, '--from', 'member:N0',
-                          '--hops', '4', '--json', op],
-                         cwd=REPO, capture_output=True, text=True)
-      if p.returncode != 0:
-        print(name, '実行失敗 rc=', p.returncode, p.stderr[-300:])
-        bad += 1
-        break
-      r = json.load(open(op))
+      # 子の JSON は `IN.run_json`。実行失敗・空・壊れた JSON・別の形をここで終了 1 にする
+      # （失敗を数えて続けると**全実行失敗でも「表 1 通り」**になった。第 47 ラウンド Codex 指摘）
+      r = IN.run_json(REPORT, ['--graph', gp, '--from', 'member:N0', '--hops', '4'], op,
+                      repo=REPO, label='r43-permute.py の縁順実行')
       shape = json.dumps({'rows': rows_of(r), 'secondOrder': r['summary']['secondOrder'],
                           'entryOut': r['summary']['entryOut'],
                           'entryIn': r['summary']['entryIn']},

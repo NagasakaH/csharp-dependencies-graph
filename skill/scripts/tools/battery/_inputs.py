@@ -16,11 +16,34 @@
 import glob
 import hashlib
 import json
+import os
 import pathlib
 import subprocess
 import sys
 
 HERE = pathlib.Path(__file__).resolve().parent
+
+# 見張り番を**名前 1 個ずつ**消すスイッチ（`CGD_GUARD_OFF=fp-sha,fp-bytes` のように渡す）
+#
+# 第 55 ラウンド agy P1 の実測で、負控制の 3 件が「別の一の見張り番が先に落ちる」だけで
+# 合格していた（対象の見張り番を無効化しても制御がまだ落ちる＝その見張り番を測っていない
+# 空振り）。人がクローンで 18 回かけた破壊実験を `test-contract.py` の中に組み込むため、
+# 各見張り番に名前を付けた。**日常の実行・レビューでの実行では付けない**
+GUARD_OFF = frozenset(x.strip() for x in os.environ.get('CGD_GUARD_OFF', '').split(',')
+                      if x.strip())
+
+
+def guard(name):
+    """その名前の見張り番が生きているか（`CGD_GUARD_OFF` に無ければ生きている）"""
+    return name not in GUARD_OFF
+
+
+def set_guard_off(*names):
+    """プロセス内で見張り番を消す（`test-contract.py` の制御から）。前の値を返す"""
+    global GUARD_OFF
+    prev = GUARD_OFF
+    GUARD_OFF = frozenset(names)
+    return prev
 
 
 def repo_root(start=None):
@@ -160,10 +183,10 @@ def report_paths(d, expect=None, what='レポート'):
     if not d.is_dir():
         raise SystemExit(f'{what}のディレクトリが無い: {d}')
     ps = sorted(d.glob('*.json'))
-    if not ps:
+    if guard('path-empty') and not ps:
         raise SystemExit(f'{what}が 0 件: {d}（空で合格にしない。再生成は '
                          f'python3 skill/scripts/tools/regen-audit.py skill/scripts/report.mjs {d} --force）')
-    if expect is not None and len(ps) != expect:
+    if guard('path-count') and expect is not None and len(ps) != expect:
         raise SystemExit(f'{what}が {len(ps)} 件（{expect} 件のはず）: {d}')
     return ps
 
@@ -204,6 +227,8 @@ def check_fingerprints(repo=None):
         except (OSError, ValueError, KeyError) as e:
             bad.append(f'{rel} が読めない（{e}）')
             continue
+        if not guard('fp-structural'):
+            continue
         for k in ('nodes', 'edges', 'ids', 'rels'):
             if got[k] != want[k]:
                 bad.append(f'{rel} の {k} が基準と違う（基準 {want[k]} / 今 {got[k]}。'
@@ -228,7 +253,15 @@ def resolve_cli_path(value, *, default=None):
             raise SystemExit('パスを渡す（この検査に既定の置き場所はない）')
         return (repo_root() / default).resolve()
     p = pathlib.Path(str(value)).expanduser()
-    return (p if p.is_absolute() else pathlib.Path.cwd() / p).resolve()
+    got = p if p.is_absolute() else pathlib.Path.cwd() / p
+    # `CGD_GUARD_OFF=path-cwd-only` は**第 54 ラウンドまでの古い挙動**（cwd に無い物を
+    # リポジトリ根で探す）を戻す。`test-contract.py` が「その挙動へ戻した日にこの制御が
+    # 検出できるか」を確かめるためだけで、通常の実行では入れない
+    if not guard('path-cwd-only') and not got.exists():
+        alt = repo_root() / str(value)
+        if alt.exists():
+            return alt.resolve()
+    return got.resolve()
 
 
 def require_script(script=None, default='skill/scripts/report.mjs'):
@@ -275,25 +308,29 @@ def run_json(script, args, out, repo=None, label='', expect_report=True):
     「走らせていないのに合格」が起きる"""
     repo = repo or repo_root()
     out = pathlib.Path(out)
-    if out.exists():
+    if guard('out-exists') and out.exists():
         fail(f'{label}: 出力先がもう有る（{out}）。実行ごとに新しい名前を使う'
              '（一時ディレクトリは実行のたびに作り直している）')
     cmd = ['node', str(script)] + [str(a) for a in args] + ['--json', str(out)]
     p = subprocess.run(cmd, cwd=str(repo), capture_output=True, text=True)
-    if p.returncode != 0:
+    if guard('child-fail') and p.returncode != 0:
         raise SystemExit(f'report.mjs 失敗 (exit {p.returncode}) {label}:\n{p.stderr[-800:]}')
-    if not out.exists():
+    if guard('json-missing') and not out.exists():
         raise SystemExit(f'report.mjs は終了 0 なのに JSON を書いていない: {out}（{label}）'
                          f'\n標準出力の末尾: {p.stdout[-300:]}')
+    if not out.exists():
+        raise SystemExit(f'{label}: JSON の出力先が無いので結果を読めない（{out}）')
     raw = out.read_text(encoding='utf-8')
-    if not raw.strip():
+    if guard('json-empty') and not raw.strip():
         raise SystemExit(f'report.mjs の JSON が空（{out}・{label}）。空の出力を'
                          '「行が無いレポート」として合格にしない')
     try:
         doc = json.loads(raw)
     except ValueError as e:
-        raise SystemExit(f'report.mjs の JSON が読めない: {out}（{label}。{e}）: {raw[:200]}')
-    if expect_report:
+        if guard('json-parse'):
+            raise SystemExit(f'report.mjs の JSON が読めない: {out}（{label}。{e}）: {raw[:200]}')
+        doc = {}
+    if expect_report and guard('report-shape'):
         validate_report(doc, f'{label} の JSON')
     return doc
 
@@ -320,7 +357,7 @@ def projection_rows(doc, label, fields):
         for side in PERM_SIDES:
             if not isinstance(box.get(side), list):
                 bad.append(f'{b}.{side} が list ではない（{type(box.get(side)).__name__}）')
-    if bad:
+    if guard('proj-buckets') and bad:
         raise SystemExit(f'{label}: 突き合わせる 6 欄'
                          f'（{PERM_BUCKETS[0]}.{PERM_SIDES[0]} など {" x ".join((str(len(PERM_BUCKETS)), str(len(PERM_SIDES))))} = 6）'
                          'が契約どおりに読めない: ' + '、'.join(bad))
@@ -328,7 +365,7 @@ def projection_rows(doc, label, fields):
     for r in rows:
         if not isinstance(r, dict):
             raise SystemExit(f'{label}: 行が object ではない（{type(r).__name__}）')
-        gone = [f for f in fields if f not in r]
+        gone = [f for f in fields if f not in r] if guard('proj-fields') else []
         if gone:
             raise SystemExit(f'{label}: 行に欄が無い: {"、".join(gone)}'
                              '（この道具はその欄を突き合わせている。出力契約が変わったら'
@@ -341,21 +378,21 @@ def permutation_guards(n_edges, ran, expected, label):
 
     縁が 1 本のグラフでは並び替えは 1 とおりしか無く「全通り一致」が空振りになる。
     `ran=None` は**走る前**の呼び出し（順列を組み立てる前に縁の本数と期待通り数だけ見る）"""
-    if n_edges < 2:
+    if guard('perm-edges') and n_edges < 2:
         raise SystemExit(f'{label}: 縁が {n_edges} 本しかないグラフでは縁順を変えても比較に'
                          'ならない（並び替えても 1 とおり）。縁が 2 本以上ある固定グラフを渡す')
     want = 1
     for k in range(2, n_edges + 1):
         want *= k
     if ran is None:
-        if expected is not None and expected != want:
+        if guard('perm-count') and expected is not None and expected != want:
             raise SystemExit(f'{label}: 期待した縁順の通り数 {expected} 件は {n_edges} 本の順列'
                              f' {want} 通りと違う（走る前に分かる食い違い）')
         return
-    if ran != want:
+    if guard('perm-count') and ran != want:
         raise SystemExit(f'{label}: 縁順 {ran} 通りは {n_edges} 本の順列 {want} 通りと違う'
                          '（順列を組み立てる側が壊れている）')
-    if expected is not None and ran != expected:
+    if guard('perm-count') and expected is not None and ran != expected:
         raise SystemExit(f'{label}: 期待した縁順の通り数 {expected} 件に対して {ran} 件走った'
                          f'（グラフ {n_edges} 本の順列は {want} 通り）')
 
@@ -367,7 +404,7 @@ def require_comparison_rows(rows, label, what='表示行'):
     空と空が一致して「1 通り」、連鎖検査は「違反 0」になり、**測る物が無い日が合格**した。
     比較する行が 0 件の日は、合否を判定する材料が無いので終了 1 にする"""
     n = len(rows)
-    if n == 0:
+    if guard('rows-zero') and n == 0:
         raise SystemExit(
             f'{label}: {what}が 0 件。比較する行が無い日は「違反 0」「1 通りに一致」になるため'
             '合格にしない（測る対象が出る条件で走らせているか、`report.mjs` が行を出しているか'
@@ -473,6 +510,8 @@ COVERAGE_KINDS = ('invariantRows', 'parentChild')
 def coverage_shape_errors(exp):
     """expectations の形を検査する（作り直した一覧が黙って空にならないようにする）"""
     bad = []
+    if not guard('cov-shape'):
+        return []
     if not isinstance(exp, dict):
         return ['expectations がオブジェクトではない']
     for kind in COVERAGE_KINDS:
@@ -484,7 +523,7 @@ def coverage_shape_errors(exp):
         if not isinstance(by, dict) or not by:
             bad.append(f'expectations.{kind}.byCondition が空（条件別の件数が正本。合計は導出）')
             continue
-        if any(not isinstance(v, int) or v < 0 for v in by.values()):
+        if any(isinstance(v, bool) or not isinstance(v, int) or v < 0 for v in by.values()):
             bad.append(f'expectations.{kind}.byCondition に 0 以上の整数でない値がある')
         if e.get('total') != sum(by.values()):
             bad.append(f'expectations.{kind}.total が条件別の合計と違う'
@@ -507,10 +546,23 @@ def coverage_shape_errors(exp):
                 bad.append(f'expectations.dirRule.{prof} が無い')
                 continue
             for k in ('agree', 'bad', 'loose', 'nopath', 'badDomain'):
-                if not isinstance(e.get(k), int):
-                    bad.append(f'expectations.dirRule.{prof}.{k} が整数ではない')
-            if not isinstance(e.get('byReport'), dict) or not e['byReport']:
+                v = e.get(k)
+                if isinstance(v, bool) or not isinstance(v, int):
+                    bad.append(f'expectations.dirRule.{prof}.{k} が整数ではない（true/false は数にしない）')
+            by = e.get('byReport')
+            if not isinstance(by, dict) or not by:
                 bad.append(f'expectations.dirRule.{prof}.byReport が空（レポート別の比較件数が正本）')
+                continue
+            if any(isinstance(v, bool) or not isinstance(v, int) or v < 0 for v in by.values()):
+                bad.append(f'expectations.dirRule.{prof}.byReport に 0 以上の整数でない値がある')
+                continue
+            # 第 56 ラウンド agy P2: 向き別の合計とレポート別の合計は**同じ行を数え直した物**
+            # なので必ず一致する。片方だけいじった一覧（比較件数を減らす細工）をここで落とす
+            s = sum(by.values())
+            d = sum(e.get(k, 0) for k in ('agree', 'bad', 'loose', 'nopath', 'badDomain'))
+            if s != d:
+                bad.append(f'expectations.dirRule.{prof}.byReport の合計 {s} 件が向き別の合計 '
+                           f'{d} 件と違う（同じ行を別々に数えた物。片方だけ変えた一覧は認めない）')
     return bad
 
 
@@ -541,7 +593,7 @@ def expected_direction_diffs(repo=None):
         if old[1] == new[1]:
             continue
         out.add((d['cond'], d['id'], old[1], new[1]))
-    if len(out) != 55:
+    if guard('v1-derivation') and len(out) != 55:
         raise SystemExit(f'既知差分から導いた 向き の差分が {len(out)} 件（55 件のはず。'
                          '既知差分の作り直しは人の判断。`v1diff.py --emit-known` で候補が出る）')
     return out
@@ -596,7 +648,11 @@ def content_fingerprint(p, mode=None):
     if isinstance(doc, dict):
         doc = {k: v for k, v in doc.items() if k not in VOLATILE_TOP}
     body = json.dumps(doc, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
-    return 'json', hashlib.sha256(body.encode('utf-8')).hexdigest(), len(raw)
+    enc = body.encode('utf-8')
+    # 第 56 ラウンド Codex P2: ここが生バイト長を返すと、`rootPath` を除いたハッシュが
+    # 同じでも「パスの長さが違うクローン」で入力が通らなくなった（除いた値を別で戻す）。
+    # JSON モードのバイト数は**正規化後**の長さにする
+    return 'json', hashlib.sha256(enc).hexdigest(), len(enc)
 
 
 def content_scope(repo=None):
@@ -637,11 +693,13 @@ def require_fingerprints(repo=None):
     scope = {}
     for rel, mode, what in content_scope(repo):
         scope[rel] = (mode, what)
-    for rel in sorted(set(scope) - set(reg)):
-        bad.append(f'{scope[rel][1]}が指紋台帳に未登録: {rel}（`--emit` で候補を書き出して人がレビュー）')
-    for rel in sorted(set(reg) - set(scope)):
-        bad.append(f'指紋台帳に有るが入力の一覧に無い: {rel}（台帳の書き直し、または'
-                   ' CONTENT_SCOPES へ登録し直す）')
+    if guard('fp-unregistered'):
+        for rel in sorted(set(scope) - set(reg)):
+            bad.append(f'{scope[rel][1]}が指紋台帳に未登録: {rel}（`--emit` で候補を書き出して人がレビュー）')
+    if guard('fp-ledger-extra'):
+        for rel in sorted(set(reg) - set(scope)):
+            bad.append(f'指紋台帳に有るが入力の一覧に無い: {rel}（台帳の書き直し、または'
+                       ' CONTENT_SCOPES へ登録し直す）')
     for rel in sorted(set(scope) & set(reg)):
         mode, what = scope[rel]
         p = repo / rel
@@ -654,17 +712,18 @@ def require_fingerprints(repo=None):
             bad.append(f'{what}が読めない: {rel}（{e.strerror}）')
             continue
         want = reg[rel]
-        if want.get('sha') != got_sha:
+        if guard('fp-sha') and want.get('sha') != got_sha:
             bad.append(f'{what}の中身が基準と違う: {rel}（基準 {str(want.get("sha"))[:12]}… / '
                        f'今 {got_sha[:12]}…）。入力の差し替えは人の判断なので書き換えない。'
                        '追跡下の物なら `git checkout -- {rel}`、out/ の物なら台帳に載る'
                        '生成コマンドで作り直す'.replace('{rel}', rel))
-        elif want.get('bytes') != got_bytes:
+        elif guard('fp-bytes') and want.get('bytes') != got_bytes:
             bad.append(f'{what}のバイト数が基準と違う: {rel}（基準 {want.get("bytes")} / 今 {got_bytes}）')
-        elif want.get('mode') != got_mode:
+        elif guard('fp-mode') and want.get('mode') != got_mode:
             bad.append(f'{what}の読み方が基準と違う: {rel}（基準 {want.get("mode")} / 今 {got_mode}。'
                        'JSON として読めるようになった/読めなくなった変化）')
-        if mode == 'any' and want.get('mode') not in ('json', 'bytes'):
+        if (guard('fp-type') and mode == 'any'
+                and want.get('mode') not in ('json', 'bytes')):
             bad.append(f'{rel} の指紋の型が台帳で不明: {want.get("mode")}'
                        '（any の入力は json / bytes のどちらかで登録する）')
     return bad
@@ -720,7 +779,7 @@ def check_coverage(kind, measured, repo=None, what='走査した件数'):
     gone = sorted(set(want) - set(got))
     added = sorted(set(got) - set(want))
     changed = sorted((i, want[i], got[i]) for i in set(want) & set(got) if want[i] != got[i])
-    if gone or added or changed:
+    if guard('coverage') and (gone or added or changed):
         lines = [f'{kind} の{what}が期待値と違う: 期待 {len(want)} 件合計 {exp["total"]} / '
                  f'今回 {len(got)} 件合計 {sum(got.values())}'
                  '（入力は同じなのに測る範囲だけ動いた日の合図。意図した変更なら測った値を'
@@ -762,10 +821,11 @@ def validate_required_spec(spec, repo=None):
     # 「走らない fixture がある」状態なので止める。第 54 ラウンド agy 指摘）
     on_disk = sorted(str(pathlib.Path(p).resolve().relative_to(repo.resolve())).replace('\\', '/')
                      for p in glob.glob(str(repo / FIXTURE_GLOB)))
-    for miss in sorted(set(on_disk) - set(fx)):
-        bad.append(f'fixture が有るのに要求一覧に無い（走らない検査になる）: {miss}')
-    for extra_ in sorted(set(fx) - set(on_disk)):
-        bad.append(f'要求一覧に有るのに fixture が無い: {extra_}')
+    if guard('fixture-set'):
+        for miss in sorted(set(on_disk) - set(fx)):
+            bad.append(f'fixture が有るのに要求一覧に無い（走らない検査になる）: {miss}')
+        for extra_ in sorted(set(fx) - set(on_disk)):
+            bad.append(f'要求一覧に有るのに fixture が無い: {extra_}')
     conds = spec['conditions']
     if not isinstance(conds, list):
         fail('conditions は配列でなければならない')
@@ -776,7 +836,7 @@ def validate_required_spec(spec, repo=None):
             bad.append(f'{where} がオブジェクトではない')
             continue
         want_keys = {'id', 'case', 'graph', 'kind', 'args'}
-        if set(c) != want_keys:
+        if set(c) != want_keys and guard('cond-shape'):
             bad.append(f'{where} の欄が期待と違う（有る欄 {sorted(c)} / 必要 {sorted(want_keys)}）')
         cid, graph, kind = c.get('id'), c.get('graph'), c.get('kind')
         args, case = c.get('args') or [], c.get('case')
@@ -788,24 +848,26 @@ def validate_required_spec(spec, repo=None):
                        f'実際に読むファイルの相対パスだけを書く: {graph}）')
         if pathlib.PurePosixPath(graph).is_absolute() or graph.startswith('..'):
             bad.append(f'{where} の graph がリポジトリ相対ではない: {graph}')
-        if case is not None and not isinstance(case, str):
+        if case is not None and not isinstance(case, str) and guard('cond-shape'):
             bad.append(f'{where} の case は null か文字列')
         if not isinstance(args, list) or not all(isinstance(a, str) for a in args):
-            bad.append(f'{where} の args は文字列の配列')
+            if guard('cond-shape'):
+                bad.append(f'{where} の args は文字列の配列')
             args = [str(a) for a in args]
-        for e in spec_shape_errors(kind, args):
-            bad.append(f'{where} {graph} [{kind}]: {e}')
+        if guard('cond-shape'):
+            for e in spec_shape_errors(kind, args):
+                bad.append(f'{where} {graph} [{kind}]: {e}')
         key = condition_key(case, graph, kind, args)
         # dict はそのままではキーにできないので正準形の文字列で数える（第 55 ラウンド実測）
         flat = json.dumps(key, ensure_ascii=False, sort_keys=True)
         got_id = condition_id(key)
-        if cid != got_id:
+        if guard('canonical-id') and cid != got_id:
             bad.append(f'{where} の id が中身から再計算できない（記録 {cid} / 計算 {got_id}。'
                        '中身を変えたなら一覧の作り直し、作り直せない差分なら入力の差し替え）')
-        if flat in seen_key:
+        if guard('dup-condition') and flat in seen_key:
             bad.append(f'起動条件の正準形が重複: {case} / {graph} [{kind}] '
                        f'{" ".join(args)[:70]}（conditions[{seen_key[flat]}] と conditions[{i}]）')
-        if cid in seen_id and seen_id[cid] != i:
+        if guard('dup-id') and cid in seen_id and seen_id[cid] != i:
             bad.append(f'id が重複: {cid}（conditions[{seen_id[cid]}] と conditions[{i}]。'
                        '別の正準形が同じ 16 桁に衝突した日は一覧を作り直す）')
         seen_key.setdefault(flat, i)
@@ -922,7 +984,7 @@ def launch_conditions(repo=None, check_required=True, fixtures=None):
     # 組み上げた側も、集合比較の前に重複を拒否する。id の集合にすると重複が消えて
     # 「219 件」と言い張れた（第 54 ラウンド agy 指摘）
     flat_got = [json.dumps(c['key'], ensure_ascii=False, sort_keys=True) for c in conds]
-    dup = sorted({f for f in flat_got if flat_got.count(f) > 1})
+    dup = sorted({f for f in flat_got if flat_got.count(f) > 1}) if guard('dup-built') else []
     if dup:
         lines = [f'今回組み上げた起動条件に重複がある: {len(conds)} 組み / 重複 {len(dup)} 組'
                  '（要求一覧との比較の前に止める。同じ起動内容を 2 度走らせるのは検査ではなく、'
@@ -936,7 +998,7 @@ def launch_conditions(repo=None, check_required=True, fixtures=None):
                           ensure_ascii=False, sort_keys=True): c for c in spec['conditions']}
     got_by = dict(zip(flat_got, conds))
     gone, added = sorted(set(want_by) - set(got_by)), sorted(set(got_by) - set(want_by))
-    if gone or added:
+    if guard('condition-set') and (gone or added):
         lines = [f'起動条件が要求一覧（{REQUIRED.name}）と違う: 要求 {len(want_by)} 件 / '
                  f'今回 {len(got_by)} 件（要求にあるのに今回走らない {len(gone)} 件 / '
                  f'要求に無いのに走る {len(added)} 件）。入力の欠落なら作り直し、意図して変えたなら '

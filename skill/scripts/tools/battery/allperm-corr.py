@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 # 全縁順（n! 通り、最大 7 縁 = 5040 は多いので 6 縁まで）で表を比較し、割れる並びを列挙する
-import json, subprocess, sys, itertools, tempfile, os, collections
+import json, sys, itertools, tempfile, os, collections
 import _inputs as IN
+
+REPO = IN.repo_root()
 
 # 存在しない report.mjs を渡して「全通り一致」で合格しない（第 51 ラウンド双人レビュー Codex P2）
 script = str(IN.require_script(sys.argv[1] if len(sys.argv) > 1 else None))
@@ -14,16 +16,14 @@ EXPECT = int(sys.argv[3]) if len(sys.argv) > 3 else None
 g = json.load(open(graph_file))['graph']
 def run(edges):
     gg = dict(g); gg['edges'] = edges
-    with tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as f:
-        json.dump(gg, f); path = f.name
-    with tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as f:
-        out = f.name
-    p = subprocess.run(['node', script, '--graph', path, *extra, '--json', out],
-                       capture_output=True, text=True)
-    os.unlink(path)
-    if p.returncode:
-        raise SystemExit(f'report.mjs 失敗 (exit {p.returncode}): {p.stderr[-800:]}')
-    d = json.load(open(out)); os.unlink(out)
+    # 子の JSON は `IN.run_json` で読む（終了 0 で書かない・空・壊れた JSON・別の形を
+    # ここで落とす。第 55 ラウンド agy 指摘: `json.load` 直読みだと traceback だけ残す）
+    with tempfile.TemporaryDirectory() as td:
+        path = os.path.join(td, 'g.json')
+        with open(path, 'w') as f:
+            json.dump(gg, f)
+        d = IN.run_json(script, ['--graph', path, *extra], os.path.join(td, 'r.json'),
+                        repo=REPO, label='allperm-corr.py（縁順 1 とおりの実行）')
     # 6 欄（external/entries/artifacts x in/out）だけを突き合わせているとここで宣言する
     rows = []
     for r in IN.projection_rows(d, 'allperm-corr.py', ('id', 'bucket', 'direction', 'hops', 'correspondence', 'switches')):

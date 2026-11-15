@@ -15,7 +15,6 @@
 import json
 import os
 import pathlib
-import subprocess
 import sys
 import tempfile
 
@@ -42,13 +41,10 @@ BUCKETS = [('external', 'in'), ('external', 'out'), ('entries', 'in'), ('entries
 
 
 def run(args):
+    # 子の JSON は `IN.run_json`（終了 0 で書かない・空・壊れた JSON・別の形をまとめて終了 1）
     with tempfile.TemporaryDirectory() as td:
-        out = pathlib.Path(td) / 'o.json'
-        p = subprocess.run(['node', REPORT] + args + ['--json', str(out)],
-                           cwd=ROOT, capture_output=True, text=True)
-        if p.returncode != 0:
-            raise SystemExit(f'report.mjs 失敗: {p.stdout[-400:]}{p.stderr[-400:]}')
-        return json.loads(out.read_text())
+        return IN.run_json(REPORT, args, pathlib.Path(td) / 'o.json', repo=ROOT,
+                           label='via-cycle.py の実行')
 
 
 def rows_of(r):

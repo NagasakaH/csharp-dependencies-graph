@@ -10,9 +10,11 @@ def _diff(ra, rb):
     if rb is None: return '行が有る → 無い'
     return ' / '.join(f"{k}: {ra.get(k)!r}→{rb.get(k)!r}"
                       for k in sorted(set(ra) | set(rb)) if ra.get(k) != rb.get(k))
-import json, subprocess, sys, itertools, tempfile, os, collections
+import json, sys, itertools, tempfile, os, collections
 
 import _inputs as IN
+
+REPO = IN.repo_root()
 if len(sys.argv) < 3:
     raise SystemExit('使い方: python3 skill/scripts/tools/battery/allperm-full.py '
                      '<report.mjs> <ケース json> [順列上限]')
@@ -40,17 +42,14 @@ def run(edges):
     # なる**（第 47 ラウンド Codex 指摘。`python3 skill/scripts/tools/battery/allperm-full.py /nonexistent/report.mjs
     # skill/scripts/tools/battery/min-2.json 24` が 24 回すべて失敗して終了コード 0 だった）。失敗はここで出す
     gg = dict(g); gg['edges'] = edges
-    with tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as f:
-        json.dump(gg, f); path = f.name
-    with tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as f:
-        out = f.name
-    p = subprocess.run(['node', script, '--graph', path, *extra, '--json', out],
-                       capture_output=True, text=True)
-    os.unlink(path)
-    if p.returncode:
-        os.unlink(out)
-        raise SystemExit(f'実行失敗（report.mjs が動いていない）: {p.stderr[-300:]}')
-    d = json.load(open(out)); os.unlink(out)
+    # 子の JSON は `IN.run_json` で読む（実行失敗を文字列として戻さないので、
+    # **全実行失敗でも「1 通り = 完全一致」**になる形に戻らない。第 55 ラウンド agy 指摘）
+    with tempfile.TemporaryDirectory() as td:
+        path = os.path.join(td, 'g.json')
+        with open(path, 'w') as f:
+            json.dump(gg, f)
+        d = IN.run_json(script, ['--graph', path, *extra], os.path.join(td, 'r.json'),
+                        repo=REPO, label='allperm-full.py（縁順 1 とおりの実行）')
     # 9 欄すべて空の JSON を「判定: JSON 完全一致」で合格にしない（第 54 ラウンド agy 指摘 2）
     ids = [r['id'] for b in ('external', 'entries', 'artifacts') for s in ('in', 'out')
            for r in d[b][s]] + [r['id'] for b in ('sameApi', 'siblingEndpoints', 'wiring')
@@ -58,13 +57,20 @@ def run(edges):
     IN.require_comparison_rows(ids, 'allperm-full.py（縁順 1 とおりの実行）', what='レポートの行')
     return norm(d)
 
-perms = list(itertools.permutations(range(len(g['edges']))))
+all_perms = list(itertools.permutations(range(len(g['edges']))))
+# 縁が 1 本だと順列は 1 とおりしか無く「1 通り = 完全一致」が空振りになる
+# （allperm.py / allperm-corr.py と同じ決まり。第 55 ラウンド agy 指摘）
+IN.permutation_guards(len(g['edges']), None, None, 'allperm-full.py')
+perms = all_perms
 if len(perms) > cap:
     step = len(perms) // cap
     perms = perms[::step][:cap]
 res = collections.OrderedDict()
 for perm in perms:
     res[','.join('e%d' % i for i in perm)] = run([g['edges'][i] for i in perm])
+# 上限で間引いていないときだけ、走った順列の通り数も期待値と突き合わせる
+if len(perms) == len(all_perms):
+    IN.permutation_guards(len(g['edges']), len(res), None, 'allperm-full.py')
 
 uniq = collections.defaultdict(list)
 for k, v in res.items():

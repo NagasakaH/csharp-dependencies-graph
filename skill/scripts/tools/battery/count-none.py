@@ -92,10 +92,11 @@ for r in none_rows:
 print(f'サマリカウンタ不一致 {len(bad_counters)} 件')
 for b in bad_counters:
   print(f'  {b}')
-agree = (total_rows == RULING['rows'] and len(none_rows) == RULING['none']
+agree = (not IN.guard('none-expectations')) or (total_rows == RULING['rows'] and len(none_rows) == RULING['none']
          and by_bucket['sameApi'] == RULING['sameApi'] and by_bucket['wiring'] == RULING['wiring']
          and by_bucket['siblingEndpoints'] == RULING['siblingEndpoints']
          and sum(1 for r in none_rows if r[3] == 'primary') == RULING['primary'])
+# 見張り番を名前 1 個ずつ消せる `CGD_GUARD_OFF`（検査の検査専用。第 55 ラウンド agy P1）
 print('期待値（expectations.directionless）と一致' if agree
       else '期待値と**不一致**（1 行ずつ説明が必要）')
-sys.exit(0 if agree and not bad_counters else 1)
+sys.exit(0 if agree and (not bad_counters or not IN.guard('none-counters')) else 1)

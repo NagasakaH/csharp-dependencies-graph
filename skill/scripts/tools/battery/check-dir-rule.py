@@ -1,7 +1,9 @@
 # 既存のレポート JSON を、第 46 ラウンド裁定の 向き 規則で検査し直す（実行せず読むだけ）。
 # v1 基準（skill/scripts/tools/battery/baseline-v1）の 向き が 今回の規則で表示経路から再現できるかを測るためのもので、
 # REBASE.md の「どちらが正直か」の実測根拠にする。
-# 使い方: python3 skill/scripts/tools/battery/check-dir-rule.py <レポートディレクトリ> [.. 追加のディレクトリ]
+# 使い方: python3 skill/scripts/tools/battery/check-dir-rule.py --profile current <レポートディレクトリ>
+#         python3 skill/scripts/tools/battery/check-dir-rule.py --profile v1 [ディレクトリ]
+#         （`--profile` 無しは合否を出さないので第 56 ラウンドで無くした）
 import json
 import pathlib
 import sys
@@ -149,22 +151,23 @@ def _profile_main(prof, d, emit=None):
   bad = []
   for k, name in (('agree', '一致'), ('bad', '不一致'), ('loose', '並行縁で不定'),
                   ('nopath', '経路を読めない'), ('badDomain', '向き の値域外')):
-    if got[k] != exp[k]:
+    if IN.guard('dir-rule-counters') and got[k] != exp[k]:
       bad.append(f'{name}: 期待 {exp[k]} / 今回 {got[k]}')
   # 合計が同じでも条件間の増減が相殺するので、レポート別の比較件数を正本にする
   want_by, got_by = exp['byReport'], {k: sum(v.values()) for k, v in got['byReport'].items()}
   for name in sorted(set(want_by) | set(got_by)):
-    if want_by.get(name) != got_by.get(name):
-      bad.append(f'{name} の比較件数: 期待 {want_by.get(name)} / 今回 {got_by.get(name)}')
+    if IN.guard('dir-rule-report') and want_by.get(name) != got_by.get(name):
+      bad.append(f'{name} の比較件数（レポート別）: 期待 {want_by.get(name)} / 今回 {got_by.get(name)}')
   if prof == 'v1':
     # v1 基準は 55 件不一致が出る**前提**。新しい一覧は作らず、既知差分 JSON の行差分
     # 58 件のうち 向き が変わった 55 件から導いて照合する（件数だけでなく中身も）
     want_diffs = IN.expected_direction_diffs()
     got_diffs = set(got['diffs'])
-    for x in sorted(got_diffs - want_diffs)[:8]:
-      bad.append('既知差分に無い不一致: %s %s 記録=%s → 今回の規則=%s' % x)
-    for x in sorted(want_diffs - got_diffs)[:8]:
-      bad.append('既知差分にある不一致が今回出ない: %s %s 記録=%s → 今回の規則=%s' % x)
+    if IN.guard('dir-rule-v1'):
+      for x in sorted(got_diffs - want_diffs)[:8]:
+        bad.append('既知差分に無い不一致: %s %s 記録=%s → 今回の規則=%s' % x)
+      for x in sorted(want_diffs - got_diffs)[:8]:
+        bad.append('既知差分にある不一致が今回出ない: %s %s 記録=%s → 今回の規則=%s' % x)
   if bad:
     print(f'期待値と食い違う {len(bad)} 件:', file=sys.stderr)
     for x in bad[:20]:
@@ -178,24 +181,12 @@ def main(argv):
   flags, args = IN.parse_flags(list(argv))
   emit = flags.get('--emit-measured')
   prof = flags.get('--profile')
+  # 第 56 ラウンド agy P2: `--profile` を付けないと「不一致が出ても終了 0」で通った。
+  # 探索専用だったその道を消す（何も比較していない日の見張り番はプロファイル側の
+  # `dir-rule-counters` と `path-empty` が同じ働きをしているので、検査は減らない）
   if prof is None:
-    if not args:
-      raise SystemExit(USE)
-    empty = []
-    for d in args:
-      got = check_dir(d)
-      print(f'{d}: 一致 {got["agree"]} / 不一致 {got["bad"]} / 並行縁で不定 {got["loose"]}'
-            f' / 経路を読めない {got["nopath"]} / 向き の値域外 {got["badDomain"]}')
-      for x in got['examples']:
-        print('   ', x)
-      # 18 本あっても全行が空なら「一致 0 / 不一致 0」で終わる。何も比較していない日を
-      # 合格にしない（第 54 ラウンド agy 指摘 2）
-      if (got['agree'] + got['bad'] + got['loose'] + got['nopath'] + got['badDomain']) == 0:
-        empty.append(d)
-    if empty:
-      raise SystemExit('向き の規則検査が 1 件も比較できなかった: ' + ' / '.join(empty) +
-                       '（レポートが行を持たない。測る条件で走らせてから比べる）')
-    return 0
+    raise SystemExit('--profile current / v1 を付ける（付け忘れた実行は合否を出さない。'
+                     '第 56 ラウンドで無しモードを無くした）\n' + USE)
   if prof not in ('current', 'v1'):
     raise SystemExit(f'--profile は current / v1 のどちらか: {prof}')
   if prof == 'v1' and not args:
@@ -203,7 +194,8 @@ def main(argv):
   if not args:
     raise SystemExit('--profile current はレポートディレクトリを渡す'
                      '（既定の置き場所を勝手に決めない）\n' + USE)
-  return _profile_main(prof, args[0], emit)
+  # 明示した相対パスは実行時の cwd から解決する（第 55 ラウンド Astra 裁定 問 5）
+  return _profile_main(prof, str(IN.resolve_cli_path(args[0])), emit)
 
 
 if __name__ == '__main__':

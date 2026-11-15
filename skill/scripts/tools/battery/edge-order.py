@@ -80,7 +80,7 @@ with tempfile.TemporaryDirectory() as td:
         # 見るのは **4 本の合計**。すべて 0 なら 4 とおりの並び順を突き合わせる相手が
         # 無いので合格にしない（Astra 裁定 問 4: 一律に 0 行を違反にはしない）
 # （この見張り番の実装は下の合計判定。群の数え上げだけここで足す）
-if total_groups == 0:
+if IN.guard('edge-order-groups') and total_groups == 0:
     raise SystemExit(f'edge-order.py: {len(CMDS)} 本の起動ですべて群が 0 件（{BASE}）。'
                      '並び順を変えた 4 通りを突き合わせる相手が無いので合格にしない。'
                      '空のグラフや起点が無いグラフを渡していないか確かめる')
