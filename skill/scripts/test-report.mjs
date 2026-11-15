@@ -863,6 +863,33 @@ check('--limit で一覧が切れてもカウンタの不変条件は保たれ�
       && /他 1 件は --json 参照/.test(limSec || ''),
     lim ? `entryOut=${lim.result.summary.entryOut} 注記=${/他 1 件/.test(limSec || '')}` : '実行失敗');
 
+  // 第 47 ラウンド双人レビュー（agy P1）。出口側だけ直して入口側を戻しても検査が黙るため、
+  // 入口欄でも同じ注記が出ることを確かめる。コード 3 ノードを逆向きに辿ると entries.in に 2 行並ぶ
+  const inLimit = runSyn('entries-in-limit', {
+    nodes: [{ id: 'member:a', kind: 'member', name: 'A', path: 'a.cs' },
+            { id: 'member:b', kind: 'member', name: 'B', path: 'b.cs' },
+            { id: 'member:c', kind: 'member', name: 'C', path: 'c.cs' }],
+    edges: [{ id: 'e1', kind: 'calls', provenance: 'static', source: 'member:a', target: 'member:b' },
+            { id: 'e2', kind: 'calls', provenance: 'static', source: 'member:b', target: 'member:c' }],
+  }, ['--from', 'member:c', '--limit', '1'], 'entries-in-limit');
+  const inSec = inLimit ? (inLimit.md.split('\n### ').find((s) => s.startsWith('影響を受けるコード側の入口')) || '') : '';
+  check('--limit で切った「影響を受けるコード側の入口」にも「（他 N 件は --json 参照）」が出る',
+    !!inLimit && inLimit.result.summary.entryIn === 2
+      && inSec.split('\n').filter((l) => l.startsWith('|')).length === 3
+      && /他 1 件は --json 参照/.test(inSec),
+    inLimit ? JSON.stringify([inLimit.result.summary.entryIn, /他 1 件/.test(inSec)]) : '実行失敗');
+
+  // 同じく agy P1: ターミナルに出す外部リソースの一覧は 12 件固定で `--limit` を無視し、
+  // 13 件目以降を黙って落としていた（Markdown は 2 件なのにここだけ 4 件並ぶ）
+  const outLim = runOn('code-chain.graph.json', ['--from', 'member:M0', '--limit', '2'], 'stdout-limit');
+  const outLines = outLim ? outLim.stdout.split('\n').filter((l) => l.startsWith('  [out')).length : 0;
+  check('ターミナルの外部リソース一覧も --limit に従い、打ち切った件数を出す（12 件固定に戻さない）',
+    !!outLim && outLim.result.summary.primaryOut === 4
+      && outLim.result.external.out.length === 2 && outLines === 2
+      && /他 2 件は Markdown と --json 参照/.test(outLim.stdout),
+    outLim ? JSON.stringify([outLim.result.summary.primaryOut, outLim.result.external.out.length, outLines,
+      /他 \d+ 件は Markdown と --json 参照/.test(outLim.stdout)]) : '実行失敗');
+
   const d = runOn('code-chain-long.graph.json', ['--from', 's', '--hops', '100'], 'code-rounds');
   check('API を含まない Lambda の連鎖は既定の上限で切り詰めない（上限式はコードのノード数も数える）',
     !!d && d.result.summary.rows === 25 && d.result.summary.unresolved === false,
@@ -1086,6 +1113,13 @@ check('--limit で一覧が切れてもカウンタの不変条件は保たれ�
     && listed50.result.siblingEndpoints.every((r) => typeof r.siblingReason === 'string'
       && ['shared-code-endpoint', 'sibling-api-definition'].includes(r.siblingReason)),
     [listed, listed50].map((x) => (x ? JSON.stringify([bulletCount(x.md), x.md.includes('他のルート 24 件')]) : '実行失敗')).join(' / '));
+
+  // 兄弟の一覧の打ち切り行は Markdown の生バッククォートがそのまま出ていた（第 47 ラウンド agy）
+  const sibNote = listed ? (listed.stdout.split('\n').find((l) => l.includes('他のルート')) || '') : '';
+  check('兄弟ルートの一覧の打ち切り行は素のターミナルテキスト（Markdown のバッククォートを出さない）',
+    !!listed && sibNote.includes('他のルート 24 件') && sibNote.includes('--limit を上げるか --json 参照')
+      && !sibNote.includes('`'),
+    JSON.stringify(sibNote) || '実行失敗');
 
   // 一覧を既定で出すのをやめたぶん、JSON 単体で「どの欄の・なぜこの行なのか」が読めること
   const expectedBucket = (r) => {
@@ -2069,6 +2103,26 @@ check('--limit で一覧が切れてもカウンタの不変条件は保たれ�
   }
   check(`表示する縁は 5 項目だけのコピー（全 ${allDocs.length} レポート。閉包の生の縁の count / metadata を混ぜない）`,
     bad.length === 0, bad.slice(0, 3).join(' / ') || '混入 0 件');
+
+  // 第 47 ラウンド Codex 指摘の追加候補。「根拠縁が表示経路の最後 2 点を結んでいるか」。
+  // 根拠が経路に無い一歩へ差し替わると「経路の根拠」という契約が崩れる（保存済み 18 レポート
+  // 441 行で違反 0 を実測してから固定）
+  const offPath = [];
+  for (const { label, result } of allDocs) {
+    for (const r of allRows(result)) {
+      const p = r.path || [];
+      if (p.length < 2) continue;
+      const tail = [p[p.length - 2], p[p.length - 1]].sort().join('|');
+      for (const [what, e] of [['evidence', r.evidence], ['動きの根拠', r.movementEvidence]]) {
+        if (!e) continue;
+        if ([e.source, e.target].sort().join('|') !== tail) {
+          offPath.push(`${label}/${r.id} ${what}=${e.source}→${e.target} 経路末尾=${tail}`);
+        }
+      }
+    }
+  }
+  check('根拠縁と動きの根拠は表示経路の最後の 2 点を結んでいる', offPath.length === 0,
+    offPath.slice(0, 3).join(' / ') || '経路の外を結ぶ縁 0 件');
 }
 
 rmSync(dir, { recursive: true, force: true });

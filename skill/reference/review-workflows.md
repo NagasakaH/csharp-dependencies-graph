@@ -32,18 +32,18 @@ git diff --name-only origin/main... | node skill/scripts/report.mjs \
 
 | 枠 | 意味 | 縁 |
 | --- | --- | --- |
-| 影響する外部リソース / 影響を受ける入口 | 変更が読み書きする先、呼びに出す先（マイグレーション・権限・デプロイの確認対象）と、変更を使う呼び出し元・その経路の Lambda / API Gateway | `writes` `reads` `accesses` `calls` `invokes` `triggers` `handler`（入口側は逆向き） |
-| コード側の出口 / 影響を受ける入口 | 上の 2 つのうちコード（メソッド・型）のもの。出口は「起点から実際に届くコード」 | `calls` `accesses` `references`（コード内）`handler` |
+| 影響する外部リソース / 影響を受ける入口 | 変更が読み書きする先、呼びに出す先（マイグレーション・権限・デプロイの確認対象）と、変更を使う呼び出し元・その経路の Lambda / API Gateway | 保存済み 18 レポートで実際に出た縁: 外部に出る側は `writes` `deploys` `references`、入口側は `triggers` `handler` `invokes` `reads` `exposed-by`（`handler` / `exposed-by` は入口側が逆向き） |
+| コード側の出口 / 影響を受ける入口 | 上の 2 つのうちコード（メソッド・型）のもの。出口は「起点から実際に届くコード」 | 出口は `references` `calls` `accesses` `creates` `implements` `inherits` `attribute`（コード内）と `handler` `exposed-by`。入口は `writes` `reads` `invokes` `accesses` `calls` |
 | 同じ API を定義するノード | 起点がエンドポイントのとき、起点自身を定義している `resource` / `rest_api` / `integration` / `deployment` | 起点の数に含めない |
 | 同じコードを使う別の API | 同じ Lambda を共有する兄弟エンドポイントと、それを定義するノード | 同上 |
 | リポジトリ内の成果物 | 経路上にあった `.csproj` / `.cs` / フォルダ / solution。触るかもしれないビルド単位 | 動きの証拠ではない。レビューの分担に使う |
 | 定義上の関連 | Terraform の `references`（そのブロックを文中に書いた）。**値が動くとは限らないが、定義を書き換えたら効く範囲** | IAM・rest_api・deployment など見直しの候補 |
 
-**向き を決められない行（`direction: none`）は 定義上の関連 / 同じ API を定義するノード / 同じコードを
-使う別の API に並べます**。表示経路に 向き を決める関係が無いだけなので、方向を持つ枠に並べて `in` /
+**向き を決める関係が無い行（`direction: none`）は 定義上の関連 / 同じ API を定義するノード / 同じコードを
+使う別の API に並べます**（Markdown の 向き 列は「—」と書きます）。表示経路に 向き を決める関係が無いだけなので、方向を持つ枠に並べて `in` /
 `out` をでっち上げないためです。`tier`（本命の資格）はそのまま保つので、実測 441 行中 28 行が `none` で、
 うち 2 行は 本命 の資格を持っています。件数は `summary.directionless` / `summary.directionlessPrimary`。
-「向き を決められない」は「そのノードに関係が無い」意味ではなく、**表示経路が Terraform の定義の縁だけ
+「向き を決める関係が無い」は「そのノードに関係が無い」意味ではなく、**表示経路が Terraform の定義の縁だけ
 だった**という意味です（「同じコードを使う別の API」の一覧は Markdown に 向き 列を出さないので、
 そこは JSON の `siblingEndpoints` で見ます）
 

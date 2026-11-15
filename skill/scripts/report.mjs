@@ -38,7 +38,12 @@ const USAGE = `使い方: report.mjs --graph <graph.json> [--changed <変更フ�
   --expect    期待する着地の一覧（{"expect": [...], "direction": "in"|"out"|"none"|"both", "note": "..."}）。
               渡すと再現率・適合率を出して JSON にも書く。direction を書かなかった（= both）ときは
               向き を持つ行と none の行をまとめて数えるので、none の着地も取りこぼさない。
-              none を書くと 向き を決める関係が無い行だけを選んで割る。
+              none を書いたときの対象は none の行のうち 本命（tier が primary）で、「同じ API の定義」
+              「同じコードを使う別の API」に回らないもの（定義上の関連に回った本命は数える）。
+              再現率・適合率の分母は外部リソースだけ。
+  --limit     一覧の本数（既定 200）。Markdown と JSON の各一覧、--list-siblings の一覧、ターミナルに
+              出す外部リソースの一覧に効く（ターミナルの一覧はこれとは別に 12 件で打ち、打ち切った
+              件数を出す）。summary の件数は切り詰め前の値
   向き（JSON の行の direction。値域は in / out / none）:
               in = 影響を受ける入口、out = 影響する先、none = **この表示経路に 向き を決める
               関係が無い**（Terraform の定義の縁だけを辿った行）。Markdown の一覧の 向き 列では「—」と書く。
@@ -2520,8 +2525,17 @@ if (primaryTotal === 0 && summary.rows > 0) {
 }
 if (summary.unresolvedCorr > 0) console.log(UNRESOLVED_WARNING);
 if (result.score) console.log(`精度: 再現率 ${result.score.recall} / 適合率 ${result.score.precision}（期待 ${result.score.expected} / 外部着地 ${result.score.landedExternal} / 的中 ${result.score.hitExternal} / 余分 ${result.score.extraExternal.length}）`);
-for (const r of externalRows(outRows).slice(0, 12)) console.log(`  [out ${r.hops}] ${r.name}  <- ${r.evidence.kind} (${provLabel(r.evidence.provenance)})`);
-for (const r of externalRows(inRows).slice(0, 12)) console.log(`  [in  ${r.hops}] ${r.name}  <- ${r.evidence.kind} (${provLabel(r.evidence.provenance)})`);
+// ターミナルの一覧も `--limit` に従って切り、打ち切りを告げる（第 47 ラウンド agy 指摘）。
+// 12 件固定で黙って切っていたため、`--limit 2` で Markdown は 2 件なのにここでは 4 件並ぶ、
+// 既定値でも 13 件目から黙って消える、が起きていた。ターミナルの compact さは保ちたいので
+// 上限は 12 件のまま
+const stdoutCap = Math.min(opts.limit, 12);
+const printExternal = (rows, tag) => {
+  for (const r of rows.slice(0, stdoutCap)) console.log(`  [${tag} ${r.hops}] ${r.name}  <- ${r.evidence.kind} (${provLabel(r.evidence.provenance)})`);
+  if (rows.length > stdoutCap) console.log(`  （他 ${rows.length - stdoutCap} 件は Markdown と --json 参照。この一覧は最大 12 件）`);
+};
+printExternal(externalRows(outRows), 'out');
+printExternal(externalRows(inRows), 'in ');
 // `--list-siblings` を立てたら一覧も並べる（本数は --limit。既定は上の 1 行の件数だけ）
 if (opts.listSiblings) {
   const sibEps = siblingRows().filter((r) => !!r.endpoint);
@@ -2529,6 +2543,6 @@ if (opts.listSiblings) {
     console.log(`  [sib ${r.hops}] ${r.name}  <- ${r.evidence.kind} (${r.siblingReason})`);
   }
 if (sibEps.length > opts.limit) {
-    console.log(`  他のルート ${sibEps.length - opts.limit} 件（\`--limit\` を上げるか \`--json\` 参照）`);
+    console.log(`  他のルート ${sibEps.length - opts.limit} 件（--limit を上げるか --json 参照）`);
   }
 }

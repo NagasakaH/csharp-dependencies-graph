@@ -266,7 +266,8 @@ node $SKILL/scripts/report.mjs --graph out/graph/graph.json --api "POST /orders"
   無くなるまで続ける。実行したラウンド数は `summary.rounds`、上限（既定
   `6 + API グループ数 + コードのノード数 + 2`、`--max-rounds`）は `summary.maxRounds` に出る。
   上限に達して仕事が残ったら `summary.unresolved` が true になり、stderr と Markdown に警告を出す。
-  一覧の `--limit` による打ち切りは `summary.listTruncated` に出る（どちらも隠さない）
+  一覧の `--limit` による打ち切りは `summary.listTruncated` に出る（どちらも隠さない）。
+  ターミナルの外部リソース一覧も `--limit` に従い、最大 12 件で打って「（他 N 件は …）」を出す
 - `--expect` に期待する着地一覧（`{"expect": [...], "direction": "out"}`。`direction` は `in` / `out` /
   `none` / `both`、既定 `both` は 向き で絞らない）を渡すと再現率・適合率を
   出して JSON に書く。**数値を記録していないと「もっともらしく間違う」レポートになる**
@@ -290,23 +291,24 @@ node $SKILL/scripts/report.mjs --graph out/graph/graph.json --api "POST /orders"
 時間ゲートだけが置き換わり、RSS の絶対上限はそのまま残った。混雑時の新版と静かだった過去の旧版を
 直接比べて合否を出すこと、混雑を理由に倍率超過を免除することは裁定で却下されている。
 
-相対ゲートでの実測（`out/tmp-r47/gate47a.log`、旧版は commit `a44b7c7` を `out/wt-head` に固定、
-旧→新 / 新→旧 を交互に 5 組、2026-11-15 03:42〜03:49、load average 3.03〜4.15。
-第 46 ラウンド双人レビューの修正（表示縁の 5 項目コピー / 表示経路を根まで読む / `--limit` の
-切り詰め注記）を当てた版）:
+相対ゲートでの実測（`out/tmp-r48/gate48a.log`、旧版は commit `a44b7c7` を `out/wt-head` に固定、
+旧→新 / 新→旧 を交互に 5 組、2026-11-15 12:21〜12:28、load average 2.77〜3.64。
+第 47 ラウンド双人レビューの修正（ターミナルの一覧も `--limit` に従う / 打ち切りの告知 /
+`--help` に `--limit` の説明）を当てた版。表示 JSON は HEAD と 1 バイトも同じ）:
 
 | 入力 | 旧 5 組中央値 | 新 5 組中央値 | 組ごとの倍率 | 倍率の中央値 | 判定（1.20 以内） | 旧 RSS | 新 RSS |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| demo-api | 0.0380 秒 | 0.0387 秒 | 1.03 / 1.03 / 1.02 / 1.00 / 1.02 | 1.02 | 適合 | 52.8 MB | 53.2 MB |
-| elsa-50 | 0.2610 秒 | 0.2705 秒 | 1.03 / 1.04 / 1.03 / 1.03 / 1.04 | 1.03 | 適合 | 391.8 MB | 412.5 MB |
-| elsa-folder | 0.7840 秒 | 0.8462 秒 | 0.91 / 1.07 / 1.55 / 0.82 / 1.17 | 1.07 | 適合 | 602.1 MB | 642.3 MB |
-| v2-mix | 0.2305 秒 | 0.2081 秒 | 0.90 / 0.90 / 0.90 / 0.91 / 0.90 | 0.90 | 適合 | 184.9 MB | 187.1 MB |
+| demo-api | 0.0371 秒 | 0.0378 秒 | 1.03 / 1.02 / 1.02 / 1.02 / 1.01 | 1.02 | 適合 | 52.7 MB | 53.2 MB |
+| elsa-50 | 0.1870 秒 | 0.1916 秒 | 1.03 / 1.02 / 1.03 / 1.02 / 1.01 | 1.02 | 適合 | 368.2 MB | 374.4 MB |
+| elsa-folder | 0.7404 秒 | 0.8625 秒 | 1.17 / 1.13 / 1.16 / 1.19 / 1.16 | 1.16 | 適合 | 602.6 MB | 640.7 MB |
+| v2-mix | 0.2264 秒 | 0.2061 秒 | 0.92 / 0.92 / 0.90 / 0.91 / 0.90 | 0.91 | 適合 | 183.8 MB | 186.5 MB |
 
-**4 とおりすべてゲート内**（合否は 5 組の倍率の中央値で判定する。`elsa-folder` の 1 組 1.55 は
-個別組のばらつきで、中央値 1.07 はゲート内。同じ入力を双人レビューの Codex が独立に測った中央値は
-0.88 で、この入力のばらつきの大きさは実測どおり）。ただし `elsa-folder`
+**4 とおりすべてゲート内**（合否は 5 組の倍率の中央値で判定する。このラウンドの個別組の最大は
+1.19 で、中央値を出さなくてもゲート内）。ただし `elsa-folder`
 （`--from folder:. --limit 100000`）は他の入力より 1.5 倍ほど重く、縁の本数ぶんの表示用コピーを
-隣エントリが持つため最大 RSS も 642.3 MB まで上がる（上限 800 MB 内）。
+隣エントリが持つため最大 RSS も 640.7 MB まで上がる（上限 800 MB 内）。この入力は組ごとの振れが
+最も大きく、前のラウンドでは 1 組 1.55 まで振れた（中央値 1.07 はゲート内。双人レビューの Codex が
+同じ入力を独立に測った中央値は 0.88）。
 この入力を「遅いから」と理由に打ち切ることはしない。
 
 かつて超過していた値はこうです（`out/loop/r42-decision.md` §3、2026-11-14 23:00、commit `a44b7c7` との比較）:
@@ -392,7 +394,7 @@ demo と `BindingRegression/` でも同じ入力を 2 回走らせて、`rejecte
 node $SKILL/scripts/test-query.mjs           # fixtures/query/graph.json を使う（.NET 不要、28 項目）
 node $SKILL/scripts/test-merge.mjs           # Lambda handler の解決規則（.NET 必要、12 項目）
 node $SKILL/scripts/test-terraform.mjs       # API Gateway のパス組み立てと HTTP API (v2) の `target`（46 項目、.NET 不要）
-node $SKILL/scripts/test-report.mjs          # 差分 → 影響範囲レポート（110 項目、.NET 必要）
+node $SKILL/scripts/test-report.mjs          # 差分 → 影響範囲レポート（114 項目、.NET 必要）
 ```
 
 `test-merge.mjs` は `fixtures/HandlerLambda/`（`AssemblyName` を置いた csproj と `main.tf`）を

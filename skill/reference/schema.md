@@ -19,7 +19,7 @@
     の側で `null` を使うので、`direction` まで `null` にすると「未取得」と「関係が無い」が
     区別できなくなる。値域を文字列 3 つに揃えれば、読み手は未知の値も同じ経路で扱える
   - `none` の行は `tier` を保ったまま中立欄（`wiring` / `sameApi` / `siblingEndpoints`）で受ける。
-    Markdown の**向き 列**は「—」に書く（Markdown の先頭注記では Terraform の定義閉包を
+    Markdown の**向き 列**は「—」と書く（Markdown の先頭注記では Terraform の定義閉包を
     「無方向で閉じる」と書くので、「無方向」という語自体を避けているわけではない）
 - **契約の版**: レポート出力のトップレベルには `schemaVersion` が無い（v1 の出力契約のまま）。
   第 46 ラウンドで `direction` の値域に `none` を足したので、**列挙値の追加という旧読者を壊し
@@ -35,10 +35,11 @@
   **`none` の行のうち** 本命（`tier === "primary"`）の行数。**方向別のカウンタ（`entryIn` /
   `entryOut` など）は `none` を数えない**ので、`in` と `out` の合計が 総行数より少なくなるのが正しい
 - `--expect` の `direction` は `in` / `out` / `none` / `both` を受ける（既定 `both`）。`both` は
-  「向き で絞り込まない」意味で `none` ではない。`none` を指定したときの対象は
-  **本命（`tier === "primary"`）で、かつ中立欄（`sameApi` / 兄弟）でない行**
-  （採点の分母は外部リソースだけ）。保存済み 18 レポートでは **0 行**（`none` の 本命 2 行は
-  いずれも `sameApi` に並ぶ）で、`facts-preempt-none` の回帰テスト用の指定
+  「向き で絞り込まない」意味で `none` ではない。`none` を指定したときの対象は none の行のうち
+  **本命（`tier === "primary"`）で、`sameApi` と兄弟に回らない行**（**`wiring` に回った本命は対象に
+  入る**。採点の分母はさらにそのうち `kind === "resource"` の外部リソースだけ）。保存済み 18 レポート
+  では **0 行**（`none` の 本命 2 行はいずれも `sameApi` に並ぶ）で、`facts-preempt-none` の回帰テストは
+  `wiring` に回った本命を指定する使い方になる
 - 実測: 保存済み 18 レポート 441 行中 28 行が `none`（同じ API を定義するノード 17 /
   定義上の関連 9 / 同じコードを使う別の API 2、うち 本命 2）。「同じコードを使う別の API」の
   一覧は Markdown に 向き 列を出さないので、そこは JSON の `siblingEndpoints` で見る
