@@ -1585,9 +1585,10 @@ def fail_guard_ledger(bad):
          '\n  作り直し（この順で。候補の書き出しだけで上書きはしない）'
          '\n    1) 対応表を戻す: git checkout -- ' + GUARD_LEDGER_FILE +
          '\n    2) 今の走査から候補を書き出す: python3 skill/scripts/tools/battery/'
-         'emit-guard-owners.py --emit ' + GUARD_LEDGER_FILE +
-         '\n    3) 作られた候補を人がレビューしてコミットする（見張り番の名前と所属を変えるのは'
-         '人の判断。豁免の登録も同じ）')
+         'emit-guard-owners.py --emit <候補のファイル>（運用中の台帳 ' + GUARD_LEDGER_FILE +
+         ' へは書けない。差分が有る日は終了 3 を返す）' +
+         '\n    3) 表示された差分を人がレビューして候補を運用中の台帳へ運び、コミットする'
+         '（見張り番の名前と所属を変えるのは人の判断。豁免の登録も同じ）')
 
 
 def load_guard_ledger(repo=None):
