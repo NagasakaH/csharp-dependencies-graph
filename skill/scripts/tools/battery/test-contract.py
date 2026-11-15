@@ -1583,13 +1583,28 @@ _BANNED_BUILTINS = _DYNAMIC_LOOKUP | _DYNAMIC_EXEC | {'getattr', '__import__'}
 _DYNAMIC_ATTRS = {'__dict__', '__globals__', '__class__'}
 # agy 第 63 ラウンド P2-1: 禁止する機構を**裸の名前**でしか見ないと、`from builtins import exec as ex`
 # や `import builtins; e = builtins.exec` で化ける（実測で穴 0 件・名前 0 件の素通り）
-_DYNAMIC_MODULES = {'builtins', 'types', 'inspect'}
+_DYNAMIC_MODULES = {'builtins', 'types', 'inspect', 'code', 'codeop'}
 # 見張り番を動的に引く為の入口になる名前（`from 何か import これ` の形を穴にする）
 _LOADER_NAMES = (_BANNED_BUILTINS | {'compile', 'import_module', 'FunctionType', 'make_function',
-                                     'currentframe', 'getframe', 'f_locals', 'f_globals'})
+                                     'currentframe', 'getframe', 'f_locals', 'f_globals',
+                                     'modules', '_getframe', 'f_builtins'})
 # 何かの属性として読んだら穴になる名前（`builtins.exec` / `types.FunctionType` / `s.modules`）
 _LOADER_ATTRS = _DYNAMIC_ATTRS | {'modules', 'import_module', 'FunctionType', 'make_function',
-                                  'currentframe', 'getframe', 'f_locals', 'f_globals'}
+                                  'currentframe', 'getframe', 'f_locals', 'f_globals',
+                                  '_getframe', 'f_builtins',
+                                  # Codex 第 63 ラウンドの追加 probe: `object.__subclasses__()` と
+                                  # `sys.__loader__` は上の列表に無いので穴 0 件だった（第 64 ラウンド）
+                                  '__subclasses__', '__bases__', '__mro__', '__loader__'}
+# 走査対象のファイルが**豁免なしで import してよい**モジュール（Astra 第 64 ラウンド 問 1 裁定 (c)）
+# 禁止リストの拡張では「何年持つという見積もりを置けない」との裁定で、許可する import を先に決める。
+# ここに無い import は豁免台帳 `guard-owners.json` に「そのファイルで許す import と名前」として
+# 人が登録した時だけ通る。豁免が通せるのは**未登録の import の禁止だけ**で、実行機構その物の
+# 禁止（`_DYNAMIC_MODULES` と `_LOADER_NAMES`）と `guard` の再束縛の禁止は弱めない
+# （`code.InteractiveInterpreter` と `os.system` が穴 0 件だった実測 → `code` / `codeop` は禁止側へ）
+_ALLOWED_IMPORTS = frozenset({
+    'argparse', 'ast', 'collections', 'glob', 'hashlib', 'itertools', 'json', 'os', 'pathlib',
+    'random', 're', 'resource', 'shutil', 'statistics', 'subprocess', 'sys', 'tempfile', 'time',
+})
 # 見張り番の名前の字句規則（README の道具別一覧がバッククォートの中で読む形と**同じ規則**。
 # Codex 第 62 ラウンド P2-3: 規則がずれると `new_guard` のような名前が「コードには有るのに
 # README に無い」と誤診され、README 側の `bad_name` は黙って無視される）
@@ -1656,8 +1671,8 @@ def _bare_builtins(node):
 
     `rhs = getattr(node, 'value', None)` のように**呼び出した結果**を束縛するのは別物なので数えない
     （第 62 ラウンドで `ast.walk` を使った版は `test-contract.py` 自身の AST 読みを 3 件誤検出した）"""
-    if isinstance(node, ast.Name) and node.id in _BANNED_BUILTINS:
-        return {node.id}
+    if isinstance(node, ast.Name) and (node.id in _BANNED_BUILTINS or node.id == 'compile'):
+        return {node.id}      # `c = compile` は別名でも同じ機構（agy 第 63 ラウンド P2-1 の 2 番目）
     if isinstance(node, ast.Attribute) and node.attr in _BANNED_BUILTINS:
         return {node.attr}          # `e = builtins.exec` は別名でも同じ機構
     if isinstance(node, ast.Starred):
@@ -1706,7 +1721,7 @@ def _is_inputs_module(name):
     return name == _INPUTS_MODULE or name.endswith('.' + _INPUTS_MODULE)
 
 
-def _collect_boxes(tree, origin, exempt=None):
+def _collect_boxes(tree, origin, exempt=None, switches=None):
     """見張り番の入った箱（`import _inputs as IN` の `IN`）を**最初に**集める（Astra 問 1 の二段階）
 
     第 61 ラウンドまでは import の収集と束縛の検査が 1 巡目の中に入っていた為、入れ子の import
@@ -1716,18 +1731,32 @@ def _collect_boxes(tree, origin, exempt=None):
 
     `exempt` は台帳 `guard-owners.json` の豁免を展開した `モジュール名 -> 許す名前の集合`
     （Astra 第 63 ラウンド 問 1 の裁定: 豁免は**名乗った import と名前だけ**を許す）。許した
-    モジュールでも `exec` / `FunctionType` の様な動的機構の名前は上の列表で穴のまま"""
+    モジュールでも `exec` / `FunctionType` の様な動的機構の名前は上の列表で穴のまま
+
+    `switches` は `_guard_scan` が 1 箇所ずつ読んだ見張り番の読み方（`名前 -> 真偽`）。ここで
+    `IN.guard(...)` を直接呼ぶと同じ名前を 2 箇所で呼ぶことになり、単独名指しの規則に当たる"""
     exempt = exempt or {}
+    switches = switches or {}
     boxes, holes, tainted, allowed = set(), [], set(), {}
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for a in node.names:
-                bound = a.asname or a.name.split('.')[0]
-                if a.name.split('.')[0] in _DYNAMIC_MODULES:
-                    if a.name.split('.')[0] in exempt:
+                root = a.name.split('.')[0]
+                bound = a.asname or root
+                # Astra 第 64 ラウンド 問 2 裁定 (ii): 見張り番の束縛を壊す import は**豁免を見ずに**落とす
+                if bound == _GUARD_NAME and not _is_inputs_module(a.name):
+                    if switches.get('import-binds-guard', True):
+                        holes.append(f'{origin}:{node.lineno} 見張り番と同じ名前「{_GUARD_NAME}」を'
+                                     f'モジュール「{a.name}」から import している（`guard(...)` の呼び出しが'
+                                     '見張り番の実体かどうか静的に決まらない。豁免した import でも同じ。'
+                                     'Codex 第 62 ラウンド P2-2 / 第 64 ラウンド 問 2）')
+                    tainted.add(bound)
+                    continue
+                if root in _DYNAMIC_MODULES:
+                    if root in exempt:
                         # 豁免したモジュールは束縛を残す（`types` を許したファイルでも
                         # `types.FunctionType` は下の属性検査で穴になる）
-                        allowed[bound] = set(exempt[a.name.split('.')[0]])
+                        allowed[bound] = {x for x in exempt[root] if x not in _LOADER_NAMES}
                         continue
                     holes.append(f'{origin}:{node.lineno} 動的な機構のモジュール「{a.name}」を'
                                  f'「{bound}」へ import している（`{bound}.exec` / `{bound}.FunctionType` '
@@ -1735,10 +1764,13 @@ def _collect_boxes(tree, origin, exempt=None):
                                  'agy 第 63 ラウンド P2-1）')
                     tainted.add(bound)
                     continue
-                if a.name == 'importlib':
+                if root == 'importlib':
+                    if root in exempt:
+                        allowed[bound] = {x for x in exempt[root] if x not in _LOADER_NAMES}
+                        continue
                     holes.append(f'{origin}:{node.lineno} `import importlib` を許可していない'
                                  '（`importlib.import_module` で見張り番の入ったモジュールを'
-                                 '文字列から引べる。`importlib.util` は可')
+                                 '文字列から引べる。`importlib.util` は豁免台帳に登録すれば可')
                     tainted.add(bound)
                     continue
                 if _is_inputs_module(a.name):
@@ -1748,10 +1780,14 @@ def _collect_boxes(tree, origin, exempt=None):
                                      f'`import {a.name} as IN` の形にすること）')
                         continue
                     boxes.add(bound)
-                elif bound == _GUARD_NAME:
-                    holes.append(f'{origin}:{node.lineno} 見張り番と同じ名前「{_GUARD_NAME}」を'
-                                 f'モジュール「{a.name}」から import している（`guard(...)` の呼び出しが'
-                                 '見張り番の実体かどうか静的に決まらない）')
+                    continue
+                if root not in _ALLOWED_IMPORTS and root not in exempt:
+                    if switches.get('import-unregistered', True):
+                        holes.append(f'{origin}:{node.lineno} 未登録の import「{a.name}」'
+                                     f'（走査対象のファイルが豁免なしで import してよいのは '
+                                     f'{"、".join(sorted(_ALLOWED_IMPORTS))} だけ。他は '
+                                     f'{IN.GUARD_LEDGER_FILE} に「そのファイルで許す import と名前」を'
+                                     '人が登録する。Astra 第 64 ラウンド 問 1 裁定 (c)）')
                     tainted.add(bound)
         elif isinstance(node, ast.ImportFrom):
             mod = node.module or ''
@@ -1765,31 +1801,47 @@ def _collect_boxes(tree, origin, exempt=None):
                 tainted.update(a.asname or a.name for a in node.names if a.name != '*')
                 continue
             for a in node.names:
+                root = mod.split('.')[0]
                 bound = a.asname or a.name
-                if (mod.split('.')[0] in _DYNAMIC_MODULES or mod == 'importlib') \
-                        and a.name in exempt.get(mod.split('.')[0], ()):
-                    continue               # 豁免が名乗った名前だけ（`from types import FunctionType` は穴）
-                if mod.split('.')[0] in _DYNAMIC_MODULES or mod == 'importlib':
-                    holes.append(f'{origin}:{node.lineno} 動的な機構のモジュール「{mod}」から '
-                                 f'「{a.name}」を import している（`from builtins import exec as ex` は'
-                                 '別名でも同じ機構。別名経由の実行・取り出しはこのファイルの網羅から'
-                                 '見えない。agy 第 63 ラウンド P2-1）')
+                # Astra 第 64 ラウンド 問 2 裁定 (ii): 豁免の import でも見張り番の名前を束縛できない
+                # （`from builtins import bool as guard` が豁免で通って `guard('fake')` を数えた実測）
+                if bound == _GUARD_NAME:
+                    if switches.get('import-binds-guard', True):
+                        holes.append(f'{origin}:{node.lineno} 見張り番と同じ名前「{_GUARD_NAME}」を'
+                                     f'「{mod}」から import している（`guard(...)` が誰の呼び出しなのか'
+                                     '静的に決まらない。豁免した import でも同じ。Codex 第 62 ラウンド'
+                                     ' P2-2 / Astra 第 64 ラウンド 問 2）')
                     tainted.add(bound)
                     continue
+                # Astra 第 64 ラウンド 問 2 裁定 (i): 実行・取り出しの機構その物の名前は豁免で許さない
+                # （豁免の判定が先に `continue` して `from types import FunctionType` が通った実測）
                 if a.name in _LOADER_NAMES:
                     holes.append(f'{origin}:{node.lineno} 動的な機構「{a.name}」を「{bound}」へ'
                                  '別名で import している（`from importlib import import_module as im` '
-                                 'のような書き方は呼び出し名が化けて網羅から見えない）')
+                                 'のような書き方は呼び出し名が化けて網羅から見えない。豁免でも許さない。'
+                                 'agy / Codex 第 63 ラウンド P2-2）')
+                    tainted.add(bound)
+                    continue
+                if root in _DYNAMIC_MODULES or root == 'importlib':
+                    if a.name not in exempt.get(root, ()):
+                        holes.append(f'{origin}:{node.lineno} 動的な機構のモジュール「{mod}」から '
+                                     f'「{a.name}」を import している（`from builtins import exec as ex` は'
+                                     '別名でも同じ機構。別名経由の実行・取り出しはこのファイルの網羅から'
+                                     '見えない。agy 第 63 ラウンド P2-1）')
+                        tainted.add(bound)
+                        continue
+                elif root not in _ALLOWED_IMPORTS and root not in exempt:
+                    if switches.get('import-unregistered', True):
+                        holes.append(f'{origin}:{node.lineno} 未登録の import「{mod}」（`from {mod} import` '
+                                     f'の形。走査対象のファイルが豁免なしで import してよいのは '
+                                     f'{"、".join(sorted(_ALLOWED_IMPORTS))} だけ。他は '
+                                     f'{IN.GUARD_LEDGER_FILE} に人が登録する。'
+                                     'Astra 第 64 ラウンド 問 1 裁定 (c)）')
                     tainted.add(bound)
                     continue
                 if a.name == _INPUTS_MODULE:
                     holes.append(f'{origin}:{node.lineno} `from {mod} import {a.name}` の形は'
                                  '許可していない（見張り番の箱は `import _inputs as IN` でだけ手に入る）')
-                    tainted.add(bound)
-                elif bound == _GUARD_NAME:
-                    holes.append(f'{origin}:{node.lineno} 見張り番と同じ名前「{_GUARD_NAME}」を'
-                                 f'「{mod}」から import している（`guard(...)` が誰の呼び出しなのか'
-                                 '静的に決まらない。Codex 第 62 ラウンド P2-2 の `bool as guard`）')
                     tainted.add(bound)
     # 二段階の 2 巡目: 別のモジュールが箱と同じ名前を束縛していると、`IN.guard(...)` が
     # 見張り番かどうか静的に決まらない（Astra 第 62 ラウンド 問 1 の `import math as IN`）
@@ -1956,15 +2008,17 @@ def _dynamic_holes(tree, boxes, origin, allowed=None):
                     holes.append(f'{origin}:{node.lineno} `getattr(...)` で見張り番を取り出している'
                                  '（キーが文字列リテラルで無くても動的な取り出しは網羅から見えない）')
             elif called in _DYNAMIC_EXEC or called in ('__import__', 'import_module'):
-                what = '`__import__` / `importlib.import_module`' if called in ('__import__', 'import_module') \
-                    else f'`{called}` による動的実行'
+                what = '`__import__` / `importlib.import_module`' \
+                    if called in ('__import__', 'import_module') else f'`{called}` による動的実行'
                 holes.append(f'{origin}:{node.lineno} {what}（この中で呼ばれた見張り番は'
                              '網羅から見えない）')
-        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name) \
-                and node.func.id == 'compile':
-            holes.append(f'{origin}:{node.lineno} `compile(...)` で文字列を実行可能な物にしている'
-                         '（`types.FunctionType(compile(...), {})()` で見張り番を呼べる。'
-                         '`re.compile()` は属性の呼び出しなので数えない。agy 第 63 ラウンド P2-1）')
+            elif called == 'compile' and isinstance(node.func, ast.Name):
+                # `_call_name` は属性の呼び出しも末尾の名前で返すので、`re.compile()` を巻き込まない
+                # 為に裸の `compile(...)` だけ数える（実測: 属性込みで数えると `re.compile` が
+                # 9 件の誤検出になった。第 64 ラウンドの実測）
+                holes.append(f'{origin}:{node.lineno} `compile(...)` で文字列を実行可能な物にしている'
+                             '（`types.FunctionType(compile(...), {})()` で見張り番を呼べる。'
+                             'agy / Codex 第 63 ラウンド P2-1・P2-4）')
         elif isinstance(node, ast.Attribute):
             if node.attr in _DYNAMIC_ATTRS:
                 holes.append(f'{origin}:{node.lineno} `{node.attr}` を読んでいる'
@@ -2115,7 +2169,10 @@ def _guard_scan(text, origin, exempt=None):
     戻り値は（名前の集合、穴の説明文の列、名前の呼び出し回数の辞書）。回数は
     「1 名前 = 呼び出し 1 箇所」の規則を見る（Astra 第 60 ラウンド 問 2）"""
     tree = ast.parse(text)
-    boxes, holes, tainted, allowed = _collect_boxes(tree, origin, exempt)   # 箱を先に全件集める
+    # 見張り番の読み方はここで 1 箇所ずつ読む（同じ名前を 2 箇所で呼ぶと単独名指しの規則に当たる）
+    switches = {'import-binds-guard': IN.guard('import-binds-guard'),
+                'import-unregistered': IN.guard('import-unregistered')}
+    boxes, holes, tainted, allowed = _collect_boxes(tree, origin, exempt, switches)   # 箱を先に全件集める
     top_guard = None
     if pathlib.Path(str(origin)).name == _INPUTS_FILE:
         defs = [n for n in tree.body
@@ -2133,10 +2190,17 @@ def _guard_scan(text, origin, exempt=None):
         for child in ast.iter_child_nodes(node):
             parents[id(child)] = node
     shadow = _shadowed_scopes(tree, boxes) | {id(x) for x in _wrapper_functions(tree, boxes)}
-    found, counts = set(), {}
+    found, counts, calls = set(), {}, []
     for node in ast.walk(tree):
         if not (isinstance(node, ast.Call) and _is_guard_ref(node.func, boxes)):
             continue
+        # **穴で落とす前の呼び出し候補**を先に残す（Astra 第 64 ラウンド 問 2 裁定 (iii): 豁免を
+        # 渡した走査と渡さない走査で、この候補が名前・所属・ファイル・呼び出し箇所まで一致して
+        # いることを照合する。落とした後の集合だけ較べると、消した側が黙って少なくなる細工を見る）
+        probe0 = node.args[0] if len(node.args) == 1 and not node.keywords else None
+        lit0 = _const_str(probe0) if probe0 is not None else None
+        if isinstance(lit0, str):
+            calls.append((pathlib.Path(str(origin)).name, lit0, node.lineno))
         if (isinstance(node.func, ast.Name) and node.func.id in tainted) \
                 or (isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name)
                     and node.func.value.id in tainted):
@@ -2171,12 +2235,12 @@ def _guard_scan(text, origin, exempt=None):
                      '見張り番の読みを呼び出したり受け取ったりして結果だけを返すラッパ（呼ぶ側は '
                      '`guard` の呼び出しとして見えない。同じ判定をする共有検査関数は、その場で'
                      '判定すること）')
-    return found, holes, counts
+    return found, holes, counts, calls
 
 
 def _guard_call_names(path):
     """`_guard_scan` が読んだ名前集合だけ返す（穴を数えない所で使う）"""
-    names, _, _counts = _guard_scan(path.read_text(encoding='utf-8'), path)
+    names, _, _counts, _calls = _guard_scan(path.read_text(encoding='utf-8'), path)
     return names
 
 
@@ -2227,11 +2291,53 @@ def _guard_scan_files():
 
 def _guard_owners_from_scan(exempt_by_file=None):
     """走査から `名前 -> 直接呼ぶ道具のファイル名` の組を作る（対応表と同じ作り方）"""
-    names, direct, _counts, holes = _guard_names_by_file(exempt_by_file)
+    names, direct, _counts, holes, _calls = _guard_names_by_file(exempt_by_file)
     if holes:
         failed.append(f'見張り番の走査に穴が {len(holes)} 件ある（対応表の照合の前に直す）: '
                       f'{holes[0][:120]}')
     return names, {n: sorted(tool for tool, got in direct.items() if n in got) for n in sorted(names)}
+
+
+def _exempt_index_of(doc):
+    """台帳の豁免を `走査するファイル名 -> 許す import と名前` に直す（正控制と控制で同じ作り方を共有）"""
+    out = {}
+    for path in _guard_scan_files():
+        got = IN.guard_exempt_map(doc, path.name)
+        if got:
+            out[path.name] = got
+    return out
+
+
+def _guard_scan_candidates(exempt_by_file=None):
+    """穴で落とす**前の**呼び出し候補（ファイル・名前・行番号）を並べる（Astra 第 64 ラウンド 問 2 裁定 (iii)）
+
+    穴の数はここで見ない。豁免を渡さない走査は未登録の import を穴として挙げるので、
+    「豁免なしの走査がそれ自体で通る」ことは要求しない（要求するのは候補の一致）"""
+    out = []
+    for path in _guard_scan_files():
+        _n, _h, _c, calls = _guard_scan(path.read_text(encoding='utf-8'), path,
+                                        (exempt_by_file or {}).get(path.name))
+        out += calls
+    return sorted(out)
+
+
+def _exempt_parity_errors(plain, armed):
+    """豁免あり・なしの呼び出し候補を較べて説明文の列で返す（見張り番はここ 1 箇所）
+
+    比較するのは `(ファイル, 名前, 行番号)` の組の集合で、**穴で落とす前**の物を使う
+    （落とした後の集合だけ較べると、細工で消えた側が黙って少なくなる。Astra 第 64 ラウンド
+    問 2 裁定 (iii)）。ここを引数受け取りにしているのは、控制が細工した 2 組を直接渡して
+    「比較が消えたら落ちない」を確かめられるようにする為（実ツリーの一致は正控制がみる）"""
+    if not IN.guard('exempt-scan-parity'):
+        return []
+    if plain == armed:
+        return []
+    gone = sorted(set(plain) - set(armed))[:4]
+    added = sorted(set(armed) - set(plain))[:4]
+    return [f'豁免を渡した走査で呼び出し候補が変わった（豁免前 {len(plain)} 件・豁免後 {len(armed)} 件。'
+            f'消えた {gone} / 増えた {added}）。豁免は import の禁止だけを緩める物で、見張り番の'
+            '呼び出しの読み方（名前・所属・ファイル・行）を動かしてはいけない。'
+            'Astra 第 64 ラウンド 問 2 裁定 (iii)）']
 
 
 def _guard_ledger_errors(doc, exempt_by_file=None):
@@ -2241,6 +2347,14 @@ def _guard_ledger_errors(doc, exempt_by_file=None):
     通る**）。見るのは 3 つで、それぞれに見張り番を置く。
     `own-names` … 名前集合その物 / `own-tools` … 名前と所属道具の対応 /
     `own-files` … 走査対象のファイル集合と豁免が挙げるファイル
+
+    主にする走査は**豁免を渡した方**（Astra 第 64 ラウンド 問 2 裁定 (iii)）。豁免なしの走査を主に
+    すると、正当な豁免を登録した日に「走査に穴が 1 件ある」が先に落ちて台帳の照合へ進めない
+    （Codex 第 63 ラウンド P2-1 の実測）。代わりに 2 つを較べる。
+
+    1. 豁免つきの最終的な名前・所属・走査対象と台帳の対応
+    2. 豁免あり・なしの両方で走った**穴で落とす前の呼び出し候補**（名前・所属・ファイル・行）が
+       完全一致すること（豁免が見張り番の集計その物を動かせないことの確認）
 
     名前の集合が違う日は**所属の比較をしない**（同じ名前が消えたまま所属を並べると、
     直したのか潰したのか判別できない案内が並ぶ。Astra 第 63 ラウンド 問 2「検証と照合を一体に」）"""
@@ -2262,7 +2376,7 @@ def _guard_ledger_errors(doc, exempt_by_file=None):
             if isinstance(f, str) and f.strip() and f not in files:
                 errs.append(f'対応表の豁免が挙げる {f} は走査対象に無い（豁免は走査の下でだけ'
                             '働くので、走査しないファイルの豁免は無効なまま残り続ける）')
-    names, owners = _guard_owners_from_scan()
+    names, owners = _guard_owners_from_scan(exempt_by_file)
     led = doc.get('owners')
     if isinstance(led, dict):
         if IN.guard('own-names'):
@@ -2290,18 +2404,15 @@ def _guard_ledger_errors(doc, exempt_by_file=None):
             errs.append(f'豁免を渡した走査で対応が変わる見張り番が {len(changed)} 件'
                         f'（{_format_guard_names(changed)}）。豁免は**名乗った import と名前だけ**を'
                         '許す物で、見張り番の所属を動かしてはいけない。Astra 第 63 ラウンド 問 1')
+        errs += _exempt_parity_errors(_guard_scan_candidates(),
+                                      _guard_scan_candidates(exempt_by_file))
     return errs
 
 
 def guard_owner_ledger_holds():
     """対応表 `guard-owners.json` と今の走査が一致していることを確かめる正控制（Astra 問 4）"""
     doc = IN.load_guard_ledger(REPO)
-    files = [str(p.relative_to(REPO)) for p in _guard_scan_files()]
-    exempt = {}
-    for f in files:
-        got = IN.guard_exempt_map(doc, pathlib.Path(f).name)
-        if got:
-            exempt[pathlib.Path(f).name] = got
+    exempt = _exempt_index_of(doc)
     for msg in _guard_ledger_errors(doc, exempt or None):
         failed.append(f'{IN.GUARD_LEDGER_FILE}: {msg}')
 
@@ -2313,11 +2424,17 @@ def _ledger_mutate(victim_how, mut):
     doc = json.loads(p.read_text(encoding='utf-8'))
     if victim_how == 'names' and len(doc.get('owners') or {}) < 3:
         raise NotDetected('対応表の名前が 3 未満（制御の前提が変わった）')
+    # 細工前の豁免は走査へ渡す（細工で豁免を丸ごと差し替えると「未登録の import」の穴が先にでて、
+    # 測りたい台帳の照合まで進まない。走査は無傷に保つのが Astra 第 64 ラウンド 問 2 裁定 (iii)）
+    base = _exempt_index_of(json.loads(json.dumps(doc)))
     mut(doc)
     p.write_text(json.dumps(doc, ensure_ascii=False, indent=1, sort_keys=True) + '\n',
                  encoding='utf-8')
+    merged = {k: dict(v) for k, v in base.items()}
+    for k, v in _exempt_index_of(doc).items():
+        merged.setdefault(k, {}).update(v)
     try:
-        return _guard_ledger_errors(doc)
+        return _guard_ledger_errors(doc, merged or None)
     finally:
         restore()
 
@@ -2376,6 +2493,115 @@ def ledger_shape_broken():
     return False        # 止まらなかった = 検出無し（見張り番を消した側はここを通って成功する）
 
 
+def _ledger_doc_mutated(mut):
+    """対応表を一時的に細工した**テキスト**を置いて `load_guard_ledger` を通す（Astra 問 2 の控制）
+
+    `raw` を渡すと JSON を組み直さずその文字列をそのまま置く（同じ鍵を 2 度書く細工は
+    `json.dumps` では作れない為）。戻り値は `load_guard_ledger` が止まったら `(1, 文面)`、
+    止まらなかったら `False`（見張り番を消した側は必ずこっちへ来る）"""
+    rel = f'{BATTERY}/guard-owners.json'
+    p = stash(rel)
+    try:
+        if 'raw' in mut:
+            p.write_text(mut['raw'], encoding='utf-8')
+        else:
+            doc = json.loads(p.read_text(encoding='utf-8'))
+            mut['fn'](doc)
+            p.write_text(json.dumps(doc, ensure_ascii=False, indent=1, sort_keys=True) + '\n',
+                         encoding='utf-8')
+        try:
+            IN.load_guard_ledger(REPO)
+        except SystemExit as exc:
+            return (1, str(exc) or f'exit {exc.code}')
+        return False
+    finally:
+        restore()
+
+
+def _one_scanned_file(doc):
+    """控制が豁免に書くファイル名を台帳から 1 本選ぶ（走査対象外を混ぜない為）"""
+    files = doc.get('scannedFiles') or []
+    if not files:
+        raise NotDetected('対応表に走査対象が 1 本も無い（制御の前提が変わった）')
+    return files[0]
+
+
+def exempt_loader_name_registered():
+    """豁免に `FunctionType` の様な動的機構の名前を登録して台帳が止まること（`exempt-loader-name`）
+
+    Astra 第 64 ラウンド 問 2 裁定 (i) の「登録を拒否する」側。見張り番を消すと形の検査自体が
+    止まるので同じ細工がそのまま通る（＝この控制はこの見張り番だけを名指している）"""
+    def mut(doc):
+        doc['exemptions'] = [{'file': _one_scanned_file(doc),
+                              'imports': {'types': ['FunctionType']}, 'note': '制御の細工'}]
+    return _ledger_doc_mutated({'fn': mut})
+
+
+def exempt_dup_entry_registered():
+    """同じファイルの豁免を 2 件に分裂させて台帳が止まること（`exempt-dup-entry`）
+
+    Astra 第 64 ラウンド 問 2 裁定 (iv) の「同じ import の重複登録」側。2 件とも単体では正しい
+    形なので、重複を見ない実装だと黙って通る"""
+    def mut(doc):
+        f = _one_scanned_file(doc)
+        doc['exemptions'] = [
+            {'file': f, 'imports': {'importlib': ['util']}, 'note': '制御の細工（1 件目）'},
+            {'file': f, 'imports': {'importlib': ['util']}, 'note': '制御の細工（2 件目）'}]
+    return _ledger_doc_mutated({'fn': mut})
+
+
+def ledger_json_dup_key():
+    """対応表の JSON に同じ鍵を 2 度書いたら止まること（`json-dup-key`）
+
+    `json.loads` は後の値で黙って畳むので、禁止名を書いた鍵とその取り消しを並べる細工が作れる
+    （Astra 第 64 ラウンド 問 2 裁定 (iv)）。`note` を 2 度書く形にして、他の欄を壊さずに
+    見張り番を消した側が通るようにする"""
+    rel = f'{BATTERY}/guard-owners.json'
+    text = (REPO / rel).read_text(encoding='utf-8')
+    lines = text.splitlines(keepends=True)
+    at = [i for i, x in enumerate(lines) if x.startswith(' "note":')]
+    if len(at) != 1:
+        raise NotDetected(f'対応表のトップレベルの note が {len(at)} 行（制御の前提が変わった）')
+    dup = ''.join(lines[:at[0] + 1]) + ' "note": "重複した鍵（制御の細工）",\n' \
+        + ''.join(lines[at[0] + 1:])
+    return _ledger_doc_mutated({'raw': dup})
+
+
+def import_unregistered_hole():
+    """許可一覧に無い import を走査が穴として挙げるか（`import-unregistered`）
+
+    Astra 第 64 ラウンド 問 1 裁定 (c) で禁止一覧から許可一覧へ切り替えた実測。`socket` は
+    走査対象のどこも import していないので、豁免なしでは必ず穴になる"""
+    _n, holes, _c, _cl = _guard_scan(f'{_SCAN_HEAD}import socket\nif IN.guard("ok-import"): '
+                                     'raise SystemExit(1)\n', '<制御>')
+    bad = [h for h in holes if '未登録の import' in h]
+    return (1, bad[0]) if bad else False
+
+
+def import_binds_guard_hole():
+    """豁免した import が `guard` を束縛したら穴になるか（`import-binds-guard`）
+
+    Codex 第 64 ラウンド相当の実測（`from builtins import bool as guard` + `guard('fake')` が
+    豁免で通り、架空の名前が見張り番として数えた）を、豁免を必要としない形（`json` は
+    許可一覧に有る）で再現する。見張り番を消すと束縛の穴だけが消えて他は無傷で通る"""
+    src = (f'{_SCAN_HEAD}from json import bool as guard\nif guard("ok-binds"): '
+           'raise SystemExit(1)\n')
+    _n, holes, _c, _cl = _guard_scan(src, '<制御>')
+    bad = [h for h in holes if '見張り番と同じ名前' in h]
+    return (1, bad[0]) if bad else False
+
+
+def exempt_parity_moved():
+    """豁免あり・なしの呼び出し候補の違いを比較が消すか（`exempt-scan-parity`）
+
+    Astra 第 64 ラウンド 問 2 裁定 (iii) の 2 つ目の照合。実ツリーでは差分が出てはいけないので、
+    細工で差が出た場合を直接 `_exempt_parity_errors` へ渡す（見張り番を消すと報告が消える）"""
+    plain = [('check-dir-rule.py', 'dir-rule-v1', 42)]
+    armed = []
+    errs = _exempt_parity_errors(plain, armed)
+    return (1, errs[0]) if errs else False
+
+
 def guard_exemption_scope_holds():
     """豁免が**名乗った import と名前だけ**を許すことを対で確かめる（Astra 第 63 ラウンド 問 1）
 
@@ -2400,7 +2626,7 @@ def guard_exemption_scope_holds():
          "import types\nimport _inputs as IN\nIN.guard('ex-f')\n", None),
     )
     for want_ok, label, src, ex in cases:
-        _names, holes, _counts = _guard_scan(src, 'exempt-probe.py', ex)
+        _names, holes, _counts, _calls = _guard_scan(src, 'exempt-probe.py', ex)
         if want_ok and holes:
             failed.append(f'豁免の対の検査「{label}」が通らない（穴 {len(holes)} 件）: {holes[0][:110]}')
         if not want_ok and not holes:
@@ -2412,10 +2638,16 @@ def _guard_names_by_file(exempt_by_file=None):
 
     網羅の正控制と README の名前検査が**同じ走査**を共有する（走査を 2 本持つと、片方だけを直して
     「README は通るが網羅の実測は嘘」が作れる。第 60 ラウンド Codex P2-2 の別名穴と同じ形）"""
-    names, direct, counts, holes = set(), {}, {}, []
+    if exempt_by_file is None:
+        # 既定も台帳の豁免を渡す。**主は豁免つきの走査**なので、豁免なしの走査が挙げる
+        # 「未登録の import」の穴をここで失敗にすると、正当な豁免を登録した日に網羅の検査が
+        # 全部止まる（Codex 第 63 ラウンド P2-1 と同じ形。Astra 第 64 ラウンド 問 2 裁定 (iii)）
+        exempt_by_file = _exempt_index_of(IN.load_guard_ledger(REPO))
+    names, direct, counts, holes, calls = set(), {}, {}, [], []
     for path in _guard_scan_files():
-        got, got_holes, got_counts = _guard_scan(
+        got, got_holes, got_counts, got_calls = _guard_scan(
             path.read_text(encoding='utf-8'), path, (exempt_by_file or {}).get(path.name))
+        calls += got_calls
         names |= got
         holes += got_holes
         if got:
@@ -2425,7 +2657,7 @@ def _guard_names_by_file(exempt_by_file=None):
             direct.setdefault(path.name, set()).update(got)
         for k, v in got_counts.items():
             counts[k] = counts.get(k, 0) + v
-    return names, direct, counts, holes
+    return names, direct, counts, holes, calls
 
 
 def _format_guard_names(names, limit=6):
@@ -2482,7 +2714,7 @@ def _readme_guard_refs(text):
     fenced = _md_fence_mask(lines)          # フェンスの中は表でも箇条書きでもない（agy 第 63 ラウンド P2-2）
     for no, line in enumerate(lines, 1):
         s = line.strip()
-        if fenced[no - 1] and not s.startswith('```'):
+        if fenced[no - 1]:
             continue
         if s.startswith(README_REGION_END):
             in_region, name_table = False, False
@@ -2620,7 +2852,7 @@ def readme_guard_names_match_code():
     全体名との部分集合検査だけでは通る（Astra 問 5 の理由）。だから道具別の直接呼び出しと突き合わせ、
     検査器自身も偽の入力で測る（Astra 問 5 ④）。歴史説明の旧名は検査しない（読む区画を絞る）"""
     text = (REPO / BATTERY / 'README.md').read_text(encoding='utf-8')
-    code, direct, _counts, _holes = _guard_names_by_file()
+    code, direct, _counts, _holes, _calls = _guard_names_by_file()
     for msg in _readme_guard_errors(_readme_guard_refs(text), code, direct, text):
         failed.append(f'README の見張り番の名前: {msg}')
 
@@ -2673,6 +2905,11 @@ def readme_guard_names_match_code():
          lambda s: s.replace('`fp-structural` / ', '', 1)
          + '\n```\n| 名前 | x |\n| --- | --- |\n| `fp-structural` | x |\n```\n',
          '「名前」列に無い'),
+        # agy 第 63 ラウンド P2-3: `~~~` をフェンスとして認識しないと偽の表がフェンスの外に見えた
+        ('表から消した名前を `~~~` の偽の表へ移す',
+         lambda s: s.replace('`fp-structural` / ', '', 1)
+         + '\n~~~\n| 名前 | x |\n| --- | --- |\n| `fp-structural` | x |\n~~~\n',
+         '「名前」列に無い'),
     )
     for label, mut, want in probes:
         got = errs_of(mut)
@@ -2692,7 +2929,7 @@ def guard_names_have_singleton_controls():
     `fp-bytes` を `and False:` に完全無力化しても検出されなかった。Astra 第 59 ラウンド 問 4 の
     裁定どおり、**ソースに書いてある制御は数えず、通った単独名指しだけ**を数える
     （例外台帳は作らない。網羅不足は失敗にする）"""
-    tree, _direct, counts, holes = _guard_names_by_file()
+    tree, _direct, counts, holes, _calls = _guard_names_by_file()
     if holes:
         failed.append(f'見張り番の呼び出し {len(holes)} 件が静的に読めない'
                       f'（網羅の分母から黙って消える）: {holes[:4]}。'
@@ -2746,7 +2983,8 @@ _SCAN_HEAD = 'import _inputs as IN\n'
 
 def _scan_of(body):
     """制御用の短いソースを `_guard_scan` に読ませて（名前集合、穴、件数）を返す"""
-    return _guard_scan(_SCAN_HEAD + body, '<制御>')
+    names, holes, counts, _calls = _guard_scan(_SCAN_HEAD + body, '<制御>')
+    return names, holes, counts
 
 
 def scanner_reads_only_allowed_syntax():
@@ -2783,6 +3021,16 @@ def scanner_reads_only_allowed_syntax():
         ('仮引数が guard', "def f(guard):\n    return guard('uncovered')\n"),
         ('ループ変数が guard', "for guard in [IN.guard]:\n    guard('uncovered')\n"),
         ('見張り番を返す', "def give():\n    return IN.guard\n"),
+        # Codex 第 63 ラウンドが実測で穴 0 件と出した 6 形（第 64 ラウンドで潰した）
+        ('`object.__subclasses__()`', "subs = object.__subclasses__()\n"),
+        ('`sys.__loader__`', "import sys\nl = sys.__loader__\n"),
+        ('`sys._getframe()`', "import sys\nf = sys._getframe()\n"),
+        ('`ctypes` import', "import ctypes\ndll = ctypes.PyDLL(None)\n"),
+        ('`code` module 経由', "import code\ncode.InteractiveInterpreter().runsource("
+                               "\"IN.guard('uncovered')\")\n"),
+        ('`compile` から作った関数', "f = compile(\"IN.guard('uncovered')\", '<s>', 'eval')\n"),
+        ('`from sys import modules`', "from sys import modules\n"),
+        ('許可一覧に無い import', "import socket\ns = socket.socket()\n"),
     ]
     for label, body in bad_forms:
         names, holes, counts = _scan_of(body)
@@ -2795,6 +3043,8 @@ def scanner_reads_only_allowed_syntax():
             failed.append(f'制御「{label}」で穴が {len(holes)} 件出た（同じ形を何度も数えすぎ）')
     good_forms = [
         ('正規の直接呼び', "if IN.guard('ok-direct'):\n    raise SystemExit(1)\n"),
+        ('許可一覧に有る import を併用', "import json\nd = json.loads('{}')\n"
+                                      "if IN.guard('ok-import'):\n    raise SystemExit(1)\n"),
         ('同じ名前を 2 箇所', "if IN.guard('ok-twice'):\n    raise SystemExit(1)\n"
                              "if IN.guard('ok-twice'):\n    raise SystemExit(1)\n"),
         ('コメントと説明文', "# IN.guard('ok-comment') は実行されない\n"
@@ -2950,14 +3200,68 @@ DECISIONS_HEADER = ('| # | 決定 | 根拠（実測） | 取り替える条件 |
 _DECISION_NUM = re.compile(r'\d+(?:-\d+)*')
 
 
+FENCE = '```'
+_FENCE_LOOK = ('```', '~~~')
+
+
+def _fence_looks(line):
+    """行がコードフェンスの行に**見える**か（Astra 第 64 ラウンド 問 3 裁定 (b)）
+
+    禁止の形（`~~~`・4 個以上・情報文字列付き・字下げ・引用・箇条書きの中）も「見える」に含まれる。
+    見える行を全部フェンスとして扱うのではなく、**禁止形その物を失敗にする**のが裁定の要点
+    （「許可したフェンス以外は普通の文章として扱う」実装では細工が残る）"""
+    body = line.expandtabs().strip()
+    while True:
+        for mark in ('> ', '- ', '* ', '+ '):
+            if body.startswith(mark):
+                body = body[len(mark):].lstrip()
+                break
+        else:
+            return body.startswith(_FENCE_LOOK)
+
+
+def _fence_form_raw_errors(lines, origin):
+    """文書全体のコードフェンスの形を見る（Astra 第 64 ラウンド 問 3 裁定 (b)）
+
+    許可するのは**行全体がバッククォート 3 個だけ**の行。情報文字列（``` に `sh` を足す形）、
+    4 個以上のフェンス、`~~~`、字下げ・引用・箇条書きの中、閉じ忘れを失敗にする。
+    開閉の素朴なトグルは「4 個のフェンスの中に 3 個の行を置く」細工で途中閉じと誤認された
+    （agy / Codex 第 63 ラウンド P2-3 の `~~~` と 4 個の実測）。見張り番を消した制御の自己検査が
+    使えるように、ここは `guard` を読まない（報告は `_fence_form_errors` が 1 箇所で行う）"""
+    errs, inside = [], False
+    for i, line in enumerate(lines, start=1):
+        if not _fence_looks(line):
+            continue
+        if line.rstrip() != FENCE:
+            errs.append(f'{origin}:{i} コードフェンスの行が許可した形ではない '
+                        f'（`{line.strip()[:24]}`。フェンスは**行全体がバッククォート 3 個だけ**。'
+                        '情報文字列・4 個以上・`~~~`・字下げ・引用・箇条書きの中は許可しない。'
+                        'Astra 第 64 ラウンド 問 3）')
+            continue
+        inside = not inside
+    if inside:
+        errs.append(f'{origin} コードフェンスが閉じられていない（開いた行と閉じた行の数が合わない。'
+                    '閉じ忘れは以後の行が全部フェンス内に見えてしまう）')
+    return errs
+
+
+def _fence_form_errors(lines, origin):
+    """上の報告を見張り番 `md-fence-form` でまとめて出す（見張り番の呼び出しはここ 1 箇所）"""
+    if not IN.guard('md-fence-form'):
+        return []
+    return _fence_form_raw_errors(lines, origin)
+
+
 def _md_fence_mask(lines):
     """各行がコードフェンス（``` の行で挟まれた区間）の中か、フェンス行自身か（agy 第 63 ラウンド P2-2）
 
     フェンスの中は**表でも箇条書きでもない**（Markdown のレンダリングでもそうなる）。中を表として
-    読むと、リアルな表から名前を消してフェンス内の偽の表へ移す細工が通る"""
+    読むと、リアルな表から名前を消してフェンス内の偽の表へ移す細工が通る。禁止形（`~~~`・4 個以上・
+    情報文字列付き）もフェンスとして**中は読まない**（読んでしまうのが agy / Codex 第 63 ラウンド
+    P2-3 の `~~~` の細工）。禁止形その物は `_fence_form_errors` が別に落とす"""
     mask, inside = [], False
     for line in lines:
-        if line.lstrip().startswith('```'):
+        if _fence_looks(line):
             inside = not inside
             mask.append(True)
             continue
@@ -3117,6 +3421,10 @@ def decisions_table_columns_hold():
         ('コードフェンスの中に偽の区画マーカーを置く',
          lambda s: '```md\n' + DECISIONS_HEAD + '\n' + '\n'.join(DECISIONS_HEADER)
          + '\n| 1 | ok | ok | ok |\n' + DECISIONS_END + '\n```\n' + s, '区画マーカー'),
+        # Codex 第 63 ラウンド P2-3: `~~~` をフェンスとして認識しないとマーカーがフェンス外に見えた
+        ('チルダのフェンスの中に偽の区画マーカーを置く',
+         lambda s: '~~~\n' + DECISIONS_HEAD + '\n' + '\n'.join(DECISIONS_HEADER)
+         + '\n| 1 | ok | ok | ok |\n' + DECISIONS_END + '\n~~~\n' + s, '区画マーカー'),
         ('閉じ縦棒の後ろに余剰の欄を足す',
          lambda s: s.replace('| 86 |', '| 86x | a | b | c | 余剰\n| 86 |', 1), '行末の縦棒'),
     )
@@ -3128,6 +3436,58 @@ def decisions_table_columns_hold():
             continue
         if not any(want in x for x in got):
             failed.append(f'{DECISIONS_FILE} 検査の自己検査「{label}」が「{want}」で落ちない: {got[:2]}')
+
+
+MD_FENCE_DOCS = ((BATTERY + '/README.md', 'README.md'), (DECISIONS_FILE, 'decisions.md'))
+
+
+def fence_form_bypass():
+    """情報文字列付きのフェンスを形検査が見逃すか（Astra 第 64 ラウンド 問 3 裁定 (b) の単独名指し）
+
+    実文書を書き換えるのではなく、落ちるはずの 3 行を直接 `_fence_form_errors` へ渡す。
+    `md-fence-form` を消すと報告が消える（＝この控制はその見張り番だけを名指している）"""
+    errs = _fence_form_errors(['```sh', 'demo', '```'], 'README.md')
+    return (1, errs[0]) if errs else False
+
+
+def markdown_fences_hold():
+    """検査が読む 2 つの文書でコードフェンスが許可した形だけか（Astra 第 64 ラウンド 問 3 裁定 (b)）
+
+    約束は表の区画内だけでなく**文書全体**に適用する。第 63 ラウンド双人レビューで `~~~` と
+    4 個のバッククォートのフェンスが偽の「名前」表を通した（`out/review-agy63.log` P2-3、
+    `out/review-codex63.log` P2-3）。裁定は「CommonMark の模倣」ではなく「書ける形を先に固定し、
+    禁止形を検出して失敗させる」なので、下の控制は禁止形が**失敗になること**と、許可した
+    1 組が**通ること**の対で測る"""
+    for rel, where in MD_FENCE_DOCS:
+        lines = (REPO / rel).read_text(encoding='utf-8').splitlines()
+        for msg in _fence_form_errors(lines, where):
+            failed.append(msg)
+
+    base = (REPO / BATTERY / 'README.md').read_text(encoding='utf-8').splitlines()
+    if _fence_form_errors(base, 'README.md'):
+        failed.append('README.md 自身のフェンスの形が今の検査で落ちる（実文書を先に直す）: '
+                      f'{_fence_form_raw_errors(base, "README.md")[:2]}')
+    probes = (
+        ('`~~~` で括ったフェンス', lambda ls: ls + ['~~~', '| 名前 | x |', '~~~'],
+         '許可した形ではない'),
+        ('情報文字列を付けたフェンス', lambda ls: ls + ['```sh', 'x', '```'], '情報文字列'),
+        ('4 個のバッククォートのフェンス', lambda ls: ls + ['````', '```', 'x', '```', '````'],
+         '許可した形ではない'),
+        ('字下げしたフェンス', lambda ls: ls + ['  ```', 'x', '  ```'], '許可した形ではない'),
+        ('引用の中へ置いたフェンス', lambda ls: ls + ['> ```', 'x', '> ```'], '許可した形ではない'),
+        ('箇条書きの中へ置いたフェンス', lambda ls: ls + ['- ```', 'x', '- ```'],
+         '許可した形ではない'),
+        ('フェンスを閉じ忘れる', lambda ls: ls + ['```', 'x'], '閉じられていない'),
+        ('許可した 1 組は通る', lambda ls: ls + ['```', 'x', '```'], None),
+    )
+    for label, mut, want in probes:
+        got = _fence_form_raw_errors(mut(base), 'README.md')
+        if want is None:
+            if got:
+                failed.append(f'フェンス形検査の自己検査「{label}」が通るはずで落ちた: {got[:1]}')
+            continue
+        if not any(want in x for x in got):
+            failed.append(f'フェンス形検査の自己検査「{label}」が「{want}」で落ちない: {got[:1]}')
 
 
 def main():
@@ -3150,6 +3510,25 @@ def main():
                  guards='own-files', message='豁免が挙げる')
         negative('対応表の owners を配列でなくす', ledger_shape_broken,
                  guards='own-shape', message=IN.GUARD_LEDGER_HEADER)
+        # 第 64 ラウンド Astra 問 3 裁定 (b): 文書で書けるフェンスの形を固定し、禁止形を失敗にする
+        negative('情報文字列付きのフェンスを形検査が見逃す', fence_form_bypass,
+                 guards='md-fence-form', message='許可した形ではない')
+        # 第 64 ラウンド Astra 問 1 裁定 (c)（許可一覧へ切替）と問 2 裁定 (i)(ii)(iii)(iv) の
+        # 単独名指し。「禁止機能の除外登録」「`bool as guard`」「台帳の不正」「比較を消す細工」は
+        # 人が必ず対で確認するよう求められた物（`out/astra64.log`）
+        negative('許可一覧に無い import を走査が見逃す', import_unregistered_hole,
+                 guards='import-unregistered', message='未登録の import')
+        negative('豁免でも通る `guard` の束縛を走査が見逃す', import_binds_guard_hole,
+                 guards='import-binds-guard', message='見張り番と同じ名前')
+        negative('豁免に動的機構の名前を登録する台帳を形の検査が見逃す',
+                 exempt_loader_name_registered, guards='exempt-loader-name',
+                 message='動的機構の名前')
+        negative('同じファイルの豁免を 2 件並べた台帳を形の検査が見逃す',
+                 exempt_dup_entry_registered, guards='exempt-dup-entry', message='重複登録')
+        negative('対応表の JSON の重複した鍵を読み込みが見逃す', ledger_json_dup_key,
+                 guards='json-dup-key', message=IN.GUARD_LEDGER_HEADER)
+        negative('豁免あり・なしの呼び出し候補の比較を丸ごと消す', exempt_parity_moved,
+                 guards='exempt-scan-parity', message='呼び出し候補が変わった')
         # 第 60 ラウンド Astra 問 2 の裁定で分割した判定それぞれの単独名指し（旧 `cond-shape` の
         # 5 箇所・`perm-count` の 3 箇所・`perm-cap` の 2 箇所）
         negative('条件オブジェクトに無い欄を 1 つ足す', cond_keys_extra_field,
@@ -3392,6 +3771,7 @@ def main():
         positive('docs/decisions.md の決めの表が 4 欄で揃っている', decisions_table_columns_hold)
         positive('見張り番の対応表 guard-owners.json が今の走査と一致している', guard_owner_ledger_holds)
         positive('豁免が名乗った import と名前だけを許すことを対で確かめる', guard_exemption_scope_holds)
+        positive('README と決めの表のコードフェンスが許可した形だけになっている', markdown_fences_hold)
 
         # 追跡下のファイルへの変更が残っていないか（制御が途中で落ちても戻す）
         left = git_touches()

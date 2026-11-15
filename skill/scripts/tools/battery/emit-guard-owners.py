@@ -31,15 +31,19 @@ import _inputs as IN            # noqa: E402  test-contract.py の後に読む�
 
 NOTE = ('見張り番の名前と、その名前を**直接呼ぶ**道具の対応表。走査（test-contract.py の '
         '_guard_names_by_file）から見つかる集合とその場で比べる台帳で、実行結果から自動更新しない。'
-        '作り直しは emit-guard-owners.py（候補の書き出し）。exemptions は動的機構のモジュール'
-        '（builtins / types / inspect / importlib）のうち、そのファイルで許す import と名前だけを書く'
-        '（Astra 第 63 ラウンド 問 1。ファイル全体の豁免は置けない）')
+        '作り直しは emit-guard-owners.py（候補の書き出し）。exemptions は走査対象のファイルが'
+        '許可一覧（test-contract.py の `_ALLOWED_IMPORTS`）に無い import を使う時に、そのファイルで'
+        '許す import と名前だけを書く（Astra 第 63 ラウンド 問 1・第 64 ラウンド 問 1 裁定 (c)。'
+        'ファイル全体の豁免は置けず、動的機構の名前（exec / compile / FunctionType / modules など）は'
+        '豁免で登録できない。第 64 ラウンド 問 2 裁定 (i)）')
 
 
 def candidate(root, keep_exemptions):
     files = sorted(str(p.relative_to(root))
                    for p in (root / 'skill' / 'scripts' / 'tools').rglob('*.py'))
-    names, direct, counts, holes = tc._guard_names_by_file()
+    # 台帳の豁免を渡して走査する（豁免つきの走査が主。Astra 第 64 ラウンド 問 2 裁定 (iii)）
+    exempt_by_file = tc._exempt_index_of({'exemptions': list(keep_exemptions)}) or None
+    names, direct, counts, holes, _calls = tc._guard_names_by_file(exempt_by_file)
     if holes:
         print(f'# 走査に穴が {len(holes)} 件有る（{holes[0][:100]}）')
         IN.fail('対応表の候補を作る前に見張り番の走査の穴を 0 件にすること'

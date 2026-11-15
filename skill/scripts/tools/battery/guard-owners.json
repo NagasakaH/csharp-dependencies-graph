@@ -1,6 +1,25 @@
 {
- "exemptions": [],
- "note": "見張り番の名前と、その名前を**直接呼ぶ**道具の対応表。走査（test-contract.py の _guard_names_by_file）から見つかる集合とその場で比べる台帳で、実行結果から自動更新しない。作り直しは emit-guard-owners.py（候補の書き出し）。exemptions は動的機構のモジュール（builtins / types / inspect / importlib）のうち、そのファイルで許す import と名前だけを書く（Astra 第 63 ラウンド 問 1。ファイル全体の豁免は置けない）",
+ "exemptions": [
+  {
+   "file": "skill/scripts/tools/battery/emit-guard-owners.py",
+   "imports": {
+    "importlib": [
+     "util"
+    ]
+   },
+   "note": "見張り番の対応表の候補を書き出す道具。test-contract.py を Roslyn 風に読む為に `importlib.util.spec_from_file_location` を使う（Astra 第 64 ラウンド 問 1 裁定 (c) で importlib は許可一覧に入れない。`importlib.import_module` は豁免でも通らない）。登録は人（第 64 ラウンド双人レビューで再確認）"
+  },
+  {
+   "file": "skill/scripts/tools/battery/test-contract.py",
+   "imports": {
+    "importlib": [
+     "util"
+    ]
+   },
+   "note": "入力の点検の道具をその場読みする 1 箇所だけで `importlib.util` を使う（`import importlib.util` の 1 行。`importlib.import_module` は豁免でも通らない）。Astra 第 64 ラウンド 問 1 裁定 (c)。登録は人（第 64 ラウンド双人レビューで再確認）"
+  }
+ ],
+ "note": "見張り番の名前と、その名前を**直接呼ぶ**道具の対応表。走査（test-contract.py の _guard_names_by_file）から見つかる集合とその場で比べる台帳で、実行結果から自動更新しない。作り直しは emit-guard-owners.py（候補の書き出し）。exemptions は走査対象のファイルが許可一覧（test-contract.py の `_ALLOWED_IMPORTS`）に無い import を使う時に、そのファイルで許す import と名前だけを書く（Astra 第 63 ラウンド 問 1・第 64 ラウンド 問 1 裁定 (c)。ファイル全体の豁免は置けず、動的機構の名前（exec / compile / FunctionType / modules など）は豁免で登録できない。第 64 ラウンド 問 2 裁定 (i)）",
  "owners": {
   "canonical-id": [
    "_inputs.py"
@@ -68,6 +87,15 @@
   "edge-out-shape": [
    "edge-order.py"
   ],
+  "exempt-dup-entry": [
+   "_inputs.py"
+  ],
+  "exempt-loader-name": [
+   "_inputs.py"
+  ],
+  "exempt-scan-parity": [
+   "test-contract.py"
+  ],
   "fixture-set": [
    "_inputs.py"
   ],
@@ -95,6 +123,15 @@
   "fp-unregistered": [
    "_inputs.py"
   ],
+  "import-binds-guard": [
+   "test-contract.py"
+  ],
+  "import-unregistered": [
+   "test-contract.py"
+  ],
+  "json-dup-key": [
+   "_inputs.py"
+  ],
   "json-empty": [
    "_inputs.py"
   ],
@@ -103,6 +140,9 @@
   ],
   "json-parse": [
    "_inputs.py"
+  ],
+  "md-fence-form": [
+   "test-contract.py"
   ],
   "none-counters": [
    "count-none.py"

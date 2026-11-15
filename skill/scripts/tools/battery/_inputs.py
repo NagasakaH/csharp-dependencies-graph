@@ -1366,6 +1366,39 @@ GUARD_LEDGER_HEADER = '見張り番の対応表（guard-owners.json）が壊れ�
 GUARD_LEDGER_KEYS = ('note', 'scannedFiles', 'owners', 'exemptions')
 _EXEMPT_ENTRY_KEYS = ('file', 'imports', 'note')
 _NAME_SHAPE_RE = re.compile(r'[a-z][a-z0-9]*(?:-[a-z0-9]+)*')
+# 豁免で**名乗ってはいけない**名前（`test-contract.py` の `_LOADER_NAMES` と対）。Astra 第 64
+# ラウンド 問 2 裁定 (i): 「豁免の登録を拒否する」と「実装上も禁止する」の両方を持つので、
+# ここは台帳の形の段階で落とし、走査側も別の列表で穴にしている（どちらか一方を消しても落ちる）
+_LEDGER_LOADER_NAMES = frozenset({
+    'exec', 'eval', 'globals', 'locals', 'vars', 'getattr', '__import__', 'compile',
+    'import_module', 'FunctionType', 'make_function', 'currentframe', 'getframe',
+    'f_locals', 'f_globals', 'modules', '_getframe', 'f_builtins',
+})
+
+
+def _dup_json_keys(text):
+    """JSON の**同じオブジェクト内で重複した鍵**を説明文の列で返す（空なら無い）
+
+    `json.loads` は同じ鍵を後勝ちで畳むので、`{"exec": [...], "exec": []}` のように
+    禁止名を並べて後の空で消す細工が素通しになる。Astra 第 64 ラウンド 問 2 裁定 (iv):
+    「同じ import の重複登録」はここで落とす（見張り番 `json-dup-key` ✗ 読み込みの 1 箇所だけ）"""
+    bad = []
+
+    def hook(pairs):
+        seen, dup = set(), []
+        for k, _ in pairs:
+            if k in seen and k not in dup:
+                dup.append(k)
+            seen.add(k)
+        if dup:
+            bad.append('、'.join(sorted(dup)))
+        return dict(pairs)
+
+    try:
+        json.loads(text, object_pairs_hook=hook)
+    except Exception as exc:                       # 壊れた JSON はここで扱わない（別の検査が落とす）
+        return [f'JSON が読めない: {exc}']
+    return [f'同じオブジェクト内に同じ鍵が複数有る: {x}（後の値が前を黙って消す）' for x in bad]
 
 
 def _exempt_entry_errors(entry, where):
@@ -1403,6 +1436,14 @@ def _exempt_entry_errors(entry, where):
         bad = [x for x in granted if not isinstance(x, str) or not x.strip()]
         if bad:
             errs.append(f'{where} の imports[{mod!r}] に空でない文字列でない名前がある: {bad[:4]}')
+            continue
+        # Astra 第 64 ラウンド 問 2 裁定 (i): 実行・取り出しの機構その物を豁免で除外登録できない
+        banned = sorted(x for x in granted if isinstance(x, str) and x in _LEDGER_LOADER_NAMES)
+        if banned and guard('exempt-loader-name'):
+            errs.append(f'{where} の imports[{mod!r}] に動的機構の名前 {banned[:4]} が登録されている'
+                        '（豁免は未登録の import を通す為のもので、禁止した機構を解禁する物ではない。'
+                        '`from types import FunctionType` を豁免で通したのが agy / Codex 第 63 ラウンド'
+                        ' P2-2 の実測。Astra 第 64 ラウンド 問 2 裁定 (i)）')
     return errs
 
 
@@ -1454,6 +1495,26 @@ def guard_ledger_shape_errors(doc):
     else:
         for i, entry in enumerate(ex):
             errs += _exempt_entry_errors(entry, f'exemptions[{i}]')
+        # Astra 第 64 ラウンド 問 2 裁定 (iv): 同じファイルの豁免を二重に登録して「片方で許し
+        # 片方で消す」ような置き方をする（同じ import の重複登録もここで落ちる）
+        files, pairs, twice = [], [], []
+        for entry in ex:
+            if not isinstance(entry, dict) or not isinstance(entry.get('file'), str):
+                continue
+            key = entry['file']
+            if key in files:
+                twice.append(key)
+            files.append(key)
+            mods = entry.get('imports')
+            if isinstance(mods, dict):
+                for mod in mods:
+                    if (key, mod) in pairs:
+                        twice.append(f'{key} の import「{mod}」')
+                    pairs.append((key, mod))
+        if twice and guard('exempt-dup-entry'):
+            errs.append(f'豁免に同じファイル・同じ import の重複登録がある: {sorted(set(twice))[:4]}'
+                        '（1 ファイルにつき 1 件にまとめる。分けて置くと片方だけが読まれたのか'
+                        '人が判別できない。Astra 第 64 ラウンド 問 2 裁定 (iv)）')
     return errs
 
 
@@ -1477,7 +1538,12 @@ def load_guard_ledger(repo=None):
     root = repo_root() if repo is None else pathlib.Path(repo)
     path = root / GUARD_LEDGER_FILE
     require(path, '見張り番の対応表', want_file=True)
-    doc = json.loads(path.read_text(encoding='utf-8'))
+    text = path.read_text(encoding='utf-8')
+    if guard('json-dup-key'):
+        dup = _dup_json_keys(text)
+        if dup:
+            fail_guard_ledger([f'{GUARD_LEDGER_FILE} が読めない（{d}）' for d in dup])
+    doc = json.loads(text)
     if guard('own-shape'):
         bad = guard_ledger_shape_errors(doc)
         if bad:
