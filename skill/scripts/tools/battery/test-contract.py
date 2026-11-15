@@ -1439,16 +1439,16 @@ def broken_required_ledger_same_message():
         restore()
 
 
-def _known_diffs_break(mutate=None, text=None):
+def _known_diffs_break(mutate=None, text=None, kind='row'):
     """既知差分（`known-v1-diffs.json`）を壊して `expected_direction_diffs` を通す（Astra 第 61 ラウンド 問 3 の追記）
 
     導出関数だけを見るので v1 のレポートは走らせない。壊した一覧からの再生成は人の判断なので、
     ここで自動更新はしない（`v1diff.py --emit-known` は候補を出すだけの道具）"""
     p = stash(f'{BATTERY}/known-v1-diffs.json')
     doc = json.loads(p.read_text(encoding='utf-8'))
-    rows = [i for i, d in enumerate(doc['diffs']) if isinstance(d, dict) and d.get('kind') == 'row']
+    rows = [i for i, d in enumerate(doc['diffs']) if isinstance(d, dict) and d.get('kind') == kind]
     if not rows:
-        raise NotDetected('既知差分に kind が row の行が無い（この制御の前提が変わった）')
+        raise NotDetected(f'既知差分に kind が {kind} の行が無い（この制御の前提が変わった）')
     body = text
     if mutate is not None:
         mutate(doc, rows[0])
@@ -1501,6 +1501,43 @@ def known_old_key_missing():
     _known_diffs_break(mutate=lambda doc, i: doc['diffs'][i].pop('old'))
 
 
+def known_kind_unknown():
+    """既知差分の `kind` を値域外へ変える（`row` / `summary` 以外は形として止める。第 62 ラウンド agy P2-3）"""
+    _known_diffs_break(mutate=lambda doc, i: doc['diffs'][i].__setitem__('kind', 'roww'))
+
+
+def known_kind_missing():
+    """既知差分から `kind` を消す（無い行は導出側で黙って `row` 扱いにならない）"""
+    _known_diffs_break(mutate=lambda doc, i: doc['diffs'][i].pop('kind'))
+
+
+def known_cond_blank():
+    """既知差分の `cond` を空白だけにする（空の条件名で人が条件を探せない。第 62 ラウンド agy P2-3）"""
+    _known_diffs_break(mutate=lambda doc, i: doc['diffs'][i].__setitem__('cond', '   '))
+
+
+def known_cond_not_str():
+    """既知差分の `cond` を数値にする"""
+    _known_diffs_break(mutate=lambda doc, i: doc['diffs'][i].__setitem__('cond', 3))
+
+
+def known_id_not_str():
+    """既知差分の `id` を数値にする（`id` で台帳を引く側の前提）"""
+    _known_diffs_break(mutate=lambda doc, i: doc['diffs'][i].__setitem__('id', 3))
+
+
+def known_summary_old_negative():
+    """既知差分の `summary` 行の `old` を負数にする（`summary` は件数を出す行なので 0 以上）"""
+    _known_diffs_break(kind='summary',
+                       mutate=lambda doc, i: doc['diffs'][i].__setitem__('old', -1))
+
+
+def known_summary_new_bool():
+    """既知差分の `summary` 行の `new` を真偽値にする（`True` は Python では整数だが件数ではない）"""
+    _known_diffs_break(kind='summary',
+                       mutate=lambda doc, i: doc['diffs'][i].__setitem__('new', True))
+
+
 def known_diffs_not_list():
     """既知差分の `diffs` を辞書にする"""
     _known_diffs_break(mutate=lambda doc, i: doc.__setitem__('diffs', {'a': 1}))
@@ -1539,8 +1576,15 @@ def _const_str(node):
 
 _GUARD_NAME = 'guard'
 _INPUTS_MODULE = '_inputs'
+_INPUTS_FILE = '_inputs.py'
 _DYNAMIC_LOOKUP = {'globals', 'locals', 'vars'}
 _DYNAMIC_EXEC = {'exec', 'eval'}
+_BANNED_BUILTINS = _DYNAMIC_LOOKUP | _DYNAMIC_EXEC | {'getattr', '__import__'}
+_DYNAMIC_ATTRS = {'__dict__', '__globals__', '__class__'}
+# 見張り番の名前の字句規則（README の道具別一覧がバッククォートの中で読む形と**同じ規則**。
+# Codex 第 62 ラウンド P2-3: 規則がずれると `new_guard` のような名前が「コードには有るのに
+# README に無い」と誤診され、README 側の `bad_name` は黙って無視される）
+_NAME_SHAPE = re.compile(r'[a-z][a-z0-9]*(?:-[a-z0-9]+)*')
 
 
 def _bound_names(node):
@@ -1552,6 +1596,32 @@ def _bound_names(node):
             yield from _bound_names(elt)
     elif isinstance(node, ast.Starred):
         yield from _bound_names(node.value)
+
+
+def _pattern_names(node):
+    """`match` のパターンが束縛する名前（agy 第 62 ラウンド P2-1 の `case IN:` 対策）"""
+    if isinstance(node, ast.MatchValue) or isinstance(node, ast.MatchSingleton):
+        return
+    if isinstance(node, ast.MatchAs):
+        if node.name:
+            yield node.name
+        if node.pattern is not None:
+            yield from _pattern_names(node.pattern)
+    elif isinstance(node, ast.MatchStar):
+        if node.name:
+            yield node.name
+    elif isinstance(node, ast.MatchMapping):
+        if node.rest:
+            yield node.rest
+    elif isinstance(node, ast.MatchOr):
+        for p in node.patterns:
+            yield from _pattern_names(p)
+    elif isinstance(node, ast.MatchSequence):
+        for p in node.patterns:
+            yield from _pattern_names(p)
+    elif isinstance(node, ast.MatchClass):
+        for p in list(node.patterns) + list(node.kwd_patterns):
+            yield from _pattern_names(p)
 
 
 def _is_guard_ref(node, boxes):
@@ -1572,33 +1642,158 @@ def _call_name(node):
     return ''
 
 
-def _guard_symbols(tree, origin):
-    """見張り番の入った箱（`import _inputs as IN` の `IN`）と、読み方を壊す束縛を調べる
+def _bare_builtins(node):
+    """式が**動的な機構その物**を値として束縛されうる形か（`e = exec` / `g, x = getattr, 1`）
 
-    Astra 第 61 ラウンド 問 2 のとおり「呼び出されるか」まで追う解析はしない。**見張り番の入った
-    名前を別のに束縛する形その物**を穴にする（呼び出しの実体が静的に決まらない為）"""
-    boxes, holes = set(), []
+    `rhs = getattr(node, 'value', None)` のように**呼び出した結果**を束縛するのは別物なので数えない
+    （第 62 ラウンドで `ast.walk` を使った版は `test-contract.py` 自身の AST 読みを 3 件誤検出した）"""
+    if isinstance(node, ast.Name) and node.id in _BANNED_BUILTINS:
+        return {node.id}
+    if isinstance(node, ast.Starred):
+        return _bare_builtins(node.value)
+    if isinstance(node, (ast.Tuple, ast.List, ast.Set)):
+        out = set()
+        for elt in node.elts:
+            out |= _bare_builtins(elt)
+        return out
+    if isinstance(node, ast.Dict):
+        out = set()
+        for val in node.values:
+            out |= _bare_builtins(val)
+        return out
+    return set()
+
+
+def _direct_refs(node, boxes):
+    """式が**見張り番か箱その物**を値として含んでいるか（`IN2 = IN` / `a, b = guard, x` / `f(IN)`）
+
+    関数の呼び出し結果は箱その物ではないので、その中は調べない（`REPO = IN.repo_root()` は正常
+    な書き方。
+    第 62 ラウンドで `ast.walk` をそのまま使った版はこれを 114 件の誤検出し、実ツリーで落ちた）"""
+    if node is None:
+        return False
+    if _is_guard_ref(node, boxes) or (isinstance(node, ast.Name) and node.id in boxes):
+        return True
+    if isinstance(node, ast.Starred):
+        return _direct_refs(node.value, boxes)
+    if isinstance(node, (ast.Tuple, ast.List, ast.Set)):
+        return any(_direct_refs(e, boxes) for e in node.elts)
+    if isinstance(node, ast.Dict):
+        return any(_direct_refs(v, boxes) for v in node.values if v is not None)
+    if isinstance(node, ast.Call):
+        return any(_direct_refs(a, boxes) for a in node.args)
+    return False
+
+
+def _expr_text(node):
+    """診断に出す式の短い名前（`IN` / `repo_root` / 型名）"""
+    return getattr(node, 'id', None) or getattr(node, 'attr', None) or type(node).__name__
+
+
+def _is_inputs_module(name):
+    """`_inputs` もしくは `何か._inputs` というモジュール名か"""
+    return name == _INPUTS_MODULE or name.endswith('.' + _INPUTS_MODULE)
+
+
+def _collect_boxes(tree, origin):
+    """見張り番の入った箱（`import _inputs as IN` の `IN`）を**最初に**集める（Astra 問 1 の二段階）
+
+    第 61 ラウンドまでは import の収集と束縛の検査が 1 巡目の中に入っていた為、入れ子の import
+    より先に束縛を見る順序だと箱を知らないまま素通りした（Astra 実測: `import battery._inputs`、
+    `from battery import _inputs as X`、`import math as IN`）。許可する import の形は
+    **`import _inputs`（`as` での改名は可）だけ**で、それ以外の形は箱にせず穴にする"""
+    boxes, holes, tainted = set(), [], set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for a in node.names:
-                if a.name == _INPUTS_MODULE or a.name.endswith('.' + _INPUTS_MODULE):
-                    boxes.add(a.asname or a.name)
+                bound = a.asname or a.name.split('.')[0]
+                if _is_inputs_module(a.name):
+                    if a.asname is None and '.' in a.name:
+                        holes.append(f'{origin}:{node.lineno} `import {a.name}` は別名を付けないと'
+                                     f'「{bound}」に束縛される（見張り番の箱が静的に決まらない。'
+                                     f'`import {a.name} as IN` の形にすること）')
+                        continue
+                    boxes.add(bound)
+                elif bound == _GUARD_NAME:
+                    holes.append(f'{origin}:{node.lineno} 見張り番と同じ名前「{_GUARD_NAME}」を'
+                                 f'モジュール「{a.name}」から import している（`guard(...)` の呼び出しが'
+                                 '見張り番の実体かどうか静的に決まらない）')
+                    tainted.add(bound)
         elif isinstance(node, ast.ImportFrom):
             mod = node.module or ''
-            if (mod == _INPUTS_MODULE or mod.endswith('.' + _INPUTS_MODULE)) and any(
-                    a.name == _GUARD_NAME for a in node.names):
-                got = '、'.join(sorted({a.asname or a.name for a in node.names
-                                        if a.name == _GUARD_NAME}))
-                holes.append(f'{origin}:{node.lineno} 見張り番を import で取り出している（{got}。'
-                             '取り出した先で `guard` / `IN.guard` の直接呼び出し以外で呼ばれた物は'
-                             'このファイルの網羅から見えない）')
+            if _is_inputs_module(mod):
+                got = '、'.join(sorted('*' if a.name == '*' else (a.asname or a.name)
+                                       for a in node.names))
+                holes.append(f'{origin}:{node.lineno} 見張り番の入ったモジュールを '
+                             f'`from {mod} import {got}` で開いている（取り出し先の呼び出しは'
+                             'このファイルの網羅から見えない。`import _inputs as IN` の形にすること。'
+                             '`from _inputs import *` も同じ理由で穴。Astra 第 62 ラウンド 問 1）')
+                tainted.update(a.asname or a.name for a in node.names if a.name != '*')
+                continue
+            for a in node.names:
+                bound = a.asname or a.name
+                if a.name == _INPUTS_MODULE:
+                    holes.append(f'{origin}:{node.lineno} `from {mod} import {a.name}` の形は'
+                                 '許可していない（見張り番の箱は `import _inputs as IN` でだけ手に入る）')
+                    tainted.add(bound)
+                elif bound == _GUARD_NAME:
+                    holes.append(f'{origin}:{node.lineno} 見張り番と同じ名前「{_GUARD_NAME}」を'
+                                 f'「{mod}」から import している（`guard(...)` が誰の呼び出しなのか'
+                                 '静的に決まらない。Codex 第 62 ラウンド P2-2 の `bool as guard`）')
+                    tainted.add(bound)
+    # 二段階の 2 巡目: 別のモジュールが箱と同じ名前を束縛していると、`IN.guard(...)` が
+    # 見張り番かどうか静的に決まらない（Astra 第 62 ラウンド 問 1 の `import math as IN`）
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            binds = [(a.asname or a.name.split('.')[0],
+                      _is_inputs_module(a.name) and (a.asname is not None or '.' not in a.name))
+                     for a in node.names]
+        elif isinstance(node, ast.ImportFrom):
+            binds = [((a.asname or a.name), False) for a in node.names if a.name != '*']
+        else:
+            continue
+        for bound, ok in binds:
+            if bound in boxes and not ok:
+                holes.append(f'{origin}:{node.lineno} 見張り番の箱と同じ名前「{bound}」を別の物が'
+                             '束縛する import（`import _inputs as IN` と `import math as IN` が並ぶと、'
+                             '`IN.guard(...)` が見張り番かどうか静的に決まらない）')
+                tainted.add(bound)
+    return boxes, holes, tainted
+
+
+def _guard_symbols(tree, boxes, origin, top_guard):
+    """見張り番の読み方を壊す束縛・定義・差し替えを調べる（箱は `_collect_boxes` が先に集める）
+
+    Astra 第 61 ラウンド 問 2 のとおり「呼び出されるか」まで追う解析はしない。**見張り番の入った
+    名前を別のに束縛する形その物**を穴にする（呼び出しの実体が静的に決まらない為）。第 62 ラウンド
+    問 1 で「箱を右辺にする束縛」「`.guard` への代入と削除」「見張り番の実体や箱の名前を別のに
+    束縛する `def` / `class`」「`match` のパターン」まで広げた。戻り値は（穴の列、**汚れた名前の
+    集合**）で、汚れた名前とは「このファイルの中で見張り番の実体で無い物が束縛された名前」のこと
+    （Astra 第 62 ラウンド 問 1: 差し替えられた箱からの呼び出しは集計しない）"""
+    holes, tainted = [], set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and node.attr == _GUARD_NAME \
+                and isinstance(node.ctx, (ast.Store, ast.Del)):
+            holes.append(f'{origin}:{node.lineno} 見張り番「{_expr_text(node.value)}.{_GUARD_NAME}」を'
+                         '代入・削除で差し替えている（見張り番の実体は `_inputs.py` の'
+                         ' `def guard` だけ。差し替えた先の呼び出しは網羅の分母に入れない）')
+            if isinstance(node.value, ast.Name):
+                tainted.add(node.value.id)
         elif isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
             targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            names = set()
             for tgt in targets:
-                for nm in _bound_names(tgt):
-                    if nm == _GUARD_NAME or nm in boxes:
-                        holes.append(f'{origin}:{node.lineno} 見張り番の入った名前「{nm}」へ別のを'
-                                     '束縛する（呼び出しの実体が静的に決まらない）')
+                names |= set(_bound_names(tgt))
+            rhs = getattr(node, 'value', None)
+            handed = _direct_refs(rhs, boxes)
+            for nm in names:
+                if nm == _GUARD_NAME or nm in boxes:
+                    holes.append(f'{origin}:{node.lineno} 見張り番の入った名前「{nm}」へ別のを'
+                                 '束縛する（呼び出しの実体が静的に決まらない）')
+                elif handed:
+                    holes.append(f'{origin}:{node.lineno} 見張り番かその入った箱を「{nm}」へ'
+                                 '別名として束縛する（`IN2 = IN` の別名経由の呼び出しは'
+                                 'このファイルの網羅から見えない。Codex / agy 第 62 ラウンドの実測）')
         elif isinstance(node, (ast.For, ast.AsyncFor, ast.comprehension)):
             for nm in _bound_names(node.target):
                 if nm == _GUARD_NAME or nm in boxes:
@@ -1607,6 +1802,12 @@ def _guard_symbols(tree, origin):
             for nm in _bound_names(node.target):
                 if nm == _GUARD_NAME or nm in boxes:
                     holes.append(f'{origin}:{node.lineno} 見張り番の名前「{nm}」を `:=` で束縛する')
+        elif isinstance(node, ast.Match):
+            for nm in _pattern_names(node):
+                if nm == _GUARD_NAME or nm in boxes:
+                    holes.append(f'{origin}:{node.lineno} 見張り番の名前「{nm}」を `match` のパターンに'
+                                 '束縛する（agy 第 62 ラウンド P2-1 の `case IN:`）')
+                    tainted.add(nm)
         elif isinstance(node, ast.ExceptHandler) and node.name in {_GUARD_NAME} | boxes:
             holes.append(f'{origin}:{node.lineno} 見張り番の名前「{node.name}」を例外の変数に束縛する')
         elif isinstance(node, (ast.Global, ast.Nonlocal)):
@@ -1614,45 +1815,76 @@ def _guard_symbols(tree, origin):
                 if nm == _GUARD_NAME or nm in boxes:
                     holes.append(f'{origin}:{node.lineno} 見張り番の名前「{nm}」を '
                                  f'`{type(node).__name__.lower()}` で宣言する')
-        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
-            a = node.args
-            params = [x.arg for x in list(a.posonlyargs) + list(a.args) + list(a.kwonlyargs)]
-            params += [x.arg for x in (a.vararg, a.kwarg) if x is not None]
-            for nm in params:
-                if nm == _GUARD_NAME or nm in boxes:
-                    holes.append(f'{origin}:{node.lineno} 見張り番の名前「{nm}」を仮引数に使う'
-                                 '（その関数の中だけなら別物でも、呼び出しは同じ `nm(...)` に見える）')
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))                     and (node.name == _GUARD_NAME or node.name in boxes):
+                if node is top_guard:
+                    continue          # `_inputs.py` のトップレベルに 1 個だけ有る実体
+                what = '見張り番の実体 `guard`' if node.name == _GUARD_NAME \
+                    else f'見張り番の箱「{node.name}」'
+                holes.append(f'{origin}:{node.lineno} {what}を別のに束縛する定義 '
+                             f'`{type(node).__name__.lower()} {node.name}`（同じ形に見えても見張り番の'
+                             '呼び出しでは無い。agy 第 62 ラウンド P2-1 の `def guard` / `class IN`）')
+                tainted.add(node.name)
+            a = getattr(node, 'args', None)
+            if a is not None:
+                params = [x.arg for x in list(a.posonlyargs) + list(a.args) + list(a.kwonlyargs)]
+                params += [x.arg for x in (a.vararg, a.kwarg) if x is not None]
+                for nm in params:
+                    if nm == _GUARD_NAME or nm in boxes:
+                        holes.append(f'{origin}:{node.lineno} 見張り番の名前「{nm}」を仮引数に使う'
+                                     '（その関数の中だけなら別物でも、呼び出しは同じ `nm(...)` に見える）')
+                        tainted.add(nm)
         elif isinstance(node, (ast.withitem,)) and node.optional_vars is not None:
             for nm in _bound_names(node.optional_vars):
                 if nm == _GUARD_NAME or nm in boxes:
                     holes.append(f'{origin}:{node.lineno} 見張り番の名前「{nm}」を `with` の変数に束縛する')
-    return boxes, holes
+                    tainted.add(nm)
+    return holes, tainted
 
 
 def _guard_reference_holes(tree, boxes, parents, origin):
-    """見張り番を**呼び出し以外**で参照している箇所を穴にする（Astra 問 2: 取り出した時点で穴）
+    """見張り番と箱を**呼び出し以外**で参照している箇所を穴にする（Astra 問 2: 取り出した時点で穴）
 
     第 60 ラウンドまでは `ast.Assign` だけを見ていた。`g: object = guard`（注釈付き代入）、
     `(g := guard)`（ウォルラス）、`a, b = guard, x`（分割代入）、`SimpleNamespace(guard=IN.guard)`
-    （コンテナへの格納）、`return guard`（返り値）は全部ここに通る"""
+    （コンテナへの格納）、`return guard`（返り値）は全部ここに通る。第 62 ラウンド 問 1 で
+    **箱その物**（`IN`）も同じ扱いにした（`IN2 = IN` / `f(IN)` / `return IN` / `[IN][0].guard`）"""
     holes = []
     for node in ast.walk(tree):
-        if not _is_guard_ref(node, boxes) or not isinstance(node.ctx, ast.Load):
+        if _is_guard_ref(node, boxes) and isinstance(node.ctx, ast.Load):
+            parent = parents.get(id(node))
+            if not (isinstance(parent, ast.Call) and parent.func is node):
+                holes.append(f'{origin}:{node.lineno} 見張り番を呼び出し以外で参照している（別名への代入・'
+                             '返り値・関数への受け渡し・コンテナへの格納など。この先で何が呼ばれるか'
+                             '静的に決まらないので網羅の分母に入れない）')
             continue
-        parent = parents.get(id(node))
-        if isinstance(parent, ast.Call) and parent.func is node:
-            continue   # 呼び出しの形その物は `_guard_scan` の側で検査する
-        holes.append(f'{origin}:{node.lineno} 見張り番を呼び出し以外で参照している（別名への代入・'
-                     '返り値・関数への受け渡し・コンテナへの格納など。この先で何が呼ばれるか'
-                     '静的に決まらないので網羅の分母に入れない）')
+        if isinstance(node, ast.Name) and node.id in boxes and isinstance(node.ctx, ast.Load):
+            parent = parents.get(id(node))
+            if isinstance(parent, ast.Attribute) and parent.value is node:
+                continue           # `IN.guard` / `IN.GUARD_OFF` など属性の受け手（実測で 41 種類）
+            holes.append(f'{origin}:{node.lineno} 見張り番の箱「{node.id}」を属性の受け手以外で'
+                         '使っている（別名への代入・引数・返り値・コンテナ格納。この先で何が'
+                         '呼ばれるか静的に決まらない。agy 第 62 ラウンド P1-1）')
+            continue
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) \
+                and node.func.attr == _GUARD_NAME:
+            v = node.func.value
+            if not (isinstance(v, ast.Name) and v.id in boxes):
+                holes.append(f'{origin}:{node.lineno} 見張り番の箱ではない「{_expr_text(v)}」の '
+                             f'`.{_GUARD_NAME}` を呼んでいる（`import _inputs as IN` の `IN` からの'
+                             '呼び出し以外は網羅の分母に入れない。`import math as IN` のような'
+                             '同名家が化ける為。Astra 第 62 ラウンド 問 1）')
     return holes
 
 
 def _dynamic_holes(tree, boxes, origin):
-    """`getattr` / `globals()['guard']` / `exec` / `eval` / `__getattr__` を穴にする（Astra 問 2 の禁止構文）
+    """名前空間の取り出し・動的実行・辞書経由の取り出しを穴にする（Astra 問 2 の禁止構文）
 
-    AST を読む為の `getattr(node, 'id', '')` まで禁止しない。文字列の中身を実行構文として走査
-    もしない"""
+    AST を読む為の `getattr(node, 'id', '')` まで禁止しない（実測: 走査対象 23 ファイルで
+    `getattr` は `test-contract.py` の 4 件だけ。見張り番とは無関係）。第 62 ラウンド 問 1 の
+    拡張で、**キーが文字列リテラルでなくても**、また**取り出しただけでも**穴にする
+    （`getattr(IN, k)` / `globals()[k]` / `d = globals()` / `sys.modules['_inputs']` /
+    `IN.__globals__[k]` / `e = exec; e(...)` / `importlib.import_module(...)`）"""
     holes = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Call):
@@ -1661,23 +1893,51 @@ def _dynamic_holes(tree, boxes, origin):
             hits_guard = _GUARD_NAME in [x for x in texts if x is not None]
             if called == 'getattr' and node.args and _is_guard_ref(node.args[0], boxes):
                 hits_guard = True
-            if called in _DYNAMIC_LOOKUP or called == 'getattr':
+            if called == 'getattr' and node.args and isinstance(node.args[0], ast.Name) \
+                    and node.args[0].id in boxes:
+                hits_guard = True       # `getattr(IN, k)` はキーが変数でも同じ穴
+            if called in _DYNAMIC_LOOKUP:
+                holes.append(f'{origin}:{node.lineno} `{called}()` で名前空間を取り出している'
+                             '（取り出した辞書から見張り番が引けるので、このファイルの網羅が'
+                             '保証できない。Astra 第 62 ラウンド 問 1）')
+            elif called == 'getattr':
                 if hits_guard:
-                    holes.append(f'{origin}:{node.lineno} `{called}(...)` で見張り番を取り出している'
-                                 '（動的な取り出しはこのファイルの網羅から見えない）')
-            if called in _DYNAMIC_EXEC:
-                holes.append(f'{origin}:{node.lineno} `{called}` による動的実行（この中で呼ばれた'
-                             '見張り番は網羅から見えない）')
+                    holes.append(f'{origin}:{node.lineno} `getattr(...)` で見張り番を取り出している'
+                                 '（キーが文字列リテラルで無くても動的な取り出しは網羅から見えない）')
+            elif called in _DYNAMIC_EXEC or called in ('__import__', 'import_module'):
+                what = '`__import__` / `importlib.import_module`' if called in ('__import__', 'import_module') \
+                    else f'`{called}` による動的実行'
+                holes.append(f'{origin}:{node.lineno} {what}（この中で呼ばれた見張り番は'
+                             '網羅から見えない）')
+        elif isinstance(node, ast.Attribute):
+            if node.attr in _DYNAMIC_ATTRS:
+                holes.append(f'{origin}:{node.lineno} `{node.attr}` を読んでいる'
+                             '（モジュール辞書・クラス辞書経由の取り出しは網羅から見えない）')
+            elif node.attr == 'modules' and isinstance(node.value, ast.Name) and node.value.id == 'sys':
+                holes.append(f'{origin}:{node.lineno} `sys.modules` を読んでいる'
+                             '（`sys.modules[\'_inputs\']` 経由の見張り番の取り出しは網羅から見えない）')
         elif isinstance(node, ast.Subscript):
-            if _const_str(node.slice) != _GUARD_NAME:
-                continue
             v = node.value
             via = isinstance(v, ast.Call) and _call_name(v) in _DYNAMIC_LOOKUP
             via = via or (isinstance(v, ast.Attribute) and v.attr == '__dict__')
             if via:
-                holes.append(f'{origin}:{node.lineno} `{_GUARD_NAME}` を辞書経由で取り出している'
-                             '（`globals()` / `locals()` / `vars()` / `__dict__` 経由の呼び出しは'
+                holes.append(f'{origin}:{node.lineno} 名前空間の辞書から `{_GUARD_NAME}` を'
+                             '添字で取り出している（キーが文字列リテラルで無くても穴。'
+                             '`globals()` / `locals()` / `vars()` / `__dict__` 経由の呼び出しは'
                              'このファイルの網羅から見えない）')
+        elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+            rhs = getattr(node, 'value', None)
+            if rhs is None:
+                continue
+            names = set()
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            for tgt in targets:
+                names |= set(_bound_names(tgt))
+            ban = sorted(_bare_builtins(rhs))
+            if ban and names:
+                holes.append(f'{origin}:{node.lineno} 動的な機構「{"、".join(sorted(set(ban)))}」を'
+                             f'「{"、".join(sorted(names))}」へ別名にしている（別名経由の実行・'
+                             '取り出しはこのファイルの網羅から見えない）')
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == '__getattr__':
             holes.append(f'{origin}:{node.lineno} `__getattr__` を定義している（見張り番を'
                          '動的に公開できるので網羅の外）')
@@ -1752,12 +2012,19 @@ def _wrapper_functions(tree, boxes):
             continue
 
         def is_handoff(expr, handed):
-            """返り値・代入の右辺が見張り番の読み（呼び出し / その物 / それに束縛した名前）か"""
-            if _is_guard_ref(expr, boxes):
-                return True
-            if isinstance(expr, ast.Call) and _is_guard_ref(expr.func, boxes):
-                return True
-            return isinstance(expr, ast.Name) and expr.id in handed
+            """返り値・代入の右辺が見張り番の読みを**含んでいる**か（`return bool(IN.guard('x'))` も）
+
+            第 61 ラウンドまでは「見張り番の呼び出しその物」だけを見ていた為、`return bool(IN.guard('x'))`
+            のように包み直したラッパが通った（Astra 第 62 ラウンド 問 1 の実測）。同じ判定をその場で
+            実行して別のを返す共有検査関数は、返り値に見張り番の読みを含まないので引き続き許可"""
+            if expr is None:
+                return False
+            for sub in ast.walk(expr):
+                if _is_guard_ref(sub, boxes):
+                    return True
+                if isinstance(sub, ast.Name) and sub.id in handed:
+                    return True
+            return False
 
         handed, count = set(), 0
         for s in stmts:
@@ -1787,7 +2054,19 @@ def _guard_scan(text, origin):
     戻り値は（名前の集合、穴の説明文の列、名前の呼び出し回数の辞書）。回数は
     「1 名前 = 呼び出し 1 箇所」の規則を見る（Astra 第 60 ラウンド 問 2）"""
     tree = ast.parse(text)
-    boxes, holes = _guard_symbols(tree, origin)
+    boxes, holes, tainted = _collect_boxes(tree, origin)   # 箱を先に全件集める（Astra 問 1 の二段階）
+    top_guard = None
+    if pathlib.Path(str(origin)).name == _INPUTS_FILE:
+        defs = [n for n in tree.body
+                if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == _GUARD_NAME]
+        if len(defs) == 1:
+            top_guard = defs[0]                      # 見張り番の実体はここにある 1 個だけ
+        else:
+            holes.append(f'{origin} のトップレベルに `def {_GUARD_NAME}` が {len(defs)} 個'
+                         '（見張り番の実体は 1 個だけ。同名の再定義や入れ子定義は実体に数えない）')
+    sym_holes, sym_tainted = _guard_symbols(tree, boxes, origin, top_guard)
+    holes += sym_holes
+    tainted |= sym_tainted
     parents = {}
     for node in ast.walk(tree):
         for child in ast.iter_child_nodes(node):
@@ -1797,6 +2076,10 @@ def _guard_scan(text, origin):
     for node in ast.walk(tree):
         if not (isinstance(node, ast.Call) and _is_guard_ref(node.func, boxes)):
             continue
+        if (isinstance(node.func, ast.Name) and node.func.id in tainted) \
+                or (isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name)
+                    and node.func.value.id in tainted):
+            continue     # 見張り番の実体でない物が束縛された名前の呼び出しは数えない（Astra 問 1）
         probe = node
         inside_shadow = False
         while probe is not None:
@@ -1808,9 +2091,14 @@ def _guard_scan(text, origin):
             continue
         one = node.args[0] if len(node.args) == 1 and not node.keywords else None
         lit = _const_str(one) if one is not None else None
-        if lit:
+        if lit and _NAME_SHAPE.fullmatch(lit):
             found.add(lit)
             counts[lit] = counts.get(lit, 0) + 1
+        elif lit:
+            holes.append(f'{origin}:{node.lineno} 見張り番の名前「{lit}」が字句規則に合わない'
+                         f'（{_NAME_SHAPE.pattern}。README の道具別一覧がバッククォートの中で読む形と'
+                         '同じ規則に揃えないと、一覧の検査がこの名前を黙って無視する。'
+                         'Codex 第 62 ラウンド P2-3）')
         else:
             holes.append(f'{origin}:{node.lineno} `guard()` の呼び出しが許可した形ではない'
                          '（引数 1 個の空でない文字列リテラル、キーワード引数無し以外は'
@@ -1905,9 +2193,28 @@ README_REGION_END = '<!-- /見張り番の道具別一覧 -->'
 # 見張り番の名前らしき語（小文字と `-` のみ。`coverage` のように `-` を含まない名前的な語も拾う）。
 # `.py` / `.json` / `min-0.json` は閉じバッククォートが続けて来ないのでマッチせず、`--オプション` は
 # 先頭が `-` なので入らない。読むのは下の 2 区画だけなので、旧名を載せた歴史説明は対象外
-GUARD_WORD = re.compile(r'`([a-z][a-z0-9]*(?:-[a-z0-9]+)*)`')
+# 名前一覧の欄でバッククォートに囲まれた語は**すべて見張り番の名前の候補**とする（Astra 第 62 ラウンド
+# 問 2: 規則に合う物だけ拾う読み方をすると、`bad_name` のような誤字を「名前ではない語」として黙って
+# 捨てる。候補として拾い、字句規則に合わなければ失敗にする）
+BACKTICK = re.compile(r'`([^`]+)`')
 README_TOOL_HEAD = re.compile(r'^-\s+`([^`]+)`')
 BAD_BULLET = '（箇条書きの形が不正）'
+
+
+def _name_words(part):
+    """名前一覧の欄からバッククォートの語を読み、規則に合わない物は失敗の印として返す
+
+    `_NAME_SHAPE`（コード側と同じ字句規則）に合う物は名前として返し、`.py` / `.json` のような
+    ファイル名は読み飛ばし、**それ以外は失敗の印**にします（`new_guard` / `bad_name` / `GuardOne`）"""
+    out = []
+    for tok in BACKTICK.findall(part):
+        if _NAME_SHAPE.fullmatch(tok):
+            out.append(tok)
+        elif tok.endswith('.py') or tok.endswith('.json') or tok.endswith('.mjs'):
+            continue
+        else:
+            out.append(f'（形が不正な語: {tok}）')
+    return out
 
 
 def _readme_guard_refs(text):
@@ -1935,7 +2242,7 @@ def _readme_guard_refs(text):
                 refs.append((BAD_BULLET, None, no))
                 continue
             tool = m.group(1)
-            for w in GUARD_WORD.findall(s[m.end():]):
+            for w in _name_words(s[m.end():]):
                 refs.append((w, tool, no))
             continue
         if s.startswith(README_REGION_HEAD):
@@ -1952,19 +2259,38 @@ def _readme_guard_refs(text):
             name_table = True
             continue
         if name_table:
-            for w in GUARD_WORD.findall(cells[0]):
+            for w in _name_words(cells[0]):
                 refs.append((w, None, no))
     return refs
 
 
-def _readme_guard_errors(refs, code, direct):
+def _readme_guard_errors(refs, code, direct, text):
     """読んだ名前と実コードを突き合わせて説明文の列で返す（空なら一致。Astra 第 61 ラウンド 問 5）
 
-    検査は 3 方向: README の名前 ⊆ 実コード全体（旧名の残りの検出）、道具別の名前 ⊆ その道具の
-    直接呼び出し（`child-fail` のように**別経路で現役**な名前を別の道具の説明に載せた残りの検出）、
-    実コードの全名前 ⊆ 道具別一覧（一覧が古くて新しい見張り番を落とさない）。
-    部分集合だけでなく全件一覧との等価も見る（Astra 問 5: 「全件一覧と宣言している表には等価比較」）"""
+    検査する向き（agy / Codex 第 62 ラウンド P2 の実測で増やした）:
+
+    1. README の名前 ⊆ 実コード全体（旧名の残りの検出）
+    2. 道具別の箇条書き ⇔ その道具の**直接呼び出し**を等価（別経路で現役な名前を別の道具の説明に
+       載せた残りと、新しい見張り番を文書へ足さない残りの両方）
+    3. 表の「名前」列 ⇔ 実コード**全体**を等価（agy 第 62 ラウンド P2-2 の実測: 表から 1 名を消しても
+       箇条書きに残っている為だけに通っていた。Astra 裁定は「箇条書きは道具別に等価、表の名前列は
+       実コード全体と等価」。両方が立てば相互一致も自動で決まるので第三の比較は持たない）
+    4. 区画マーカーその物の有無（終了マーカーを消すと区画が消えても検査が黙って通っていた）
+    5. 形が不正な行（`BAD_BULLET`）。第 61 ラウンドまでは読んだ側で捨てて**黙って 0 件**だった"""
     errs = []
+    if README_REGION_HEAD not in text:
+        errs.append(f'README に見張り番の道具別一覧の開始マーカー `{README_REGION_HEAD}` が無い'
+                    '（区画その物が無くなった日は「読めない」ではなく「マーカーが消えた」として止まる）')
+    if README_REGION_END not in text:
+        errs.append(f'README に見張り番の道具別一覧の終了マーカー `{README_REGION_END}` が無い'
+                    '（終了を失うと区画がファイル末尾まで伸びて、その他の箇条書きを道具別一覧として読む）')
+    bad = [(no, name) for name, _tool, no in refs if name.startswith('（')]
+    if bad:
+        errs.append(f'README の見張り番一覧に形が不正な語・行が {len(bad)} 件ある'
+                    f'（{bad[0][1]} {bad[0][0]} 行目など。箇条書きは「- 道具.py: `名前`」の形、'
+                    '名前は英小文字・数字・`-` のみ（`new_guard` も `bad_name` も見張り番の名前では'
+                    '無い）。黙って数えない。Codex 第 62 ラウンド P2-3 の「`new_guard` は誤検出、'
+                    '`bad_name` は無視」を両方なくした）')
     if not refs:
         errs.append('README の道具別一覧と「名前」列から 1 件も読めない（区画が消えて空集合で成功する）')
         return errs
@@ -1972,6 +2298,12 @@ def _readme_guard_errors(refs, code, direct):
     if unknown:
         errs.append(f'README に載った見張り番 {_format_guard_names(unknown)} は実コードに無い'
                     '（改名の残りか、実在しない名前の記入）')
+    lost = sorted(code - {n for n, tool, _l in refs
+                          if tool is None and not n.startswith('（')})
+    if lost:
+        errs.append(f'実コードの見張り番 {_format_guard_names(lost)} が README の「名前」列に無い'
+                    '（表は全件一覧だと宣言している。箇条書きに残っていても表が古いなら不合格。'
+                    'agy 第 62 ラウンド P2-2）')
     region = [r for r in refs if r[1]]
     if not region:
         errs.append('README の「見張り番の道具別一覧」の箇条書きが 1 行も読めない（区画が消えた）')
@@ -2005,11 +2337,12 @@ def readme_guard_names_match_code():
     検査器自身も偽の入力で測る（Astra 問 5 ④）。歴史説明の旧名は検査しない（読む区画を絞る）"""
     text = (REPO / BATTERY / 'README.md').read_text(encoding='utf-8')
     code, direct, _counts, _holes = _guard_names_by_file()
-    for msg in _readme_guard_errors(_readme_guard_refs(text), code, direct):
+    for msg in _readme_guard_errors(_readme_guard_refs(text), code, direct, text):
         failed.append(f'README の見張り番の名前: {msg}')
 
     def errs_of(mut):
-        return _readme_guard_errors(_readme_guard_refs(mut(text)), code, direct)
+        mut_text = mut(text)
+        return _readme_guard_errors(_readme_guard_refs(mut_text), code, direct, mut_text)
 
     probes = (
         ('実在しない名前へ書き換える',
@@ -2025,6 +2358,19 @@ def readme_guard_names_match_code():
          '箇条書きが 1 行も読めない'),
         ('道具別一覧から 1 名を消す',
          lambda s: s.replace(' / `v1-derivation`\n', '\n'), '道具別一覧に無い'),
+        ('終了マーカーを消す',
+         lambda s: s.replace('<!-- /見張り番の道具別一覧 -->', ''), '終了マーカー'),
+        ('表の「名前」列から 1 名を消す',
+         lambda s: s.replace('`fp-structural` / ', '', 1), '「名前」列に無い'),
+        ('箇条書きの形を崩す',
+         lambda s: s.replace('<!-- /見張り番の道具別一覧 -->',
+                             '- `README.md`: `child-fail`\n<!-- /見張り番の道具別一覧 -->'),
+         '形が不正'),
+        ('字句規則に合わない名前を箇条書きへ足す',
+         lambda s: s.replace('- `edge-order.py`: `edge-child-fail`',
+                             '- `edge-order.py`: `new_guard` / `edge-child-fail`'), '形が不正な語'),
+        ('表の「名前」列に `_` 入りの語を足す',
+         lambda s: s.replace('`fp-structural`', '`bad_name` / `fp-structural`', 1), '形が不正な語'),
     )
     for label, mut, want in probes:
         got = errs_of(mut)
@@ -2294,6 +2640,140 @@ def runner_contract_holds():
         failed.append(line)
 
 
+DECISIONS_HEAD = '<!-- 決めの表:この区画の全データ行が 4 欄であることを検査の検査が確かめる -->'
+DECISIONS_END = '<!-- /決めの表 -->'
+DECISIONS_FILE = 'docs/decisions.md'
+DECISIONS_COLS = 4
+DECISIONS_HEADER = ('| # | 決定 | 根拠（実測） | 取り替える条件 |', '| --- | --- | --- | --- |')
+_DECISION_NUM = re.compile(r'\d+(?:-\d+)*')
+
+
+def _md_cells(line):
+    """Markdown の表の行を欄の列に割る（直前のバックスラッシュが奇数本の `|` は欄の区切りではない）"""
+    cells, buf, i = [], [], 0
+    while i < len(line):
+        ch = line[i]
+        if ch == '|':
+            back = 0
+            j = i - 1
+            while j >= 0 and line[j] == '\\':
+                back += 1
+                j -= 1
+            if back % 2 == 0:
+                cells.append(''.join(buf).strip())
+                buf = []
+                i += 1
+                continue
+        buf.append(ch)
+        i += 1
+    cells.append(''.join(buf).strip())
+    return cells[1:-1] if line.startswith('|') else cells
+
+
+def _decisions_region_errors(text):
+    """`docs/decisions.md` の決めの表の形を見て説明文の列で返す（空なら揃っている）
+
+    agy 第 62 ラウンド P2-4 は決 85 の行が 2 欄だと指摘したが、実測では**同じ表に不揃いの行が
+    20 行以上有った**（区切り 3 / 4 / 6 / 7 / 12 個の行）。Astra 裁定 B で全部 4 欄に揃え、ここから
+    機械に確かめる。見るのは列数・見出し・区画マーカー・番号の形・行の形だけ（中身の良し悪しは
+    人が読む。Astra 問 5「列数だけを機械で見て、中身の良し悪しは人が読む」）"""
+    lines = text.splitlines()
+    where = '決めの表'
+    if DECISIONS_HEAD not in lines or DECISIONS_END not in lines:
+        return [f'{DECISIONS_FILE} に{where}の区画マーカーが無い'
+                f'（`{DECISIONS_HEAD[:24]}...` と `{DECISIONS_END}`。マーカーが無い日は列数を確かめられない）']
+    a, b = lines.index(DECISIONS_HEAD), lines.index(DECISIONS_END)
+    if a >= b:
+        return [f'{DECISIONS_FILE} の{where}の区画マーカーが逆順（終了が開始より {b - a} 行前）']
+    body = lines[a + 1:b]
+    errs = []
+    if tuple(body[:2]) != DECISIONS_HEADER:
+        errs.append(f'{where}の先頭 2 行が見出しと区切り行ではない（1 行目: `{body[0][:40] if body else ""}`）')
+    for k, line in enumerate(body):
+        no = a + 2 + k
+        if line.startswith('```'):
+            errs.append(f'{DECISIONS_FILE}:{no} 区画の中にコードフェンスが有る'
+                        '（フェンスの中を表の行として数える手があったので区画外へ出すこと）')
+            continue
+        if not line.startswith('|'):
+            errs.append(f'{DECISIONS_FILE}:{no} が表の行ではない（区画の中には表の行だけを書く）')
+            continue
+        cells = _md_cells(line)
+        if len(cells) != DECISIONS_COLS:
+            errs.append(f'{DECISIONS_FILE}:{no} の列数が {len(cells)} 欄（{where}は {DECISIONS_COLS} 欄。'
+                        f'番号 `{cells[0] if cells else "?"}`。文中に縦棒を書くなら `\\|` にエスケープし、'
+                        '続きの行に割らないこと）')
+    nums = []
+    for line in body[2:]:
+        if not line.startswith('|') or line.startswith('```'):
+            continue
+        cells = _md_cells(line)
+        if not cells:
+            continue
+        if not _DECISION_NUM.fullmatch(cells[0]):
+            errs.append(f'{DECISIONS_FILE} の {where}の番号「{cells[0][:24]}」が番号の形'
+                        '（`数字` または `数字-数字`）に合わない')
+            continue
+        nums.append(cells[0])
+    dup = sorted({x for x in nums if nums.count(x) > 1})
+    if dup:
+        errs.append(f'{where}の番号が重複: {", ".join(dup[:6])}（同じ番号の行が 2 本有ると決定がどれか決まらない）')
+    return errs
+
+
+def decisions_table_columns_hold():
+    """`docs/decisions.md` の決めの表が 4 欄で揃っていることを機械に確かめる（agy 第 62 ラウンド P2-4）"""
+    text = (REPO / DECISIONS_FILE).read_text(encoding='utf-8')
+    for msg in _decisions_region_errors(text):
+        failed.append(f'{DECISIONS_FILE}: {msg}')
+
+    lines = text.splitlines()
+    a, b = lines.index(DECISIONS_HEAD), lines.index(DECISIONS_END)
+    row = next(i for i in range(a + 3, b) if lines[i].startswith('|'))
+
+    def mutate(s, drop=None, add=False, fence=False, prose=False, dup=False, num=None, esc=None):
+        ls = s.splitlines()
+        i = next(x for x in range(a + 3, len(ls)) if ls[x].startswith('|'))
+        cells = _md_cells(ls[i])
+        if drop is not None:
+            cells = [c for j, c in enumerate(cells) if j != drop]
+        if add:
+            cells = cells[:2] + ['追加分の欄'] + cells[2:]
+        if esc:
+            cells[1] = cells[1] + '。`a \\| b` のような表記も有る'
+        if num is not None:
+            cells[0] = num
+        if dup:
+            ls.insert(i + 1, ls[i])
+        ls[i] = '| ' + ' | '.join(cells) + ' |'
+        if fence:
+            ls.insert(i + 1, '```')
+        if prose:
+            ls.insert(i + 1, '表の行ではない文章')
+        return '\n'.join(ls)
+
+    probes = (
+        ('欄を 1 本落とす', lambda s: mutate(s, drop=3), f'{DECISIONS_COLS - 1} 欄'),
+        ('欄を 1 本足す', lambda s: mutate(s, add=True), f'{DECISIONS_COLS + 1} 欄'),
+        ('文中の縦棒をエスケープした行は通る', lambda s: mutate(s, esc=True), None),
+        ('番号の形を壊す', lambda s: mutate(s, num='八五'), '番号の形'),
+        ('同じ番号を 2 本にする', lambda s: mutate(s, dup=True), '重複'),
+        ('区画の中にコードフェンスを足す', lambda s: mutate(s, fence=True), 'コードフェンス'),
+        ('区画の中に表でない行を足す', lambda s: mutate(s, prose=True), '表の行ではない'),
+        ('見出し行を消す', lambda s: s.replace(DECISIONS_HEADER[0], '| # | 決定 |', 1),
+         '見出しと区切り行ではない'),
+        ('終了マーカーを消す', lambda s: s.replace(DECISIONS_END, ''), '区画マーカーが無い'),
+    )
+    for label, mut, want in probes:
+        got = _decisions_region_errors(mut(text))
+        if want is None:
+            if got:
+                failed.append(f'{DECISIONS_FILE} 検査の自己検査「{label}」が通らないはずで落ちた: {got[:2]}')
+            continue
+        if not any(want in x for x in got):
+            failed.append(f'{DECISIONS_FILE} 検査の自己検査「{label}」が「{want}」で落ちない: {got[:2]}')
+
+
 def main():
     print(f'# 検査の検査（一時作業: {TMP}）')
     baseline = git_touches()
@@ -2336,6 +2816,20 @@ def main():
                  message='を JSON として読み取れない')
         negative('既知差分の形が壊れた日は件数の診断より先に止まる', known_shape_stops_before_count,
                  message=IN.KNOWN_HEADER)
+        negative('既知差分の kind を値域外へ変える', known_kind_unknown,
+                 message='kind が未知')
+        negative('既知差分から kind を消す', known_kind_missing,
+                 message='に kind が無い')
+        negative('既知差分の cond を空白だけにする', known_cond_blank,
+                 message='cond が空')
+        negative('既知差分の cond を数値にする', known_cond_not_str,
+                 message='cond が文字列ではない')
+        negative('既知差分の id を数値にする', known_id_not_str,
+                 message='id が文字列ではない')
+        negative('既知差分の summary 行の old を負数にする', known_summary_old_negative,
+                 message='old が 0 以上の整数ではない')
+        negative('既知差分の summary 行の new を真偽値にする', known_summary_new_bool,
+                 message='new が 0 以上の整数ではない')
         negative('条件の kind を値域外へ変える', cond_kind_out_of_range,
                  guards='cond-kind-args', message='kind が値域外')
         negative('走った縁順の通り数が宣言と違う', perm_expected_not_matched,
@@ -2527,6 +3021,7 @@ def main():
         positive('正控制・負控制の実行契約を偽控制で確かめる', runner_contract_holds)
         positive('見張り番の名前すべてに単独名指しの負控制が通っている', guard_names_have_singleton_controls)
         positive('README に載った見張り番の名前が実コードと道具別に対応している', readme_guard_names_match_code)
+        positive('docs/decisions.md の決めの表が 4 欄で揃っている', decisions_table_columns_hold)
 
         # 追跡下のファイルへの変更が残っていないか（制御が途中で落ちても戻す）
         left = git_touches()

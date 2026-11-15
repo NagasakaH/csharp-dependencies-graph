@@ -713,6 +713,62 @@ def expectations(repo=None):
 KNOWN_HEADER = '既知差分（known-v1-diffs.json）が壊れている'
 
 
+_KNOWN_KINDS = ('row', 'summary')
+
+
+def _known_row_errors(d, where):
+    """既知差分の**1 行**の形を検査して説明文の列で返す（空なら壊れていない）
+
+    形の検査（`_known_row_shape_errors`）と導出（`_direction_diffs_from_doc`）が**同じ適格条件**を
+    使う為の 1 本（Astra 第 62 ラウンド 問 4: 検証と導出で行の適格条件を共有する。分けると
+    「形は通るのに導出から黙って落ちる」行が作れる）。値域は実測あわせ: `kind` は `row` 58 件と
+    `summary` 16 件だけ、`cond` / `id` は全件が空でない文字列、`summary` の `old` / `new` は 0 以上の
+    整数（`bool` は数値ではない）、`row` の `old` / `new` は 5 欄で縁数だけ数値
+    （第 62 ラウンドの実測台帳。追跡下の道具からは読まない測定結果）"""
+    if not isinstance(d, dict):
+        return [f'{where} が辞書ではない: {type(d).__name__}']
+    errs = []
+    for fld in ('kind', 'cond', 'id', 'old', 'new'):
+        if fld not in d:
+            errs.append(f'{where} に {fld} が無い')
+    if errs:
+        return errs
+    kind = d['kind']
+    if not isinstance(kind, str) or kind not in _KNOWN_KINDS:
+        errs.append(f'{where} の kind が未知（`{_KNOWN_KINDS[0]}` か `{_KNOWN_KINDS[1]}` のどちらか）: '
+                    f'{kind!r}（新しい kind を足す日は契約の変更。人の判断で決めた値だけを通す）')
+        return errs
+    for fld in ('cond', 'id'):
+        v = d[fld]
+        if not isinstance(v, str):
+            errs.append(f'{where} の {fld} が文字列ではない: {type(v).__name__}')
+        elif not v.strip():
+            errs.append(f'{where} の {fld} が空（空白だけ）: {v!r}')
+    for fld in ('old', 'new'):
+        v = d[fld]
+        if kind == 'summary':
+            if type(v) is not int or v < 0:
+                errs.append(f'{where} の {fld} が 0 以上の整数ではない（`summary` は件数を出す行）: '
+                            f'{type(v).__name__}={v!r}')
+            continue
+        if not isinstance(v, list):
+            errs.append(f'{where} の {fld} が配列ではない: {type(v).__name__}'
+                        '（[欄, 向き, 階層, 縁数, 縁] の組）')
+            continue
+        if len(v) != 5:
+            errs.append(f'{where} の {fld} が 5 欄ではない（[欄, 向き, 階層, 縁数, 縁]）: '
+                        f'{len(v)} 要素')
+            continue
+        if not all(isinstance(x, str) for x in v[:2]):
+            errs.append(f'{where} の {fld} の欄・向きが文字列ではない: '
+                        f'{[type(x).__name__ for x in v[:2]]}')
+        tail = [x for x in v[2:] if isinstance(x, bool) or not isinstance(x, (str, int))]
+        if tail:
+            errs.append(f'{where} の {fld} の階層・縁数・縁に文字列でも数値でもない欄がある: '
+                        f'{[type(x).__name__ for x in tail]}')
+    return errs
+
+
 def _known_row_shape_errors(doc):
     """既知差分の行の形を検査して説明文の列で返す（共通見出しは足さない）
 
@@ -720,7 +776,7 @@ def _known_row_shape_errors(doc):
     真偽値化して `[0]` / `[1]` を読む。だから `old: {}` は `KeyError: 0`、`old: 'abc'` は
     文字列の添字で `['a', 'b']` になり、`old: null` は 55 件の検査へ化けた値を渡す。形が
     おかしい行は**導出から外して**案内にまとめる（Astra 第 61 ラウンド 問 3 の追記裁定）。
-    欄の数と型は**実測あわせ**にする（第 61 ラウンドの実測台帳（追跡下の道具からは読まない測定結果）: 58 件すべて 5 欄で、
+    欄の数と型は**実測あわせ**にする（第 61 ラウンドの実測台帳: 58 件すべて 5 欄で、
     縁数だけ数値。全部を文字列にすると正常な一覧が 116 件壊れていることになってしまう）"""
     diffs = doc.get('diffs') if isinstance(doc, dict) else None
     if not isinstance(diffs, list):
@@ -728,32 +784,7 @@ def _known_row_shape_errors(doc):
                 '（各行は `{{"kind": "row", "cond", "id", "old": [欄, 向き, …], "new": [...]}}` の辞書）']
     errs = []
     for i, d in enumerate(diffs):
-        where = f'diffs[{i}]'
-        if not isinstance(d, dict):
-            errs.append(f'{where} が辞書ではない: {type(d).__name__}')
-            continue
-        for fld in ('kind', 'cond', 'id', 'old', 'new'):
-            if fld not in d:
-                errs.append(f'{where} に {fld} が無い')
-        if d.get('kind') != 'row':
-            continue
-        for fld in ('old', 'new'):
-            v = d.get(fld)
-            if not isinstance(v, list):
-                errs.append(f'{where} の {fld} が配列ではない: {type(v).__name__}'
-                            '（[欄, 向き, 階層, 縁数, 縁] の組）')
-                continue
-            if len(v) != 5:
-                errs.append(f'{where} の {fld} が 5 欄ではない（[欄, 向き, 階層, 縁数, 縁]）: '
-                            f'{len(v)} 要素')
-                continue
-            if not all(isinstance(x, str) for x in v[:2]):
-                errs.append(f'{where} の {fld} の欄・向きが文字列ではない: '
-                            f'{[type(x).__name__ for x in v[:2]]}')
-            tail = [x for x in v[2:] if isinstance(x, bool) or not isinstance(x, (str, int))]
-            if tail:
-                errs.append(f'{where} の {fld} の階層・縁数・縁に文字列でも数値でもない欄がある: '
-                            f'{[type(x).__name__ for x in tail]}')
+        errs += _known_row_errors(d, f'diffs[{i}]')
     return errs
 
 
@@ -780,19 +811,11 @@ def _direction_diffs_from_doc(doc):
     if not isinstance(diffs, list):
         return out
     for d in diffs:
-        if not isinstance(d, dict) or d.get('kind') != 'row':
+        if not isinstance(d, dict) or _known_row_errors(d, ''):
+            continue                                   # 形の通らない行は導かない（適格条件は共有）
+        if d['kind'] != 'row' or d['old'][1] == d['new'][1]:
             continue
-        old, new = d.get('old'), d.get('new')
-        if not (isinstance(old, list) and isinstance(new, list) and len(old) >= 2 and len(new) >= 2):
-            continue
-        if not (isinstance(old[1], str) and isinstance(new[1], str)):
-            continue
-        if old[1] == new[1]:
-            continue
-        cond, cid = d.get('cond'), d.get('id')
-        if not (isinstance(cond, str) and isinstance(cid, str)):
-            continue
-        out.add((cond, cid, old[1], new[1]))
+        out.add((d['cond'], d['id'], d['old'][1], d['new'][1]))
     return out
 
 
