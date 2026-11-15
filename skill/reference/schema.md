@@ -27,8 +27,10 @@
   （無い出力が `in` / `out` のみの旧版）。読み手は `direction` の**未知の値を「方向を持たない」
   ものとして扱い**、方向別の欄へ落とさないこと（既定値を中立にしておけば新版の出力でも行が
   消えない）。同じ版で `summary.directionless` / `summary.directionlessPrimary` の 2 キーを
-  追加している。`schemaVersion` をレポート出力へ入れるかは未決定（v1 基準の更新と絡むため人の
-  承認を要する。`out/tmp-r46/REBASE.md`）
+  追加している。**`schemaVersion` はレポート出力へ入れない**（2026-11-15 に人が決定。
+  `docs/decisions.md` の決 71）。上の 2 キーの有無で判別する運用で確定させる。
+  比較基準の `out/tmp-r29/audit-full`（v1 基準）も**差し替えない**ので、同じ条件で再生成しても
+  **既知差分 74 件**が残る（内訳と理由も決 69 / 決 71 に書いてある）
 - `direction === "none"` と `movementEvidence === null` は同義ではない（無方向の連鎖でも以前の
   有向縁から 向き を継承して `in` / `out` になる行がある）
 - `summary.directionless` = `direction === "none"` の行数、`summary.directionlessPrimary` =

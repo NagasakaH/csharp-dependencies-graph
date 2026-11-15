@@ -41,9 +41,10 @@ const USAGE = `使い方: report.mjs --graph <graph.json> [--changed <変更フ�
               none を書いたときの対象は none の行のうち 本命（tier が primary）で、「同じ API の定義」
               「同じコードを使う別の API」に回らないもの（定義上の関連に回った本命は数える）。
               再現率・適合率の分母は外部リソースだけ。
-  --limit     一覧の本数（既定 200）。Markdown と JSON の各一覧、--list-siblings の一覧、ターミナルに
-              出す外部リソースの一覧に効く（ターミナルの一覧はこれとは別に 12 件で打ち、打ち切った
-              件数を出す）。summary の件数は切り詰め前の値
+  --limit     一覧の本数（既定 200）。Markdown・JSON の各一覧、--list-siblings の一覧、ターミナルに
+              出す外部リソースの一覧に効く（ターミナルの一覧はこれとは別に 12 件で打つ）。
+              --limit で打った分は**どの出力にも入っていない**ので、各一覧の注記にその旨を出す。
+              summary の件数だけ切り詰め前
   向き（JSON の行の direction。値域は in / out / none）:
               in = 影響を受ける入口、out = 影響する先、none = **この表示経路に 向き を決める
               関係が無い**（Terraform の定義の縁だけを辿った行）。Markdown の一覧の 向き 列では「—」と書く。
@@ -2415,6 +2416,24 @@ const provLabel = (p) => ({
 // `none` は「この表示経路に 向き を決める関係が無い」なので「—」（第 46 ラウンド裁定 (c)）。
 // 継承した in / out は、その一歩の縁自体が動作方向を証明した値ではないことに注意
 const DIR_CELL = { in: '影響を受ける入口', out: '影響する先', none: '—' };
+// 打ち切りの告げ方を 1 箇所にまとめる（第 48 ラウンド agy 指摘）。`--limit` は
+// **Markdown・JSON・ターミナルのすべて**に掛かるので、`--limit` で打った分はどの出力にも
+// 入っていない。それなのに「--json 参照」と出していたのは嘘だった（実測: `--limit 2` で
+// JSON の external.out は 2 件、Markdown は「（他 2 件は --json 参照）」）。「他の出力に
+// 出している分」と「どの出力にも入っていない分」を分けて告げる
+const truncNote = (total, shown, fileCap, stem = '他', extra = '') => {
+  if (total <= shown) return '';
+  const inFiles = Math.min(total, fileCap) - shown;   // Markdown と JSON には入っている分
+  const nowhere = total - Math.min(total, fileCap);   // --limit で打たれてどこにも無い分
+  const bits = [];
+  if (inFiles > 0) bits.push(`${stem} ${inFiles} 件は Markdown と --json に出しています`);
+  if (nowhere > 0) {
+    bits.push(`${stem} ${nowhere} 件は --limit ${fileCap} で打ち切られているため Markdown にも JSON にも入っていません`);
+    bits.push('--limit を上げるか --json の summary の件数で全体量を見てください');
+  }
+  if (extra) bits.push(extra);
+  return `（${bits.join('。')}）`;
+};
 function mdSection(title, rs, limit) {
   if (!rs.length) return `### ${title}\n\n該当なし\n\n`;
   const head = `### ${title}\n\n| 着地 | 種別 | 向き | 表示経路の段数<br>（最短とは限りません） | 根拠 | 由来 |\n| --- | --- | --- | --- | --- | --- |\n`;
@@ -2427,8 +2446,8 @@ function mdSection(title, rs, limit) {
     const why = r.unresolvedCorr ? ` <br>${UNRESOLVED_REASON}` : '';
     return `| ${r.name} | ${r.category} | ${DIR_CELL[r.direction] ?? r.direction} | ${r.hops} | \`${r.evidence.kind}\` ${r.evidence.source.split(':').pop()} → ${r.evidence.target.split(':').pop()}${mv} | ${provLabel(r.evidence.provenance)}${r.correspondence ? '（対応）' : ''}${why} |`;
   }).join('\n');
-  const more = rs.length > limit ? `\n\n（他 ${rs.length - limit} 件は --json 参照）` : '';
-  return head + body + '\n' + more + '\n\n';
+  const more = truncNote(rs.length, Math.min(rs.length, limit), limit);
+  return head + body + '\n' + (more ? `\n\n${more}` : '') + '\n\n';
 }
 const epLine = (e) => `- \`${e.name}\`（\`${e.id}\`）`;
 // ---- 兄弟ルートの一覧は既定では出さない（双人レビュー第 30 ラウンド指摘 F）----
@@ -2492,16 +2511,17 @@ if (startIsEndpoint) md += mdSection('起点と同じ API を定義するノー�
 if (startIsEndpoint && siblingRows().length) {
   md += `### 同じコードを使う別の API（エンドポイント ${summary.siblingEndpointsOnly} 件と、それを定義するノード ${summary.siblingDefs} 件。起点の定義ではなく、共有しているコードを変えたときに一緒に見る）\n\n`;
   md += `兄弟ルート ${summary.siblingEndpointsOnly} 件 / その API を定義しているノード ${summary.siblingDefs} 件`
-    + `（**起点の 本命 の結果には入りません**。全件は \`--json\` の \`siblingEndpoints\`、${SIBLING_LIST_HINT}）\n\n`;
+    + `（**起点の 本命 の結果には入りません**。\`--json\` の \`siblingEndpoints\` にも同じ \`--limit\` までしか入りません、${SIBLING_LIST_HINT}）\n\n`;
 if (opts.listSiblings) {
     const shown = siblingRows().filter((r) => !!r.endpoint).slice(0, opts.limit);
     md += (shown.map((r) => `- \`${r.name}\`（\`${r.id}\`、段数 ${r.hops}（最短とは限りません）、根拠 \`${r.evidence.kind}\`、理由 \`${r.siblingReason}\`）`).join('\n') || '（なし）') + '\n\n';
-    const rest = siblingRows().filter((r) => !!r.endpoint).length - shown.length;
-    if (rest > 0) md += `他のルート ${rest} 件（\`--limit\` を上げるか \`--json\` 参照）\n\n`;
+    const sibTotal = siblingRows().filter((r) => !!r.endpoint).length;
+    const rest = truncNote(sibTotal, shown.length, opts.limit, '他のルート');
+    if (rest) md += `${rest}\n\n`;
   }
 }
-// 一覧の切り詰めは `mdSection` の中でやる（`limit` を超えたら「（他 N 件は --json 参照）」を
-// 出す）。呼び出し側で先に `slice` すると件数が合わず注記が消えるので渡さない
+// 一覧の切り詰めは `mdSection` の中でやる（`limit` を超えたら `truncNote` で注記を出す）。
+// 呼び出し側で先に `slice` すると件数が合わず注記が消えるので渡さない
 // （第 46 ラウンド双人レビュー指摘。実測 `--api "POST /orders" --limit 2` で
 // `entryOut` 10 に対して表 2 行の注記が出なかった）
 // 先（影響する側）と受（影響を受ける側）を 1 表に混ぜると、集計行の
@@ -2517,7 +2537,7 @@ if (opts.md) writeFileSync(resolve(opts.md), md);
 const shownEps = [...startEndpoints, ...reachedRealEndpoints];
 const sibEpCount = summary.siblingEndpointsOnly;
 console.log(`API エンドポイント: ${shownEps.slice(0, opts.limit).map((e) => e.name).join(', ') || '該当なし'}`
-  + (shownEps.length > opts.limit ? ` / 他のエンドポイント ${shownEps.length - opts.limit} 件` : '')
+  + (shownEps.length > opts.limit ? ` / 他のエンドポイント ${shownEps.length - opts.limit} 件（--limit を上げると上に出ます）` : '')
   + (sibEpCount ? ` / 兄弟ルート ${sibEpCount} 件（${opts.listSiblings ? '下に一覧' : '一覧は --list-siblings'}）` : ''));
 console.log(`起点 ${summary.starts} 件（展開後 ${summary.expandedStarts}）/ 影響する先 ${summary.primaryOut} / 影響を受ける入口 ${summary.primaryIn} / コード 出口 ${summary.entryOut}・入口 ${summary.entryIn} / 成果物 先 ${summary.artifactsOut}・受 ${summary.artifactsIn} / 定義上 ${summary.wiring} / 同じ API の定義 ${summary.sameApi} / 別の API ${summary.siblings}（エンドポイント ${summary.siblingEndpointsOnly}・定義 ${summary.siblingDefs}） / 向き を決める関係が無い ${summary.directionless}（本命の資格 ${summary.directionlessPrimary}） / 注釈由来 ${summary.annotationRows}`);
 if (primaryTotal === 0 && summary.rows > 0) {
@@ -2531,8 +2551,12 @@ if (result.score) console.log(`精度: 再現率 ${result.score.recall} / 適合
 // 上限は 12 件のまま
 const stdoutCap = Math.min(opts.limit, 12);
 const printExternal = (rows, tag) => {
-  for (const r of rows.slice(0, stdoutCap)) console.log(`  [${tag} ${r.hops}] ${r.name}  <- ${r.evidence.kind} (${provLabel(r.evidence.provenance)})`);
-  if (rows.length > stdoutCap) console.log(`  （他 ${rows.length - stdoutCap} 件は Markdown と --json 参照。この一覧は最大 12 件）`);
+  const shown = Math.min(rows.length, stdoutCap);
+  for (const r of rows.slice(0, shown)) console.log(`  [${tag} ${r.hops}] ${r.name}  <- ${r.evidence.kind} (${provLabel(r.evidence.provenance)})`);
+  // 12 件で打ったときだけ「ターミナルでは最大 12 件」と言う（--limit 2 で 12 を引用するのは嘘になる）
+  const note = truncNote(rows.length, shown, opts.limit, '他',
+    (opts.limit > 12 && rows.length > 12) ? 'この一覧はターミナルでは最大 12 件' : '');
+  if (note) console.log(`  ${note}`);
 };
 printExternal(externalRows(outRows), 'out');
 printExternal(externalRows(inRows), 'in ');
@@ -2542,7 +2566,6 @@ if (opts.listSiblings) {
   for (const r of sibEps.slice(0, opts.limit)) {
     console.log(`  [sib ${r.hops}] ${r.name}  <- ${r.evidence.kind} (${r.siblingReason})`);
   }
-if (sibEps.length > opts.limit) {
-    console.log(`  他のルート ${sibEps.length - opts.limit} 件（--limit を上げるか --json 参照）`);
-  }
+const sibNote = truncNote(sibEps.length, Math.min(sibEps.length, opts.limit), opts.limit, '他のルート');
+  if (sibNote) console.log(`  ${sibNote}`);
 }

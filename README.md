@@ -29,14 +29,14 @@ open out/graph/graph.html
 最低 5 組、組ごとの倍率の中央値で判定）**と 最大 RSS 800 MB（絶対上限）** で、**1.0 秒はゲートではなく
 UX 目標**、最大応答時間はゲートにしない。4 とおりの入力の倍率・最大 RSS・測定環境は
 [skill/SKILL.md](skill/SKILL.md) の「レポートの性能基準」に実測どおり置いてある
-（第 48 ラウンドの実測で 4 とおりすべて適合、重い `elsa-folder` でも倍率中央値 1.16 / 最大 RSS 640.7 MB。
+（第 49 ラウンドの実測で 4 とおりすべて適合、重い `elsa-folder` でも倍率中央値 1.09 / 最大 RSS 641.9 MB。
 かつて 1.67 で超過したときは、結果を 1 バイトも変えない軽量化で収束させ、時間で切り捨てる対応は採っていない）。
 
 検証は 2 系統あり、どちらも対象プロジェクト非依存で動く。
 
 ```sh
 node skill/scripts/test-analyzer.mjs                          # 静的解析の精度（96 項目、ブラウザ不要）
-node skill/scripts/test-report.mjs                            # 影響範囲レポート（114 項目）
+node skill/scripts/test-report.mjs                            # 影響範囲レポート（117 項目）
 node skill/scripts/test-query.mjs                             # 逆引き・影響範囲の照会（28 項目、.NET 不要）
 node skill/scripts/test-merge.mjs                             # Lambda handler の解決規則（12 項目、.NET 必要）
 node skill/scripts/test-terraform.mjs                         # API Gateway のパス組み立てと HTTP API (v2) の `target`（46 項目、.NET 不要）
@@ -178,9 +178,12 @@ v1 の三点組）または統合からメソッドへの直接参照・注釈�
 
 JSON の一覧はすべて `--limit`（既定 200）で**打ち切る**。打ち切ったときは `summary.listTruncated` が
 true になり、`summary` の各欄の数は**打ち切る前**のままなので「欄の合計 == 総行数」は常にカウンタ側で
-確かめる。ターミナルに出す外部リソースの一覧も `--limit` に従う（ただし見やすさのため
-**最大 12 件**までで、残りは「（他 N 件は Markdown と --json 参照 …）」と出す。黙って 13 件目を
-落とさない）。
+確かめる。ターミナルに出す外部リソースの一覧も `--limit` に従い、さらに見やすさのため
+**12 件**で切る。各一覧の注記は「他の出力（Markdown と `--json`）に出している分」と
+「`--limit` で打たれて**どの出力にも入っていない分**」を分けて出し、12 件で打ったときだけ
+それを告げる（黙って 13 件目を落とさない）。`--limit` は Markdown・JSON・ターミナルの
+すべてに掛かるので、`--limit` で打った分が `--json` の中から見つかることはない
+（第 48 ラウンド双人レビューの実測。以前の注記は「--json 参照」と書いていた）
 
 探索の深さにも打ち切りがある。外側の探索は「まだ歩いていないコードのノード」か「未登録の API グループ」が
 無くなるまで繰り返し、実行したラウンド数は `summary.rounds`、その上限は `summary.maxRounds` に出る。

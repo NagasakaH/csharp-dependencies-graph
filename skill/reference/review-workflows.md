@@ -28,16 +28,20 @@ git diff --name-only origin/main... | node skill/scripts/report.mjs \
 ```
 
 出方は枠に分けてある（混ぜるほど読み間違えるので分けたまま読む）。**どの行も必ずどれか 1 つの枠にしか
-入らない**ので、`summary.rows` と各枠の合計は常に一致する:
+入らない**ので、`summary.rows` と各枠の合計は常に一致する。下の「縁」列の数字は**現在の HEAD で
+再生成した 18 レポート**で実際に出た縁の延べ回数（再生成
+`python3 skill/scripts/tools/regen-audit.py skill/scripts/report.mjs out/tmp-r49/audit --force` → 数え直し
+`python3 skill/scripts/tools/count-kinds.py out/tmp-r49/audit`）。v1 基準 `out/tmp-r29/audit-full` とは
+既知差分 74 件のぶんずれる（決 69 / 決 71）。縁の名前だけ見て枠を推測しないこと:
 
 | 枠 | 意味 | 縁 |
 | --- | --- | --- |
-| 影響する外部リソース / 影響を受ける入口 | 変更が読み書きする先、呼びに出す先（マイグレーション・権限・デプロイの確認対象）と、変更を使う呼び出し元・その経路の Lambda / API Gateway | 保存済み 18 レポートで実際に出た縁: 外部に出る側は `writes` `deploys` `references`、入口側は `triggers` `handler` `invokes` `reads` `exposed-by`（`handler` / `exposed-by` は入口側が逆向き） |
-| コード側の出口 / 影響を受ける入口 | 上の 2 つのうちコード（メソッド・型）のもの。出口は「起点から実際に届くコード」 | 出口は `references` `calls` `accesses` `creates` `implements` `inherits` `attribute`（コード内）と `handler` `exposed-by`。入口は `writes` `reads` `invokes` `accesses` `calls` |
-| 同じ API を定義するノード | 起点がエンドポイントのとき、起点自身を定義している `resource` / `rest_api` / `integration` / `deployment` | 起点の数に含めない |
-| 同じコードを使う別の API | 同じ Lambda を共有する兄弟エンドポイントと、それを定義するノード | 同上 |
-| リポジトリ内の成果物 | 経路上にあった `.csproj` / `.cs` / フォルダ / solution。触るかもしれないビルド単位 | 動きの証拠ではない。レビューの分担に使う |
-| 定義上の関連 | Terraform の `references`（そのブロックを文中に書いた）。**値が動くとは限らないが、定義を書き換えたら効く範囲** | IAM・rest_api・deployment など見直しの候補 |
+| 影響する外部リソース / 影響を受ける入口 | 変更が読み書きする先、呼びに出す先（マイグレーション・権限・デプロイの確認対象）と、変更を使う呼び出し元・その経路の Lambda / API Gateway | 実測の延べ回数: 出る側 `writes` 7 / `deploys` 3 / `references` 3 / `handler` 1 / `invokes` 1 / `triggers` 1、入口側 `triggers` 9 / `handler` 5 / `references` 4 / `invokes` 3 / `reads` 3 / `exposed-by` 2（`handler` / `exposed-by` は入口側が逆向き） |
+| コード側の出口 / 影響を受ける入口 | 上の 2 つのうちコード（メソッド・型）のもの。出口は「起点から実際に届くコード」 | 出口 `references` 80 / `calls` 77 / `accesses` 48 / `creates` 26 / `implements` 17 / `inherits` 9 / `handler` 4 / `exposed-by` 2 / `attribute` 2。入口 `writes` 4 / `reads` 3 / `invokes` 2 / `accesses` 1 / `calls` 1 |
+| 同じ API を定義するノード | 起点がエンドポイントのとき、起点自身を定義している `resource` / `rest_api` / `integration` / `deployment` | `references` 17 / `triggers` 1。起点の数に含めない |
+| 同じコードを使う別の API | 同じ Lambda を共有する兄弟エンドポイントと、それを定義するノード | `references` 11 / `triggers` 2。同上 |
+| リポジトリ内の成果物 | 経路上にあった `.csproj` / `.cs` / フォルダ / solution。触るかもしれないビルド単位 | 出る側 `project-reference` 6 / 受ける側 `deploys` 5。動きの証拠ではない。レビューの分担に使う |
+| 定義上の関連 | Terraform の `references`（そのブロックを文中に書いた）。**値が動くとは限らないが、定義を書き換えたら効く範囲** | `references` 65 / `triggers` 4 / `handler` 4 / `calls` 4 / `accesses` 2 / `invokes` 1 / `writes` 1。IAM・rest_api・deployment など見直しの候補 |
 
 **向き を決める関係が無い行（`direction: none`）は 定義上の関連 / 同じ API を定義するノード / 同じコードを
 使う別の API に並べます**（Markdown の 向き 列は「—」と書きます）。表示経路に 向き を決める関係が無いだけなので、方向を持つ枠に並べて `in` /

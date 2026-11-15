@@ -852,15 +852,18 @@ check('--limit で一覧が切れてもカウンタの不変条件は保たれ�
     c ? JSON.stringify([c.result.summary.rounds, c.result.summary.maxRounds,
       c.result.summary.unresolved, /収束する前に/.test(c.stderr || ''), /収束していません/.test(cMd)]) : '実行失敗');
 
-  // `--limit` で一覧を切ったとき、Markdown の「（他 N 件は --json 参照）」が出るか。
-  // コード側の入口・出口の 2 欄は `mdSection` に渡す前に `slice` していたので、件数が合わず
-  // 注記が消えていた（実測 `--api "POST /orders" --limit 2`: `entryOut` 10 に表 2 行で注記なし）
+  // `--limit` で一覧を切ったときの Markdown の注記。コード側の入口・出口の 2 欄は
+  // `mdSection` に渡す前に `slice` していたので、件数が合わず注記が消えていた
+  // （実測 `--api "POST /orders" --limit 2`: `entryOut` 10 に表 2 行で注記なし）。
+  // 第 48 ラウンド agy 指摘で文言も変わった: `--limit` は Markdown と JSON の**両方**に
+  // 掛かるので、打った分を「--json 参照」と言っても見つからない。注記はそれを正直に書く
   const lim = runOn('down-inherit-record.graph.json', ['--from', '0', '--hops', '3', '--limit', '1'], 'limit-note');
   const limSec = lim ? lim.md.split('\n### ').find((s) => s.startsWith('影響するコード側の出口')) : '';
-  check('--limit で切った一覧に「（他 N 件は --json 参照）」が出る（コード側の出口・入口）',
+  check('--limit で切った一覧に出る注記が「JSON にも入っていない」ことを告げる（コード側の出口）',
     !!lim && lim.result.summary.entryOut === 2
       && limSec.split('\n').filter((l) => l.startsWith('|')).length === 3   // 表ヘッダ 2 行 + 1 行
-      && /他 1 件は --json 参照/.test(limSec || ''),
+      && /他 1 件は --limit 1 で打ち切られているため Markdown にも JSON にも入っていません/.test(limSec || '')
+      && !/--json 参照/.test(limSec || ''),
     lim ? `entryOut=${lim.result.summary.entryOut} 注記=${/他 1 件/.test(limSec || '')}` : '実行失敗');
 
   // 第 47 ラウンド双人レビュー（agy P1）。出口側だけ直して入口側を戻しても検査が黙るため、
@@ -873,10 +876,11 @@ check('--limit で一覧が切れてもカウンタの不変条件は保たれ�
             { id: 'e2', kind: 'calls', provenance: 'static', source: 'member:b', target: 'member:c' }],
   }, ['--from', 'member:c', '--limit', '1'], 'entries-in-limit');
   const inSec = inLimit ? (inLimit.md.split('\n### ').find((s) => s.startsWith('影響を受けるコード側の入口')) || '') : '';
-  check('--limit で切った「影響を受けるコード側の入口」にも「（他 N 件は --json 参照）」が出る',
+  check('--limit で切った「影響を受けるコード側の入口」にも同じ注記が出る',
     !!inLimit && inLimit.result.summary.entryIn === 2
       && inSec.split('\n').filter((l) => l.startsWith('|')).length === 3
-      && /他 1 件は --json 参照/.test(inSec),
+      && /他 1 件は --limit 1 で打ち切られているため Markdown にも JSON にも入っていません/.test(inSec)
+      && !/--json 参照/.test(inSec),
     inLimit ? JSON.stringify([inLimit.result.summary.entryIn, /他 1 件/.test(inSec)]) : '実行失敗');
 
   // 同じく agy P1: ターミナルに出す外部リソースの一覧は 12 件固定で `--limit` を無視し、
@@ -886,9 +890,38 @@ check('--limit で一覧が切れてもカウンタの不変条件は保たれ�
   check('ターミナルの外部リソース一覧も --limit に従い、打ち切った件数を出す（12 件固定に戻さない）',
     !!outLim && outLim.result.summary.primaryOut === 4
       && outLim.result.external.out.length === 2 && outLines === 2
-      && /他 2 件は Markdown と --json 参照/.test(outLim.stdout),
+      && /他 2 件は --limit 2 で打ち切られているため Markdown にも JSON にも入っていません/.test(outLim.stdout)
+      // --limit 2 で打ったのに 12 件を引用するのは嘘になる（第 48 ラウンド agy 指摘）
+      && !/最大 12 件/.test(outLim.stdout) && !/Markdown と --json に出しています/.test(outLim.stdout),
     outLim ? JSON.stringify([outLim.result.summary.primaryOut, outLim.result.external.out.length, outLines,
-      /他 \d+ 件は Markdown と --json 参照/.test(outLim.stdout)]) : '実行失敗');
+      /Markdown にも JSON にも入っていません/.test(outLim.stdout), /最大 12 件/.test(outLim.stdout)]) : '実行失敗');
+
+  // ターミナルだけ 12 件で切るケース（--limit が 12 より大きい）と、両方の打ち切りが同時に
+  // 起きるケース（--limit 13）。前者は「Markdown と --json に出しています」だけ、後者は
+  // それと「--limit で打った分」の両方を出す
+  const capNodes = [{ id: 's', kind: 'member', name: 'start', qualifiedName: 'N.S' }];
+  const capEdges = [];
+  for (const side of ['in', 'out']) {
+    for (let i = 0; i < 15; i++) {
+      const rid = `${side}-${i}`;
+      capNodes.push({ id: rid, kind: 'resource', name: rid, resourceType: 'aws_sqs_queue' });
+      capEdges.push({ id: rid, kind: 'writes', provenance: 'static',
+        source: side === 'out' ? 's' : rid, target: side === 'out' ? rid : 's' });
+    }
+  }
+  const capDef = runSyn('stdout-cap-15', { nodes: capNodes, edges: capEdges }, ['--from', 's'], 'stdout-cap-15');
+  const cap13 = runSyn('stdout-cap-15', { nodes: capNodes, edges: capEdges }, ['--from', 's', '--limit', '13'], 'stdout-cap-13');
+  const capLine = (x) => (x ? (x.stdout.split('\n').find((l) => l.includes('この一覧はターミナルでは最大 12 件')) || '') : '');
+  check('既定の --limit で 12 件超のとき「Markdown と --json に出しています」と 12 件上限を告げる',
+    !!capDef && capDef.result.external.out.length === 15
+      && /他 3 件は Markdown と --json に出しています/.test(capLine(capDef))
+      && !/Markdown にも JSON にも入っていません/.test(capLine(capDef)),
+    capDef ? JSON.stringify([capDef.result.external.out.length, capLine(capDef).trim()]) : '実行失敗');
+  check('--limit 13 では「12 件で打った分」と「--limit で打った分」を分けて告げる',
+    !!cap13 && cap13.result.external.out.length === 13
+      && /他 1 件は Markdown と --json に出しています/.test(capLine(cap13))
+      && /他 2 件は --limit 13 で打ち切られているため Markdown にも JSON にも入っていません/.test(capLine(cap13)),
+    cap13 ? JSON.stringify([cap13.result.external.out.length, capLine(cap13).trim()]) : '実行失敗');
 
   const d = runOn('code-chain-long.graph.json', ['--from', 's', '--hops', '100'], 'code-rounds');
   check('API を含まない Lambda の連鎖は既定の上限で切り詰めない（上限式はコードのノード数も数える）',
@@ -1117,7 +1150,7 @@ check('--limit で一覧が切れてもカウンタの不変条件は保たれ�
   // 兄弟の一覧の打ち切り行は Markdown の生バッククォートがそのまま出ていた（第 47 ラウンド agy）
   const sibNote = listed ? (listed.stdout.split('\n').find((l) => l.includes('他のルート')) || '') : '';
   check('兄弟ルートの一覧の打ち切り行は素のターミナルテキスト（Markdown のバッククォートを出さない）',
-    !!listed && sibNote.includes('他のルート 24 件') && sibNote.includes('--limit を上げるか --json 参照')
+    !!listed && sibNote.includes('他のルート 24 件') && sibNote.includes('他のルート 24 件は --limit 5 で打ち切られているため Markdown にも JSON にも入っていません')
       && !sibNote.includes('`'),
     JSON.stringify(sibNote) || '実行失敗');
 
@@ -2123,6 +2156,20 @@ check('--limit で一覧が切れてもカウンタの不変条件は保たれ�
   }
   check('根拠縁と動きの根拠は表示経路の最後の 2 点を結んでいる', offPath.length === 0,
     offPath.slice(0, 3).join(' / ') || '経路の外を結ぶ縁 0 件');
+
+  // 第 48 ラウンド Codex 提案。「動きの根拠があるなら根拠縁と同じ縁である」。
+  // `movementEvidence` は最後の縁が MOVEMENT のときだけ同じ縁を入れる実装なので構造的な
+  // 不変条件（保存済み 18 レポートで動きの根拠のある 42 行、不一致 0 を実測）
+  const mvDiff = [];
+  for (const { label, result } of allDocs) {
+    for (const r of allRows(result)) {
+      if (r.movementEvidence && (!r.evidence || r.movementEvidence.id !== r.evidence.id)) {
+        mvDiff.push(`${label}/${r.id} 動き=${r.movementEvidence.id} 根拠=${(r.evidence || {}).id}`);
+      }
+    }
+  }
+  check('動きの根拠は根拠縁と同じ縁か null（別の縁を指さない）', mvDiff.length === 0,
+    mvDiff.slice(0, 3).join(' / ') || '不一致 0 件');
 }
 
 rmSync(dir, { recursive: true, force: true });
