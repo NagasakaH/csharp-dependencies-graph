@@ -919,6 +919,23 @@ def check_coverage(kind, measured, repo=None, what='走査した件数'):
     return sum(got.values())
 
 
+def fail_required_spec(bad):
+    """要求一覧の不備を**同じ見出し・同じ作り直し手順**で終了させる（Astra 第 59 ラウンド 問 3）
+
+    必須キーの欠落だけは生の文面で落ちていて、入口を通る道具ごとに見え方が違った
+    （`launch_conditions()` を経由する道具は `KeyError` の traceback）。ここで揃える。
+    作り直しには測った件数が要るので、実行できる手順の所在まで書く（Astra 追加穴 3:
+    案内だけでは `--measured` が抜けていて復旧できなかった）"""
+    tail = f'\n  …ほか {len(bad) - 24} 件' if len(bad) > 24 else ''
+    fail('要求一覧（required-checks.json）が壊れている:\n  ' + '\n  '.join(bad[:24]) + tail +
+         '\n  作り直し: 4 本の測定道具に `--emit-measured` で件数を書き出させてから'
+         '\n    python3 skill/scripts/tools/battery/emit-required.py '
+         f'{REQUIRED} --measured <書き出した JSON のパス>'
+         '\n    （手順の全文は `emit-required.py` の先頭コメント。作られた一覧を人がレビューして'
+         'コミットする。追跡下の物なので `git checkout -- skill/scripts/tools/battery/'
+         'required-checks.json` でも戻せる）')
+
+
 def validate_required_spec(spec, repo=None):
     """要求一覧の**中身**を検査する（第 55 ラウンド Astra 裁定 問 3）
 
@@ -934,7 +951,7 @@ def validate_required_spec(spec, repo=None):
             bad.append(f'要求一覧に {k} が無い（第 55 ラウンドの形へ作り直す: '
                        f'python3 skill/scripts/tools/battery/emit-required.py {REQUIRED}）')
     if bad:
-        fail('\n'.join(bad))
+        fail_required_spec(bad)
     fx = spec['fixtures']
     if not isinstance(fx, list):
         bad.append('fixtures は配列でなければならない')
@@ -948,6 +965,12 @@ def validate_required_spec(spec, repo=None):
         kinds = '、'.join(sorted({type(x).__name__ for x in fx if not isinstance(x, str)}))
         bad.append(f'fixtures に文字列でない要素がある（{kinds}。'
                    'リポジトリ相対のパス文字列だけを書く）')
+    if any(not isinstance(x, str) for x in fx):
+        # 診断を出した**後**で壊れた要素を集合比較・重複検査へ混ぜない（Astra 第 59 ラウンド
+        # 追加穴 2 実測: `fixtures[0] = {}` は型の診断の後で `set(fx)` が TypeError を投げた）。
+        # 見張り番を消した実行でも同じで、その要素は一覧から消えたのと同じ形になるため
+        # `fixture-set` が「fixture が有るのに要求一覧に無い」で止める（第 59 ラウンド実測）
+        fx = [x for x in fx if isinstance(x, str)]
     if guard('dup-fixture') and len(fx) != len(set(fx)):
         # 集合にすると重複が消える。「19 本ある」と言い張れて走らない検査が隠れる
         # （第 56 ラウンド agy P2-1: ここだけ `guard()` を通っていなかった）
@@ -1015,18 +1038,19 @@ def validate_required_spec(spec, repo=None):
         seen_id.setdefault(cid, i)
     bad += coverage_shape_errors(spec['expectations'], spec, repo)
     if bad:
-        fail('要求一覧（required-checks.json）が壊れている:\n  ' + '\n  '.join(bad[:24]) +
-             (f'\n  …ほか {len(bad)} 件' if len(bad) > 24 else '') +
-             '\n  作り直し: python3 skill/scripts/tools/battery/emit-required.py '
-             f'{REQUIRED}（作られた一覧を人がレビューしてコミットする）')
+        fail_required_spec(bad)
     return spec
 
 
-def required_fixtures(repo=None):
-    """要求一覧に有る fixture の実体（欠けていれば `require` が終了 1。glob で減らさない）"""
+def required_fixtures(repo=None, spec=None):
+    """要求一覧に有る fixture の実体（欠けていれば `require` が終了 1。glob で減らさない）
+
+    `spec` は**検証済みの要求一覧**を渡す（Astra 第 59 ラウンド 問 3: 同じファイルを
+    再読み込みしない）。省略時のみ自分で読む"""
     repo = pathlib.Path(repo or repo_root())
+    spec = spec if spec is not None else required_spec()
     return [require(repo / rel, '追跡下の fixture（required-checks.json が要求）')
-            for rel in required_spec()['fixtures']]
+            for rel in spec['fixtures']]
 
 
 def condition_args(doc):
@@ -1107,8 +1131,16 @@ def launch_conditions(repo=None, check_required=True, fixtures=None):
     条件を組み立てる側が黙って減った日・増えた日は測る前に終了 1（200 件の見張り番は不要になった）。
     `fixtures` は `emit-required.py`（要求一覧その物を作る道具）だけが渡す。通常は要求一覧が正本"""
     repo = pathlib.Path(repo or repo_root())
+    spec = None
+    if check_required:
+        # 要求一覧を**読む前に**形を検査する（第 58 ラウンド agy P2-2 実測: `fixtures[0] = 1`
+        # や `fixtures` キーの欠落に対して、入口で検証を呼ぶ `check-battery-inputs.py` だけは
+        # 案内を出せ、`check-invariants46.py` / `self-consistency.py` は `KeyError: 'fixtures'`
+        # の生の traceback になっていた）。ここで通せば起動条件を組み立てる道具が
+        # すべて同じ「要求一覧が壊れている」案内に落ちる
+        spec = validate_required_spec(required_spec(), repo)
     if fixtures is None:
-        fixtures = required_fixtures(repo)
+        fixtures = required_fixtures(repo, spec=spec)
     conds = []
     for g in list(fixtures) + [require(x, '検査のグラフ') for x in extra_graphs(repo)]:
         rel = str(pathlib.Path(g).resolve().relative_to(repo.resolve())).replace('\\', '/')
@@ -1121,7 +1153,8 @@ def launch_conditions(repo=None, check_required=True, fixtures=None):
         conds.append(audit_condition(rep_, repo))
     if not check_required:
         return conds
-    spec = validate_required_spec(required_spec(), repo)
+    # ここまで来たなら `check_required` は真で、要求一覧は組み立てる前に検証済み
+    # （Astra 第 59 ラウンド 問 3: 検証済みの同じ一覧を後続の処理へ渡す）
     # 組み上げた側も、集合比較の前に重複を拒否する。id の集合にすると重複が消えて
     # 「219 件」と言い張れた（第 54 ラウンド agy 指摘）
     flat_got = [json.dumps(c['key'], ensure_ascii=False, sort_keys=True) for c in conds]

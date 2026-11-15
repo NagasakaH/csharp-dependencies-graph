@@ -26,6 +26,7 @@
 #   2. `guard` を消した実行 → `message` が出ないこと。既定では**通る**ことも要求する
 # を検査するので、対象の見張り番を消しても別の所で落ちるだけの**空振り制御**を通さない。
 # 名前のスペルを間違えると 2 で同じ案内が出て失敗するので、名前表の管理は要らない。
+import ast
 import glob
 import json
 import os
@@ -45,7 +46,7 @@ TMP = pathlib.Path(tempfile.mkdtemp(prefix='r55-contract-'))
 # 直した物を消すので使わない）
 ORIGINALS = {}
 failed = []
-ran = {'negative': 0, 'positive': 0}
+ran = {'negative': 0, 'positive': 0, 'singleton': {}}
 
 
 def script_path(script):
@@ -142,7 +143,7 @@ def _run_control(fn, tolerant=False):
     try:
         res = fn()
     except NotDetected as e:
-        return False, str(e)
+        return False, 'NotDetected: ' + str(e)   # 制御自身の故障。OFF 側で成功に数えない
     except SystemExit as e:
         code = e.code if isinstance(e.code, int) else 1
         return (code != 0), f'exit {code}: {e}'
@@ -185,10 +186,12 @@ def negative(name, fn, guard=None, message=None, clean=True, fallback=None):
     2. **`guard` を消した実行**: `message` が出ないこと。`clean`（既定）なら**通ること**も
        要求する（他の見張り番に遮われている間は、その制御は対象を測っていない）
 
-    `clean=False` は「見張り番を消すと後が読めずに別の手前で落ちる」実行系の制御だけ
-    （JSON を書かない、JSON が壊れている）。その場合は `fallback` に**その別の手前の文面**を
-    書く（第 56 ラウンド agy P2-3）。文面を宣言させていないと、Run 2 が何で落ちたか不明の
-    まま「別の一で落ちた＝検出成功」と数えてしまう"""
+    `clean=False` は「見張り番を消すと対象の診断は消えるが、実行は別の診断で拒否される」制御が
+    使える（重複検査のように複数の見張り番が同じ細工を拾う場合を含む。Astra 第 59 ラウンド
+    問 2: 「実行系の制御だけ」という但し書きは重複検査を説明できないので外した）。その場合は
+    `fallback` に **OFF 後も残る別の診断の文面**を書く（第 56 ラウンド agy P2-3）。文面を
+    宣言させていないと Run 2 が何で止まったか不明のまま「別の一で落ちた＝検出成功」と数える。
+    対象を消したのに `message` が残る実行は `clean=False` でも失敗にする（問 2 の契約）"""
     ran['negative'] += 1
     names = (guard,) if isinstance(guard, str) else tuple(guard or ())
     try:
@@ -213,21 +216,36 @@ def negative(name, fn, guard=None, message=None, clean=True, fallback=None):
         det2, text2 = _run_control(fn, tolerant=True)
     finally:
         _guards_restore(state)
+    if text2.startswith('NotDetected:'):
+        # Astra 第 59 ラウンド 追加穴 1 の実測: 見張り番を消した側で制御が準備に失敗すると
+        # 「拒否なし」に化けて `clean=True` を通っていた。制御自身の故障は成功ではない
+        failed.append(f'{name}: 見張り番を消した実行が制御の準備失敗で終わった'
+                      f'（制御が壊れている。成功ではない）: {text2[:160]}')
+        return
     if message and message in text2:
         failed.append(f'{name}: 見張り番 {" / ".join(names)} を消したのに同じ案内が出た'
                       f'（この制御が見ているのは別物）: {text2[:160]}')
         return
+    tier = None
     if clean and det2:
         failed.append(f'{name}: 見張り番 {" / ".join(names)} を消しても別の所で落ちる'
                       f'（他の見張り番に遮われて対象を測っていない）: {text2[:200]}')
     elif not clean:
-        # 見張り番を消しても実行系が最後まで読めない制御は、**何が落ちたか**を宣言させる
+        # 見張り番を消しても実行が別の診断で拒否される制御は、**何が落ちたか**を宣言させる
         if not fallback:
-            failed.append(f'{name}: clean=False は fallback に「別の手前の文面」を書く'
+            failed.append(f'{name}: clean=False は fallback に「OFF 後も残る別の診断の文面」を書く'
                           '（何も言わないと Run 2 が何で止まったか不明のまま通る）')
         elif not det2 or fallback not in text2:
             failed.append(f'{name}: 見張り番 {" / ".join(names)} を消した実行が'
                           f'「{fallback}」で止まらない（想定と違う所で落ちた）: {text2[:200]}')
+        else:
+            tier = 'fallback'
+    else:
+        tier = 'clean'
+    if tier and len(names) == 1:
+        # 網羅を数える正控制は、ソースに書いてある制御ではなく**通った**単独名指しだけを使う
+        # （Astra 第 59 ラウンド 問 4）
+        ran['singleton'][names[0]] = tier
 
 
 def positive(name, fn):
@@ -279,6 +297,38 @@ def cond_id_duplicated():
     dup = dict(spec['conditions'][7])
     dup['graph'] = 'skill/tests/fixtures/ImpactFacts/other.graph.json'
     spec['conditions'].append(dup)
+    IN.validate_required_spec(spec, REPO)
+
+
+def cond_graph_hash_rekeyed():
+    """`graph` に `#` を混ぜ、id と条件別の期待値のキーまで作り直す（`cond-shape` だけを測る）
+
+    第 58 ラウンド agy P2-1 の系で、`cond-shape` を名指した 3 本はすべて他の見張り番と組だった。
+    素で `#` を足した細工は id が割れて `canonical-id` が手前に落ちるため、同じ中身から id を
+    計算し直し、`invariantRows` と `parentChild` の条件別のキーも揃える（Astra 第 59 ラウンド
+    問 1 の実測レシピ。キーを揃えないと `cov-keys` が落ちる）。そうすると `cond-shape` だけが
+    落ち、スイッチを消した実行は通る"""
+    spec = spec_copy()
+    cond = spec['conditions'][3]
+    old = cond['id']
+    cond['graph'] = cond['graph'] + '#表示の残り'
+    cond['id'] = IN.condition_id(IN.condition_key(cond.get('case'), cond['graph'],
+                                                  cond['kind'], cond['args']))
+    for key in ('invariantRows', 'parentChild'):
+        by = spec['expectations'][key]['byCondition']
+        if old in by:
+            by[cond['id']] = by.pop(old)
+    IN.validate_required_spec(spec, REPO)
+
+
+def fixture_missing_from_spec():
+    """要求一覧の `fixtures` から 1 本消す（`fixture-set` だけを測る。条件はそのまま）
+
+    実体は glob で見つかるので「fixture が有るのに要求一覧に無い（走らない検査になる）」で止まる。
+    id・条件・期待値を触らないので `canonical-id` も重複検査も `cov-keys` も素通りし、スイッチを
+    消した実行は通る（第 58 ラウンド agy P2-1 で名指しが無かった 6 個のうちの 1 つ）"""
+    spec = spec_copy()
+    spec['fixtures'] = spec['fixtures'][1:]
     IN.validate_required_spec(spec, REPO)
 
 
@@ -483,6 +533,28 @@ def dir_rule_v1_ledger_moved():
     if not moved:
         raise NotDetected('id を動かす先が 1 件も無い（この制御が空振りになるので中断）')
     p.write_text(json.dumps(led, ensure_ascii=False, indent=1) + '\n', encoding='utf-8')
+    try:
+        return py('check-dir-rule.py', '--profile', 'v1')
+    finally:
+        restore()
+
+
+def dir_rule_counters_rebalanced():
+    """v1 の期待カウンタを 1 ずつ入れ替える（`dir-rule-counters` だけを測る）
+
+    実測: `dir-rule-counters` を名指した 2 本はどちらも `dir-rule-report` と組で、組の手前に
+    遮われて単独では測れていなかった。合計が実測と同じになるよう `agree` を 1 減らし `bad` を
+    1 増やす（レポート別と v1 の中身照合はそのまま。Astra 第 59 ラウンド 問 1 の実測レシピ）。
+    他の見張り番は素通りし、スイッチを消した実行は通る"""
+    rel = f'{BATTERY}/required-checks.json'
+    p = stash(rel)
+    doc = json.loads(p.read_text(encoding='utf-8'))
+    exp = doc['expectations']['dirRule']['v1']
+    if exp['agree'] < 1:
+        raise NotDetected('v1 の一致の期待値が 1 未満（この制御は 1 減らす前提で組む）')
+    exp['agree'] -= 1
+    exp['bad'] += 1
+    p.write_text(json.dumps(doc, ensure_ascii=False, indent=1) + '\n', encoding='utf-8')
     try:
         return py('check-dir-rule.py', '--profile', 'v1')
     finally:
@@ -727,8 +799,10 @@ def fixtures_non_string():
     """`fixtures` の 1 本を文字列でない値にする（`fixture-shape` だけを測る。agy P2-2 の ②）
 
     実測（第 57 ラウンド agy）は `dup-fixture` と `fixture-set` を消しても int 混入が通らなかった。
-    Astra 裁定 問 1 ③で要素の**型**を `fixture-shape` に分ける。見張り番を消した実行は
-    値がそのまま集合比較へ入るので `fixture-set` が別の手前で止める（`fallback` で宣言）"""
+    Astra 裁定 問 1 ③で要素の**型**を `fixture-shape` に分ける。見張り番を消した実行は、その値が
+    集合比較に入る前に落ちる（Astra 第 59 ラウンド 追加穴 2 の実測で `fixtures[0] = {}` が型の
+    診断のあとで `set(fx)` に投げられていた）。結果として 1 本欠けた一覧と同じ形になり、
+    `fixture-set` が「fixture が有るのに要求一覧に無い」で止める（`fallback` で宣言）"""
     spec = spec_copy()
     spec['fixtures'][0] = 1
     IN.validate_required_spec(spec, REPO)
@@ -883,7 +957,7 @@ def r43_trial_limit_one():
 
     「表 1 通り（1 入れ替え）」で通っていた（`allperm-full.py` の間引き後の 1 とおり比較と同型、
     第 56 ラウンド Codex P2-2）。`trial-count` が走る前に止め、消した実行は
-    `perm-cap`（実際に走った本数）が別の手前で止める"""
+    `perm-cap`（実際に走った本数）が別の診断で拾う"""
     return py('r43-permute.py', str(REPO / 'skill/scripts/report.mjs'), '1')
 
 
@@ -973,6 +1047,48 @@ def fingerprint_ledger_extra_entry():
     return (0 if not bad else 1), '\n'.join(bad)
 
 
+def fingerprint_bytes_moved():
+    """台帳の**バイト数**だけを 1 件書き換える（`fp-bytes` だけを測る。第 58 ラウンド agy P2-1）
+
+    `fp-sha` → `fp-bytes` → `fp-mode` は elif で繋がっていて、中身を変えると常に `fp-sha` が手前に
+    落ちる。agy 実測: `fp-bytes` を `and False:` に完全無力化しても `test-contract.py` は終了 0
+    だった（名指しは `guard=('fp-sha', 'fp-bytes')` の 1 本だけで、組の手前に遮われていた）。
+    sha と mode を据え置いたまま `bytes` だけ書換えれば `fp-bytes` が単独で落ち、
+    スイッチを消した実行は通る（`fp-mode` は実測の読み方と比べるので割れない）"""
+    victim = _any_scope_input()
+    p = stash(LEDGER)
+    data = json.loads(p.read_text(encoding='utf-8'))
+    rec = data[IN.CONTENTS][victim]
+    if rec.get('mode') not in ('json', 'bytes'):
+        raise NotDetected(f'{victim} の台帳の読み方が json / bytes でない（この制御の前提が変わった）')
+    rec['bytes'] = int(rec.get('bytes', 0)) + 1
+    p.write_text(json.dumps(data, ensure_ascii=False), encoding='utf-8')
+    bad = IN.require_fingerprints(REPO)
+    restore()
+    return (0 if not bad else 1), '\n'.join(bad)
+
+
+def launch_conditions_broken_ledger():
+    """要求一覧の `fixtures` を壊して**起動条件を組み立てる**（第 58 ラウンド agy P2-2）
+
+    `IN.launch_conditions()` は要求一覧を読む前に形を検査するようになった。実測: 前は
+    `required_fixtures()` が先で、入口で検証を呼ぶ `check-battery-inputs.py` だけが案内を出せ、
+    `check-invariants46.py` / `self-consistency.py` は `KeyError` の生の traceback になっていた。
+    `fixture-shape` を消した実行は同じ入口の `fixture-set`（実体は有るのに一覧に無い）が
+    同じ「要求一覧が壊れている」案内で止める。`required_fixtures()` まで到達しないので
+    traceback にはならない（`fallback` にはその別の診断の文面を書く）"""
+    rel = f'{BATTERY}/required-checks.json'
+    p = stash(rel)
+    spec = json.loads(p.read_text(encoding='utf-8'))
+    spec['fixtures'][0] = 1
+    p.write_text(json.dumps(spec, ensure_ascii=False), encoding='utf-8')
+    try:
+        IN.launch_conditions(REPO)
+    finally:
+        restore()
+    raise NotDetected('壊れた要求一覧で起動条件が組み上がってしまった（何も言わなかった）')
+
+
 def fingerprint_mode_moved():
     """台帳の**読み方**だけを 1 件書き換える（`fp-mode` だけを測る。第 57 ラウンド agy P2-2）
 
@@ -996,7 +1112,7 @@ def fingerprint_type_unknown():
 
     `mode='any'` の入力は json か bytes のどちらかで読めるはずで、それ以外を記録している日は
     指紋の型が不明（比較の意味が無い）。`fp-mode` の elif の後ろに有るので、`fp-type` だけを
-    消した実行は `fp-mode` が別の手前で止める（`fallback` で宣言する）"""
+    消した実行は `fp-mode` が別の診断で拾う（`fallback` で宣言する）"""
     victim = _any_scope_input()
     p = stash(LEDGER)
     data = json.loads(p.read_text(encoding='utf-8'))
@@ -1056,7 +1172,7 @@ def _edge_order_module():
 def edge_order_child_fails():
     """`edge-order.py` の子実行が非 0 で終わる（`child-fail` を query.mjs 経路で測る）
 
-    消した実行は stdout が空なので `json-parse` が別の手前で止める（`fallback` で宣言）"""
+    消した実行は stdout が空なので `json-parse` が別の診断で拾う（`fallback` で宣言）"""
     stub = node_stub("""
 // query.mjs が落ちた日の再現（--json は標準出力なので出力は空のまま終わる）
 process.stderr.write('query.mjs が落ちた\\n');
@@ -1070,7 +1186,7 @@ process.exit(4);
 def edge_order_bad_json():
     """`edge-order.py` が読めない出力を受け取る（`json-parse` を query.mjs 経路で測る）
 
-    消した実行は `d = {}` になって形検査 `edge-order-groups` が別の手前で止める"""
+    消した実行は `d = {}` になって形検査 `edge-order-groups` が別の診断で拾う"""
     stub = node_stub("""
 process.stdout.write('{ "groups": [');
 """, 'query-broken.mjs')
@@ -1142,73 +1258,112 @@ def input_check_tool_runs():
         failed.append(f'check-battery-inputs.py が終了 {rc} で通らない: {out[:200]}')
 
 
-def _call_guard_names(text):
-    """検査器側が見張り番に付けた名前を集める（`guard` の呼び形。説明文に呼びの生文字列を
-    置くと自分の集合に混ざるので書かない）
-    """
+def broken_required_ledger_same_message():
+    """要求一覧の `fixtures` キーを消して 2 本の道具を走らせる（第 58 ラウンド agy P2-2）
+
+    壊れた一覧を検査する入口は `guard()` を通らない（**条件を組み立てる前に**拒否する前提なので、
+    消せる見張り番にしない）。だから `negative` では測れず、ここで測るのは Astra 第 59 ラウンド
+    問 3 の **同じ案内を両方の道具が出す**こと。前は `check-battery-inputs.py` だけが案内を出せ、
+    `check-invariants46.py` / `self-consistency.py` は `KeyError: 'fixtures'` の traceback だった"""
+    rel = f'{BATTERY}/required-checks.json'
+    p = stash(rel)
+    doc = json.loads(p.read_text(encoding='utf-8'))
+    if 'fixtures' not in doc:
+        raise NotDetected('要求一覧に fixtures が無い（制御の前提が変わった）')
+    del doc['fixtures']
+    p.write_text(json.dumps(doc, ensure_ascii=False, indent=1) + '\n', encoding='utf-8')
+    head = '要求一覧（required-checks.json）が壊れている'
+    report = REPO / 'skill' / 'scripts' / 'report.mjs'
+    try:
+        for tool in ('check-invariants46.py', 'self-consistency.py'):
+            rc, out = py(tool, report)
+            if head not in out:
+                failed.append(f'{tool} が壊れた要求一覧で「{head}」を出さない: {out[:160]}')
+            if 'Traceback (most recent call last)' in out or 'KeyError' in out:
+                failed.append(f'{tool} が壊れた要求一覧で生の traceback を出した: {out[:160]}')
+            if '--measured' not in out:
+                failed.append(f'{tool} の案内に作り直しのコマンド（`--measured`）が無い: {out[:160]}')
+            if rc == 0:
+                failed.append(f'{tool} が壊れた要求一覧で終了 0（通ってはいけない）')
+    finally:
+        restore()
+
+
+def _const_str(node):
+    """AST のノードが文字列定数ならその値、そうでなければ None"""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    return None
+
+
+def _guard_call_names(path):
+    """検査器側が見張り番に付けた名前を AST で集める（`guard('名前')` の呼び出しだけ）
+
+    第 58 ラウンドまで文字列検索だった。説明文・コメント・引用符の書き方で集合が化けたので、
+    Astra 第 59 ラウンド 問 4 の裁定どおり構文を見て数える"""
     found = set()
-    marker = "guard" + "(" + "'"   # マーカーは組み立てて、自分の走査対象に入らないようにする
-    i = 0
-    while True:
-        j = text.find(marker, i)
-        if j < 0:
-            return found
-        i = j + len(marker)
-        end = text.find("'", i)
-        if end < 0:
-            return found
-        found.add(text[i:end])
+    for node in ast.walk(ast.parse(path.read_text(encoding='utf-8'))):
+        if not isinstance(node, ast.Call):
+            continue
+        f = node.func
+        called = f.attr if isinstance(f, ast.Attribute) else getattr(f, 'id', '')
+        if called == 'guard' and len(node.args) == 1 and _const_str(node.args[0]):
+            found.add(node.args[0].value)
+    return found
 
 
-def _off_guard_names(text):
-    """制御が消す見張り番（`guard` に書く 1 個または組の名前）を集める。案内文の引用符を
-    誤って数えないように、組は最初の `,` で切る
-    """
-    found = set()
-    marker = "guard" + "="   # 同上
-    i = 0
-    while True:
-        j = text.find(marker, i)
-        if j < 0:
-            return found
-        i = j + len(marker)
-        grp = text[i:]
-        if grp.startswith('('):
-            cut = grp.find(')')
-        else:
-            cut = grp.find(',')
-        if cut >= 0:
-            grp = grp[:cut]
-        k = 0
-        while True:
-            a = grp.find("'", k)
-            if a < 0:
-                break
-            b = grp.find("'", a + 1)
-            if b < 0:
-                break
-            found.add(grp[a + 1:b])
-            k = b + 1
+def _negative_guard_groups(path):
+    """`negative(...)` に**書いてある** `guard=` の名前組を AST で集める
+
+    ここは「書かれている名前」を見る（検査器に無い名前を制御に書いた日を探すため）。実際に
+    網羅したかは、実行後に通った制御だけを数える"""
+    out = []
+    for node in ast.walk(ast.parse(path.read_text(encoding='utf-8'))):
+        if not (isinstance(node, ast.Call) and getattr(node.func, 'id', '') == 'negative'):
+            continue
+        for kw in node.keywords:
+            if kw.arg != 'guard':
+                continue
+            one = _const_str(kw.value)
+            if one:
+                out.append((one,))
+            elif isinstance(kw.value, (ast.Tuple, ast.List)):
+                names = [_const_str(e) for e in kw.value.elts]
+                if names and all(names):
+                    out.append(tuple(names))
+    return out
 
 
-def guard_names_all_covered():
-    """`guard` で名前を付けた合否判定を、**個別負控制が 1 本ずつ名指している**
+def guard_names_have_singleton_controls():
+    """見張り番に名前を付けた判定すべてに、**その 1 個だけを消して通った**負控制が有る
 
-    README の「見張り番すべてに個別負控制が有る」という文を毎回機械に数えさせる（第 57
-    ラウンド agy P2-2 は「表に載った個別負控制が 13 名前ぶん実在しなかった」なので、同じ
-    嘘を次に書けないようにここで止める）
-    """
+    README の「全 N 名に個別負控制が有る」を毎回機械に数えさせる。第 57 ラウンド agy P2-2 は
+    表に載った制御が実在しない嘘、第 58 ラウンド agy P2-1 は組での名指しだけだったので
+    `fp-bytes` を `and False:` に完全無力化しても検出されなかった。Astra 第 59 ラウンド 問 4 の
+    裁定どおり、**ソースに書いてある制御は数えず、通った単独名指しだけ**を数える
+    （例外台帳は作らない。網羅不足は失敗にする）"""
     tree = set()
     for path in (REPO / 'skill' / 'scripts' / 'tools').rglob('*.py'):
-        tree |= _call_guard_names(path.read_text(encoding='utf-8'))
-    own = _off_guard_names(pathlib.Path(__file__).read_text(encoding='utf-8'))
-    missing = sorted(tree - own)
-    unknown = sorted(own - tree)
+        tree |= _guard_call_names(path)
+    declared = set()
+    for grp in _negative_guard_groups(pathlib.Path(__file__)):
+        declared.update(grp)
+    if sorted(tree - declared):
+        failed.append(f'見張り番 {sorted(tree - declared)[:6]} を名指す負控制が 1 本も無い'
+                      '（README の網羅の文が嘘になる）')
+    if sorted(declared - tree):
+        failed.append(f'負控制が名指す {sorted(declared - tree)[:6]} は検査器で呼ばれていない'
+                      '（見張り番の名前の書き間違い）')
+    passed = ran['singleton']
+    missing = sorted(tree - set(passed))
     if missing:
-        failed.append(f'見張り番 {len(missing)} 個を名指した個別負控制が無い: {missing[:6]}')
-    if unknown:
-        failed.append(f'制御が消す見張り番が実在しない（名前のスペル違い）: {unknown[:6]}')
-    print(f'  見張り番 {len(tree)} 個すべてに個別負控制が名指しされている')
+        failed.append(f'見張り番 {len(missing)} 個は「その 1 個だけを消した」負控制が通っていない'
+                      f'（複数名を同時に消す制御は網羅に数えない）: {missing[:8]}')
+    both = tree & set(passed)
+    ok = sorted(n for n in both if passed[n] == 'clean')
+    fb = sorted(n for n in both if passed[n] == 'fallback')
+    print(f'  見張り番 {len(tree)} 個のうち {len(both)} 個に単独名指しの負控制が有り'
+          f'（単独無効化・成功確認 {len(ok)} 個 / 単独無効化・診断消失確認 {len(fb)} 個）')
 
 
 def main():
@@ -1222,9 +1377,21 @@ def main():
         negative('要求一覧の args だけ書き換えて id を据え置く', cond_args_tampered,
                  guard='canonical-id', message='id が中身から再計算できない')
         negative('要求一覧に同じ起動内容を 2 件並べる', cond_duplicated,
-                 guard=('dup-condition', 'dup-id'), message='起動条件の正準形が重複')
+                 guard='dup-condition', message='起動条件の正準形が重複',
+                 clean=False, fallback='id が重複')
+        negative('要求一覧に同じ起動内容を 2 件並べる（id 側の目）', cond_duplicated,
+                 guard='dup-id', message='id が重複',
+                 clean=False, fallback='起動条件の正準形が重複')
         negative('要求一覧に id だけを重複させる', cond_id_duplicated,
                  guard=('dup-id', 'canonical-id'), message='id が重複')
+        negative('要求一覧の graph に # を混ぜ id と条件別キーを作り直す',
+                 cond_graph_hash_rekeyed, guard='cond-shape',
+                 message='の graph に `#` が混ざっている')
+        negative('要求一覧の fixtures から 1 本消す（条件はそのまま）',
+                 fixture_missing_from_spec, guard='fixture-set',
+                 message='fixture が有るのに要求一覧に無い')
+        negative('v1 の向きカウンタを 1 ずつ入れ替える', dir_rule_counters_rebalanced,
+                 guard='dir-rule-counters', message='一致: 期待')
         negative('要求一覧から case を消す', cond_case_missing,
                  guard=('cond-shape', 'canonical-id', 'dup-condition', 'dup-id'),
                  message='の欄が期待と違う')
@@ -1310,7 +1477,7 @@ def main():
                  guard=('cond-shape', 'cov-keys'), message='リポジトリ相対ではない')
         negative('要求一覧の fixtures に文字列でない値を置く', fixtures_non_string,
                  guard='fixture-shape', message='文字列でない要素',
-                 clean=False, fallback='要求一覧に有るのに fixture が無い')
+                 clean=False, fallback='fixture が有るのに要求一覧に無い')
         negative('byReport のキーを 1 本だけ実在しない名前に差し替える',
                  dir_rule_report_unknown_key, guard='cov-keys',
                  message='baseline-v1 へ無いレポート名がある')
@@ -1360,6 +1527,11 @@ def main():
                  guard='dup-fixture', message='fixtures に重複')
         negative('指紋台帳に入力の一覧に無い物を 1 件足す', fingerprint_ledger_extra_entry,
                  guard='fp-ledger-extra', message='指紋台帳に有るが入力の一覧に無い')
+        negative('指紋台帳のバイト数だけを 1 件書き換える', fingerprint_bytes_moved,
+                 guard='fp-bytes', message='のバイト数が基準と違う')
+        negative('要求一覧を壊して起動条件を組み立てる', launch_conditions_broken_ledger,
+                 guard='fixture-shape', message='fixtures に文字列でない要素がある',
+                 clean=False, fallback='fixture が有るのに要求一覧に無い')
         negative('指紋台帳の読み方だけを 1 件書き換える', fingerprint_mode_moved,
                  guard='fp-mode', message='の読み方が基準と違う')
         negative('指紋台帳の読み方に json でも bytes でもない値を置く', fingerprint_type_unknown,
@@ -1374,8 +1546,8 @@ def main():
         positive('追跡下の一覧が自分の形を検査して通る', ledger_self_valid)
         positive('指紋台帳と入力が揃っている', fingerprint_ledger_clean)
         positive('入力点検の道具が実際に起動して終了 0 で通る', input_check_tool_runs)
-        positive('見張り番の名前すべてに個別負控制が名指しされている',
-                guard_names_all_covered)
+        positive('要求一覧を壊した日に 2 本の道具が同じ案内を出す', broken_required_ledger_same_message)
+        positive('見張り番の名前すべてに単独名指しの負控制が通っている', guard_names_have_singleton_controls)
 
         # 追跡下のファイルへの変更が残っていないか（制御が途中で落ちても戻す）
         left = git_touches()

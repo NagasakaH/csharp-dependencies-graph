@@ -311,7 +311,7 @@ out/                   生成物（gitignore 済み）
   実行・壊れた JSON・欄の無い JSON・前回の出力をそのまま読む実行は終了 1。比較する行が 0 件なのに
   「違反 0」「1 通りに一致」と出る検査も終了 1（正当な 0 行レポートまで違反にはしない）。
   そして**その検査が実際に落ちることを確かめる道具**が
-  `python3 skill/scripts/tools/battery/test-contract.py`（負控制 63 件・正控制 7 件。
+  `python3 skill/scripts/tools/battery/test-contract.py`（負控制 69 件・正控制 8 件。
   検出できなかった失敗が 1 件でもあれば終了 1）
 - **見張り番は 1 個ずつ消せる。** 検査器の合否判定はすべて名前を持っていて、
   `CGD_GUARD_OFF=name,name` で任意の名前で見張り番を消せる。`test-contract.py` の負控制は
