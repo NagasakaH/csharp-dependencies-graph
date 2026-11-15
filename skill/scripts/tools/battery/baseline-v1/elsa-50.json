@@ -1,0 +1,3463 @@
+{
+  "summary": {
+    "graph": "/Users/haoming/git/csharp-dependencies-graph/out/elsa/graph.json",
+    "starts": 50,
+    "expandedStarts": 207,
+    "limit": 100000,
+    "listTruncated": false,
+    "fallbacks": 0,
+    "hops": 8,
+    "wiringHops": 3,
+    "primaryIn": 0,
+    "primaryOut": 0,
+    "entryIn": 0,
+    "entryOut": 99,
+    "artifactsIn": 0,
+    "artifactsOut": 0,
+    "wiring": 0,
+    "sameApi": 0,
+    "siblings": 0,
+    "siblingEndpointsOnly": 0,
+    "siblingDefs": 0,
+    "secondOrder": 99,
+    "rows": 99,
+    "rounds": 1,
+    "maxRounds": 40803,
+    "unresolved": false,
+    "startIsEndpoint": false,
+    "startEndpoints": [],
+    "reachedEndpoints": [],
+    "startIds": [
+      "file:apps/src/Elsa.Server/Program.cs",
+      "file:apps/src/Elsa.Server.Shared/DatabaseConfiguration.cs",
+      "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCoreForAgents",
+      "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCore",
+      "file:apps/src/Elsa.Server.Studio.BlazorServer/Program.cs",
+      "file:apps/src/Elsa.Server.Studio.BlazorWasm/Program.cs",
+      "file:apps/src/Elsa.Server.Studio.BlazorWasm.Client/Program.cs",
+      "file:apps/src/Elsa.Studio.BlazorServer/Bootstrap/Backend.cs",
+      "member:Elsa.Studio.BlazorServer.Bootstrap.Backend.ConfigureBackend",
+      "file:apps/src/Elsa.Studio.BlazorServer/Bootstrap/Core.cs",
+      "member:Elsa.Studio.BlazorServer.Bootstrap.Core.SetupCore",
+      "file:apps/src/Elsa.Studio.BlazorServer/Bootstrap/Diagnostics.cs",
+      "member:Elsa.Studio.BlazorServer.Bootstrap.Diagnostics.ConfigureDiagnostics",
+      "member:Elsa.Studio.BlazorServer.Bootstrap.Diagnostics.ConfigureApplicationInsights",
+      "file:apps/src/Elsa.Studio.BlazorServer/Bootstrap/HealthChecks.cs",
+      "member:Elsa.Studio.BlazorServer.Bootstrap.HealthChecks.ConfigureHealthChecks",
+      "member:Elsa.Studio.BlazorServer.Bootstrap.HealthChecks.ConfigureHealthCheckEndpoints",
+      "file:apps/src/Elsa.Studio.BlazorServer/Bootstrap/Login.cs",
+      "member:Elsa.Studio.BlazorServer.Bootstrap.Login.ConfigureLogin",
+      "member:Elsa.Studio.BlazorServer.Bootstrap.Login.ConfigureOpenIdConnect",
+      "member:Elsa.Studio.BlazorServer.Bootstrap.Login.ConfigureOAuth2",
+      "member:Elsa.Studio.BlazorServer.Bootstrap.Login.EnsureAuthOptionsNotNull",
+      "file:apps/src/Elsa.Studio.BlazorServer/Bootstrap/Modules.cs",
+      "member:Elsa.Studio.BlazorServer.Bootstrap.Modules.AddModules",
+      "file:apps/src/Elsa.Studio.BlazorServer/Program.cs",
+      "file:apps/src/Elsa.Studio.BlazorServer/SafeBlazorServerJwtAccessor.cs",
+      "member:Elsa.Studio.BlazorServer.Services.SafeBlazorServerJwtAccessor._httpContextAccessor",
+      "member:Elsa.Studio.BlazorServer.Services.SafeBlazorServerJwtAccessor._localStorageService",
+      "member:Elsa.Studio.BlazorServer.Services.SafeBlazorServerJwtAccessor..ctor",
+      "member:Elsa.Studio.BlazorServer.Services.SafeBlazorServerJwtAccessor.ReadTokenAsync",
+      "member:Elsa.Studio.BlazorServer.Services.SafeBlazorServerJwtAccessor.WriteTokenAsync",
+      "member:Elsa.Studio.BlazorServer.Services.SafeBlazorServerJwtAccessor.IsPrerendering",
+      "member:Elsa.Studio.BlazorServer.Services.SafeBlazorServerJwtAccessor.IsJavaScriptInteropUnavailable",
+      "file:apps/src/Elsa.Studio.BlazorWasm/Program.cs",
+      "file:apps/src/Elsa.Studio.BlazorWasm.Client/Bootstrap/Backend.cs",
+      "member:Elsa.Studio.BlazorWasm.Client.Bootstrap.Backend.ConfigureBackend",
+      "file:apps/src/Elsa.Studio.BlazorWasm.Client/Bootstrap/Core.cs",
+      "member:Elsa.Studio.BlazorWasm.Client.Bootstrap.Core.SetupCore",
+      "file:apps/src/Elsa.Studio.BlazorWasm.Client/Bootstrap/Diagnostics.cs",
+      "member:Elsa.Studio.BlazorWasm.Client.Bootstrap.Diagnostics.ConfigureDiagnostics",
+      "member:Elsa.Studio.BlazorWasm.Client.Bootstrap.Diagnostics.ConfigureApplicationInsights",
+      "file:apps/src/Elsa.Studio.BlazorWasm.Client/Bootstrap/HealthChecks.cs",
+      "member:Elsa.Studio.BlazorWasm.Client.Bootstrap.HealthChecks.ConfigureHealthChecks",
+      "member:Elsa.Studio.BlazorWasm.Client.Bootstrap.HealthChecks.ConfigureHealthCheckEndpoints",
+      "file:apps/src/Elsa.Studio.BlazorWasm.Client/Bootstrap/Login.cs",
+      "member:Elsa.Studio.BlazorWasm.Client.Bootstrap.Login.ConfigureLogin",
+      "member:Elsa.Studio.BlazorWasm.Client.Bootstrap.Login.ConfigureOpenIdConnect",
+      "member:Elsa.Studio.BlazorWasm.Client.Bootstrap.Login.ConfigureOAuth2",
+      "member:Elsa.Studio.BlazorWasm.Client.Bootstrap.Login.EnsureAuthOptionsNotNull",
+      "file:apps/src/Elsa.Studio.BlazorWasm.Client/Bootstrap/Modules.cs"
+    ],
+    "startIdsTruncated": true,
+    "pathsByRoot": {
+      "start": 99,
+      "second-stage": 0,
+      "broken": 0
+    },
+    "correspondenceRows": 0,
+    "unresolvedCorr": 0,
+    "annotationRows": 0,
+    "byProvenance": {
+      "static": 99
+    }
+  },
+  "starts": [
+    {
+      "id": "file:apps/src/Elsa.Server/Program.cs",
+      "why": "指定 (file:apps/src/Elsa.Server/Program.cs)"
+    },
+    {
+      "id": "file:apps/src/Elsa.Server.Shared/DatabaseConfiguration.cs",
+      "why": "指定 (file:apps/src/Elsa.Server.Shared/DatabaseConfiguration.cs)"
+    },
+    {
+      "id": "file:apps/src/Elsa.Server.Studio.BlazorServer/Program.cs",
+      "why": "指定 (file:apps/src/Elsa.Server.Studio.BlazorServer/Program.cs)"
+    },
+    {
+      "id": "file:apps/src/Elsa.Server.Studio.BlazorWasm/Program.cs",
+      "why": "指定 (file:apps/src/Elsa.Server.Studio.BlazorWasm/Program.cs)"
+    },
+    {
+      "id": "file:apps/src/Elsa.Server.Studio.BlazorWasm.Client/Program.cs",
+      "why": "指定 (file:apps/src/Elsa.Server.Studio.BlazorWasm.Client/Program.cs)"
+    },
+    {
+      "id": "file:apps/src/Elsa.Studio.BlazorServer/Bootstrap/Backend.cs",
+      "why": "指定 (file:apps/src/Elsa.Studio.BlazorServer/Bootstrap/Backend.cs)"
+    },
+    {
+      "id": "file:apps/src/Elsa.Studio.BlazorServer/Bootstrap/Core.cs",
+      "why": "指定 (file:apps/src/Elsa.Studio.BlazorServer/Bootstrap/Core.cs)"
+    },
+    {
+      "id": "file:apps/src/Elsa.Studio.BlazorServer/Bootstrap/Diagnostics.cs",
+      "why": "指定 (file:apps/src/Elsa.Studio.BlazorServer/Bootstrap/Diagnostics.cs)"
+    },
+    {
+      "id": "file:apps/src/Elsa.Studio.BlazorServer/Bootstrap/HealthChecks.cs",
+      "why": "指定 (file:apps/src/Elsa.Studio.BlazorServer/Bootstrap/HealthChecks.cs)"
+    },
+    {
+      "id": "file:apps/src/Elsa.Studio.BlazorServer/Bootstrap/Login.cs",
+      "why": "指定 (file:apps/src/Elsa.Studio.BlazorServer/Bootstrap/Login.cs)"
+    },
+    {
+      "id": "file:apps/src/Elsa.Studio.BlazorServer/Bootstrap/Modules.cs",
+      "why": "指定 (file:apps/src/Elsa.Studio.BlazorServer/Bootstrap/Modules.cs)"
+    },
+    {
+      "id": "file:apps/src/Elsa.Studio.BlazorServer/Program.cs",
+      "why": "指定 (file:apps/src/Elsa.Studio.BlazorServer/Program.cs)"
+    },
+    {
+      "id": "file:apps/src/Elsa.Studio.BlazorServer/SafeBlazorServerJwtAccessor.cs",
+      "why": "指定 (file:apps/src/Elsa.Studio.BlazorServer/SafeBlazorServerJwtAccessor.cs)"
+    },
+    {
+      "id": "file:apps/src/Elsa.Studio.BlazorWasm/Program.cs",
+      "why": "指定 (file:apps/src/Elsa.Studio.BlazorWasm/Program.cs)"
+    },
+    {
+      "id": "file:apps/src/Elsa.Studio.BlazorWasm.Client/Bootstrap/Backend.cs",
+      "why": "指定 (file:apps/src/Elsa.Studio.BlazorWasm.Client/Bootstrap/Backend.cs)"
+    },
+    {
+      "id": "file:apps/src/Elsa.Studio.BlazorWasm.Client/Bootstrap/Core.cs",
+      "why": "指定 (file:apps/src/Elsa.Studio.BlazorWasm.Client/Bootstrap/Core.cs)"
+    },
+    {
+      "id": "file:apps/src/Elsa.Studio.BlazorWasm.Client/Bootstrap/Diagnostics.cs",
+      "why": "指定 (file:apps/src/Elsa.Studio.BlazorWasm.Client/Bootstrap/Diagnostics.cs)"
+    },
+    {
+      "id": "file:apps/src/Elsa.Studio.BlazorWasm.Client/Bootstrap/HealthChecks.cs",
+      "why": "指定 (file:apps/src/Elsa.Studio.BlazorWasm.Client/Bootstrap/HealthChecks.cs)"
+    },
+    {
+      "id": "file:apps/src/Elsa.Studio.BlazorWasm.Client/Bootstrap/Login.cs",
+      "why": "指定 (file:apps/src/Elsa.Studio.BlazorWasm.Client/Bootstrap/Login.cs)"
+    },
+    {
+      "id": "file:apps/src/Elsa.Studio.BlazorWasm.Client/Bootstrap/Modules.cs",
+      "why": "指定 (file:apps/src/Elsa.Studio.BlazorWasm.Client/Bootstrap/Modules.cs)"
+    },
+    {
+      "id": "file:apps/src/Elsa.Studio.BlazorWasm.Client/Program.cs",
+      "why": "指定 (file:apps/src/Elsa.Studio.BlazorWasm.Client/Program.cs)"
+    },
+    {
+      "id": "file:apps/src/Shared/Constants/SettingKeys.cs",
+      "why": "指定 (file:apps/src/Shared/Constants/SettingKeys.cs)"
+    },
+    {
+      "id": "file:apps/src/Shared/Helpers/OptionsHelper.cs",
+      "why": "指定 (file:apps/src/Shared/Helpers/OptionsHelper.cs)"
+    },
+    {
+      "id": "file:apps/src/Shared/Options/AuthenticationOptions.cs",
+      "why": "指定 (file:apps/src/Shared/Options/AuthenticationOptions.cs)"
+    },
+    {
+      "id": "file:apps/src/Shared/Options/DiagnosticOptionType.cs",
+      "why": "指定 (file:apps/src/Shared/Options/DiagnosticOptionType.cs)"
+    },
+    {
+      "id": "file:apps/src/Shared/Options/DiagnosticOptions.cs",
+      "why": "指定 (file:apps/src/Shared/Options/DiagnosticOptions.cs)"
+    },
+    {
+      "id": "file:apps/src/Shared/Options/HealthCheckEndpointOptions.cs",
+      "why": "指定 (file:apps/src/Shared/Options/HealthCheckEndpointOptions.cs)"
+    },
+    {
+      "id": "file:apps/src/Shared/Options/HealthCheckOptions.cs",
+      "why": "指定 (file:apps/src/Shared/Options/HealthCheckOptions.cs)"
+    },
+    {
+      "id": "file:apps/src/Shared/Options/IdentityOptionType.cs",
+      "why": "指定 (file:apps/src/Shared/Options/IdentityOptionType.cs)"
+    },
+    {
+      "id": "file:apps/src/Shared/Options/IdentityOptions.cs",
+      "why": "指定 (file:apps/src/Shared/Options/IdentityOptions.cs)"
+    },
+    {
+      "id": "file:apps/src/Shared/Options/ModulesFeaturesOptions.cs",
+      "why": "指定 (file:apps/src/Shared/Options/ModulesFeaturesOptions.cs)"
+    },
+    {
+      "id": "file:apps/src/Shared/Options/ModulesOptions.cs",
+      "why": "指定 (file:apps/src/Shared/Options/ModulesOptions.cs)"
+    },
+    {
+      "id": "file:build/Build.CI.GitHubActions.cs",
+      "why": "指定 (file:build/Build.CI.GitHubActions.cs)"
+    },
+    {
+      "id": "file:build/Build.ReactStudio.cs",
+      "why": "指定 (file:build/Build.ReactStudio.cs)"
+    },
+    {
+      "id": "file:build/Build.cs",
+      "why": "指定 (file:build/Build.cs)"
+    },
+    {
+      "id": "file:core/experiments/NativeCompensation.E1/Activities.cs",
+      "why": "指定 (file:core/experiments/NativeCompensation.E1/Activities.cs)"
+    },
+    {
+      "id": "file:core/experiments/NativeCompensation.E1/CommitObserver.cs",
+      "why": "指定 (file:core/experiments/NativeCompensation.E1/CommitObserver.cs)"
+    },
+    {
+      "id": "file:core/experiments/NativeCompensation.E1/Journal.cs",
+      "why": "指定 (file:core/experiments/NativeCompensation.E1/Journal.cs)"
+    },
+    {
+      "id": "file:core/experiments/NativeCompensation.E1/Program.cs",
+      "why": "指定 (file:core/experiments/NativeCompensation.E1/Program.cs)"
+    },
+    {
+      "id": "file:core/src/PackageManifestHints.cs",
+      "why": "指定 (file:core/src/PackageManifestHints.cs)"
+    },
+    {
+      "id": "file:core/src/apps/Elsa.ModularServer.Web/Catalog/AssemblyCatalogResponses.cs",
+      "why": "指定 (file:core/src/apps/Elsa.ModularServer.Web/Catalog/AssemblyCatalogResponses.cs)"
+    },
+    {
+      "id": "file:core/src/apps/Elsa.ModularServer.Web/Catalog/IPlugin.cs",
+      "why": "指定 (file:core/src/apps/Elsa.ModularServer.Web/Catalog/IPlugin.cs)"
+    },
+    {
+      "id": "file:core/src/apps/Elsa.ModularServer.Web/Catalog/PluginCatalog.cs",
+      "why": "指定 (file:core/src/apps/Elsa.ModularServer.Web/Catalog/PluginCatalog.cs)"
+    },
+    {
+      "id": "file:core/src/apps/Elsa.ModularServer.Web/Catalog/SampleCatalogEndpointExtensions.cs",
+      "why": "指定 (file:core/src/apps/Elsa.ModularServer.Web/Catalog/SampleCatalogEndpointExtensions.cs)"
+    },
+    {
+      "id": "file:core/src/apps/Elsa.ModularServer.Web/IdentityTokenStartupValidation.cs",
+      "why": "指定 (file:core/src/apps/Elsa.ModularServer.Web/IdentityTokenStartupValidation.cs)"
+    },
+    {
+      "id": "file:core/src/apps/Elsa.ModularServer.Web/ModularServerHost.cs",
+      "why": "指定 (file:core/src/apps/Elsa.ModularServer.Web/ModularServerHost.cs)"
+    },
+    {
+      "id": "file:core/src/apps/Elsa.ModularServer.Web/MyPackageObserver.cs",
+      "why": "指定 (file:core/src/apps/Elsa.ModularServer.Web/MyPackageObserver.cs)"
+    },
+    {
+      "id": "file:core/src/apps/Elsa.ModularServer.Web/NuplaneAssemblyProvider.cs",
+      "why": "指定 (file:core/src/apps/Elsa.ModularServer.Web/NuplaneAssemblyProvider.cs)"
+    },
+    {
+      "id": "file:core/src/apps/Elsa.ModularServer.Web/Program.cs",
+      "why": "指定 (file:core/src/apps/Elsa.ModularServer.Web/Program.cs)"
+    },
+    {
+      "id": "file:core/src/apps/Elsa.ModularServer.Web/RoleManagementE2EFixtures.cs",
+      "why": "指定 (file:core/src/apps/Elsa.ModularServer.Web/RoleManagementE2EFixtures.cs)"
+    }
+  ],
+  "api": [],
+  "fallbacks": [],
+  "score": null,
+  "external": {
+    "in": [],
+    "out": []
+  },
+  "entries": {
+    "in": [],
+    "out": [
+      {
+        "direction": "out",
+        "id": "member:Elsa.Extensions.ValidateIdentityTokenOptions.Validate",
+        "name": "Validate",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.ModularServer.Web.IdentityTokenStartupValidation.ValidateOptions",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "calls:member:Elsa.ModularServer.Web.IdentityTokenStartupValidation.ValidateOptions->member:Elsa.Extensions.ValidateIdentityTokenOptions.Validate",
+          "kind": "calls",
+          "provenance": "static",
+          "source": "member:Elsa.ModularServer.Web.IdentityTokenStartupValidation.ValidateOptions",
+          "target": "member:Elsa.Extensions.ValidateIdentityTokenOptions.Validate"
+        },
+        "path": [
+          "member:Elsa.ModularServer.Web.IdentityTokenStartupValidation.ValidateOptions",
+          "member:Elsa.Extensions.ValidateIdentityTokenOptions.Validate"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Elsa.Workflows.Activities.Workflow..ctor",
+        "name": ".ctor",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:NativeCompensation.E1.Program.Main",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "calls:member:NativeCompensation.E1.Program.Main->member:Elsa.Workflows.Activities.Workflow..ctor",
+          "kind": "calls",
+          "provenance": "static",
+          "source": "member:NativeCompensation.E1.Program.Main",
+          "target": "member:Elsa.Workflows.Activities.Workflow..ctor"
+        },
+        "path": [
+          "member:NativeCompensation.E1.Program.Main",
+          "member:Elsa.Workflows.Activities.Workflow..ctor"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Elsa.Workflows.Activity..ctor",
+        "name": ".ctor",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:NativeCompensation.E1.ProbeScope..ctor",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "calls:member:NativeCompensation.E1.ProbeScope..ctor->member:Elsa.Workflows.Activity..ctor",
+          "kind": "calls",
+          "provenance": "static",
+          "source": "member:NativeCompensation.E1.ProbeScope..ctor",
+          "target": "member:Elsa.Workflows.Activity..ctor"
+        },
+        "path": [
+          "member:NativeCompensation.E1.ProbeScope..ctor",
+          "member:Elsa.Workflows.Activity..ctor"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Elsa.Workflows.Activity.OnSignalReceived",
+        "name": "OnSignalReceived",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:NativeCompensation.E1.ProbeScope..ctor",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "calls:member:NativeCompensation.E1.ProbeScope..ctor->member:Elsa.Workflows.Activity.OnSignalReceived",
+          "kind": "calls",
+          "provenance": "static",
+          "source": "member:NativeCompensation.E1.ProbeScope..ctor",
+          "target": "member:Elsa.Workflows.Activity.OnSignalReceived"
+        },
+        "path": [
+          "member:NativeCompensation.E1.ProbeScope..ctor",
+          "member:Elsa.Workflows.Activity.OnSignalReceived"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Elsa.Workflows.ActivityExecutionContext.CompleteActivityAsync",
+        "name": "CompleteActivityAsync",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:NativeCompensation.E1.Handoff.ExecuteAsync",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "calls:member:NativeCompensation.E1.Handoff.ExecuteAsync->member:Elsa.Workflows.ActivityExecutionContext.CompleteActivityAsync",
+          "kind": "calls",
+          "provenance": "static",
+          "source": "member:NativeCompensation.E1.Handoff.ExecuteAsync",
+          "target": "member:Elsa.Workflows.ActivityExecutionContext.CompleteActivityAsync"
+        },
+        "path": [
+          "member:NativeCompensation.E1.Handoff.ExecuteAsync",
+          "member:Elsa.Workflows.ActivityExecutionContext.CompleteActivityAsync"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Elsa.Workflows.ActivityExecutionContext.CreateBookmark",
+        "name": "CreateBookmark",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:NativeCompensation.E1.ProbeScope.OnFaultAsync",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "calls:member:NativeCompensation.E1.ProbeScope.OnFaultAsync->member:Elsa.Workflows.ActivityExecutionContext.CreateBookmark",
+          "kind": "calls",
+          "provenance": "static",
+          "source": "member:NativeCompensation.E1.ProbeScope.OnFaultAsync",
+          "target": "member:Elsa.Workflows.ActivityExecutionContext.CreateBookmark"
+        },
+        "path": [
+          "member:NativeCompensation.E1.ProbeScope.OnFaultAsync",
+          "member:Elsa.Workflows.ActivityExecutionContext.CreateBookmark"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Elsa.Workflows.ActivityExecutionContext.GetRequiredService",
+        "name": "GetRequiredService",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:NativeCompensation.E1.CaptureProtection.For",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "calls:member:NativeCompensation.E1.CaptureProtection.For->member:Elsa.Workflows.ActivityExecutionContext.GetRequiredService",
+          "kind": "calls",
+          "provenance": "static",
+          "source": "member:NativeCompensation.E1.CaptureProtection.For",
+          "target": "member:Elsa.Workflows.ActivityExecutionContext.GetRequiredService"
+        },
+        "path": [
+          "member:NativeCompensation.E1.CaptureProtection.For",
+          "member:Elsa.Workflows.ActivityExecutionContext.GetRequiredService"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Elsa.Workflows.ActivityExecutionContext.Id",
+        "name": "Id",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:NativeCompensation.E1.ParticipantEffect.ExecuteAsync",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "accesses:member:NativeCompensation.E1.ParticipantEffect.ExecuteAsync->member:Elsa.Workflows.ActivityExecutionContext.Id",
+          "kind": "accesses",
+          "provenance": "static",
+          "source": "member:NativeCompensation.E1.ParticipantEffect.ExecuteAsync",
+          "target": "member:Elsa.Workflows.ActivityExecutionContext.Id"
+        },
+        "path": [
+          "member:NativeCompensation.E1.ParticipantEffect.ExecuteAsync",
+          "member:Elsa.Workflows.ActivityExecutionContext.Id"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Elsa.Workflows.ActivityExecutionContext.ScheduleActivityAsync",
+        "name": "ScheduleActivityAsync",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:NativeCompensation.E1.ProbeScope.ScheduleAsync",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "calls:member:NativeCompensation.E1.ProbeScope.ScheduleAsync->member:Elsa.Workflows.ActivityExecutionContext.ScheduleActivityAsync",
+          "kind": "calls",
+          "provenance": "static",
+          "source": "member:NativeCompensation.E1.ProbeScope.ScheduleAsync",
+          "target": "member:Elsa.Workflows.ActivityExecutionContext.ScheduleActivityAsync"
+        },
+        "path": [
+          "member:NativeCompensation.E1.ProbeScope.ScheduleAsync",
+          "member:Elsa.Workflows.ActivityExecutionContext.ScheduleActivityAsync"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Elsa.Workflows.ActivityExecutionContext.WorkflowExecutionContext",
+        "name": "WorkflowExecutionContext",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:NativeCompensation.E1.Handoff.ExecuteAsync",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "accesses:member:NativeCompensation.E1.Handoff.ExecuteAsync->member:Elsa.Workflows.ActivityExecutionContext.WorkflowExecutionContext",
+          "kind": "accesses",
+          "provenance": "static",
+          "source": "member:NativeCompensation.E1.Handoff.ExecuteAsync",
+          "target": "member:Elsa.Workflows.ActivityExecutionContext.WorkflowExecutionContext"
+        },
+        "path": [
+          "member:NativeCompensation.E1.Handoff.ExecuteAsync",
+          "member:Elsa.Workflows.ActivityExecutionContext.WorkflowExecutionContext"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Elsa.Workflows.SignalContext.ReceiverActivityExecutionContext",
+        "name": "ReceiverActivityExecutionContext",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:NativeCompensation.E1.ProbeScope.OnFaultAsync",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "accesses:member:NativeCompensation.E1.ProbeScope.OnFaultAsync->member:Elsa.Workflows.SignalContext.ReceiverActivityExecutionContext",
+          "kind": "accesses",
+          "provenance": "static",
+          "source": "member:NativeCompensation.E1.ProbeScope.OnFaultAsync",
+          "target": "member:Elsa.Workflows.SignalContext.ReceiverActivityExecutionContext"
+        },
+        "path": [
+          "member:NativeCompensation.E1.ProbeScope.OnFaultAsync",
+          "member:Elsa.Workflows.SignalContext.ReceiverActivityExecutionContext"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Elsa.Workflows.SignalContext.StopPropagation",
+        "name": "StopPropagation",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:NativeCompensation.E1.ProbeScope.OnFaultAsync",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "calls:member:NativeCompensation.E1.ProbeScope.OnFaultAsync->member:Elsa.Workflows.SignalContext.StopPropagation",
+          "kind": "calls",
+          "provenance": "static",
+          "source": "member:NativeCompensation.E1.ProbeScope.OnFaultAsync",
+          "target": "member:Elsa.Workflows.SignalContext.StopPropagation"
+        },
+        "path": [
+          "member:NativeCompensation.E1.ProbeScope.OnFaultAsync",
+          "member:Elsa.Workflows.SignalContext.StopPropagation"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Elsa.Workflows.WorkflowExecutionContext.CommitAsync",
+        "name": "CommitAsync",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:NativeCompensation.E1.ParticipantEffect.ExecuteAsync",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "calls:member:NativeCompensation.E1.ParticipantEffect.ExecuteAsync->member:Elsa.Workflows.WorkflowExecutionContext.CommitAsync",
+          "kind": "calls",
+          "provenance": "static",
+          "source": "member:NativeCompensation.E1.ParticipantEffect.ExecuteAsync",
+          "target": "member:Elsa.Workflows.WorkflowExecutionContext.CommitAsync"
+        },
+        "path": [
+          "member:NativeCompensation.E1.ParticipantEffect.ExecuteAsync",
+          "member:Elsa.Workflows.WorkflowExecutionContext.CommitAsync"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Elsa.Workflows.WorkflowExecutionContext.Properties",
+        "name": "Properties",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:NativeCompensation.E1.Handoff.ExecuteAsync",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "accesses:member:NativeCompensation.E1.Handoff.ExecuteAsync->member:Elsa.Workflows.WorkflowExecutionContext.Properties",
+          "kind": "accesses",
+          "provenance": "static",
+          "source": "member:NativeCompensation.E1.Handoff.ExecuteAsync",
+          "target": "member:Elsa.Workflows.WorkflowExecutionContext.Properties"
+        },
+        "path": [
+          "member:NativeCompensation.E1.Handoff.ExecuteAsync",
+          "member:Elsa.Workflows.WorkflowExecutionContext.Properties"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Extensions.ValidateIdentityTokenOptions",
+        "name": "ValidateIdentityTokenOptions",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.ModularServer.Web.IdentityTokenStartupValidation.ValidateOptions",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "references:member:Elsa.ModularServer.Web.IdentityTokenStartupValidation.ValidateOptions->type:Elsa.Extensions.ValidateIdentityTokenOptions",
+          "kind": "references",
+          "provenance": "static",
+          "source": "member:Elsa.ModularServer.Web.IdentityTokenStartupValidation.ValidateOptions",
+          "target": "type:Elsa.Extensions.ValidateIdentityTokenOptions"
+        },
+        "path": [
+          "member:Elsa.ModularServer.Web.IdentityTokenStartupValidation.ValidateOptions",
+          "type:Elsa.Extensions.ValidateIdentityTokenOptions"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Identity.Options.IdentityTokenOptions",
+        "name": "IdentityTokenOptions",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.ModularServer.Web.IdentityTokenStartupValidation.ValidateOptions",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "creates:member:Elsa.ModularServer.Web.IdentityTokenStartupValidation.ValidateOptions->type:Elsa.Identity.Options.IdentityTokenOptions",
+          "kind": "creates",
+          "provenance": "static",
+          "source": "member:Elsa.ModularServer.Web.IdentityTokenStartupValidation.ValidateOptions",
+          "target": "type:Elsa.Identity.Options.IdentityTokenOptions"
+        },
+        "path": [
+          "member:Elsa.ModularServer.Web.IdentityTokenStartupValidation.ValidateOptions",
+          "type:Elsa.Identity.Options.IdentityTokenOptions"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Persistence.EFCore.Extensions.AgentsMySqlProvidersExtensions",
+        "name": "AgentsMySqlProvidersExtensions",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCoreForAgents",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "references:member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCoreForAgents->type:Elsa.Persistence.EFCore.Extensions.AgentsMySqlProvidersExtensions",
+          "kind": "references",
+          "provenance": "static",
+          "source": "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCoreForAgents",
+          "target": "type:Elsa.Persistence.EFCore.Extensions.AgentsMySqlProvidersExtensions"
+        },
+        "path": [
+          "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCoreForAgents",
+          "type:Elsa.Persistence.EFCore.Extensions.AgentsMySqlProvidersExtensions"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Persistence.EFCore.Extensions.AgentsPostgreSqlProvidersExtensions",
+        "name": "AgentsPostgreSqlProvidersExtensions",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCoreForAgents",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "references:member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCoreForAgents->type:Elsa.Persistence.EFCore.Extensions.AgentsPostgreSqlProvidersExtensions",
+          "kind": "references",
+          "provenance": "static",
+          "source": "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCoreForAgents",
+          "target": "type:Elsa.Persistence.EFCore.Extensions.AgentsPostgreSqlProvidersExtensions"
+        },
+        "path": [
+          "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCoreForAgents",
+          "type:Elsa.Persistence.EFCore.Extensions.AgentsPostgreSqlProvidersExtensions"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Persistence.EFCore.Extensions.AgentsSqliteProvidersExtensions",
+        "name": "AgentsSqliteProvidersExtensions",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCoreForAgents",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "references:member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCoreForAgents->type:Elsa.Persistence.EFCore.Extensions.AgentsSqliteProvidersExtensions",
+          "kind": "references",
+          "provenance": "static",
+          "source": "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCoreForAgents",
+          "target": "type:Elsa.Persistence.EFCore.Extensions.AgentsSqliteProvidersExtensions"
+        },
+        "path": [
+          "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCoreForAgents",
+          "type:Elsa.Persistence.EFCore.Extensions.AgentsSqliteProvidersExtensions"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Persistence.EFCore.Extensions.AgentsSqlServerProvidersExtensions",
+        "name": "AgentsSqlServerProvidersExtensions",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCoreForAgents",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "references:member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCoreForAgents->type:Elsa.Persistence.EFCore.Extensions.AgentsSqlServerProvidersExtensions",
+          "kind": "references",
+          "provenance": "static",
+          "source": "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCoreForAgents",
+          "target": "type:Elsa.Persistence.EFCore.Extensions.AgentsSqlServerProvidersExtensions"
+        },
+        "path": [
+          "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCoreForAgents",
+          "type:Elsa.Persistence.EFCore.Extensions.AgentsSqlServerProvidersExtensions"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Persistence.EFCore.Extensions.MySqlProvidersExtensions",
+        "name": "MySqlProvidersExtensions",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCore",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "references:member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCore->type:Elsa.Persistence.EFCore.Extensions.MySqlProvidersExtensions",
+          "kind": "references",
+          "provenance": "static",
+          "source": "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCore",
+          "target": "type:Elsa.Persistence.EFCore.Extensions.MySqlProvidersExtensions"
+        },
+        "path": [
+          "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCore",
+          "type:Elsa.Persistence.EFCore.Extensions.MySqlProvidersExtensions"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Persistence.EFCore.Extensions.PostgreSqlProvidersExtensions",
+        "name": "PostgreSqlProvidersExtensions",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCore",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "references:member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCore->type:Elsa.Persistence.EFCore.Extensions.PostgreSqlProvidersExtensions",
+          "kind": "references",
+          "provenance": "static",
+          "source": "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCore",
+          "target": "type:Elsa.Persistence.EFCore.Extensions.PostgreSqlProvidersExtensions"
+        },
+        "path": [
+          "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCore",
+          "type:Elsa.Persistence.EFCore.Extensions.PostgreSqlProvidersExtensions"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Persistence.EFCore.Extensions.SqliteProvidersExtensions",
+        "name": "SqliteProvidersExtensions",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCore",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "references:member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCore->type:Elsa.Persistence.EFCore.Extensions.SqliteProvidersExtensions",
+          "kind": "references",
+          "provenance": "static",
+          "source": "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCore",
+          "target": "type:Elsa.Persistence.EFCore.Extensions.SqliteProvidersExtensions"
+        },
+        "path": [
+          "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCore",
+          "type:Elsa.Persistence.EFCore.Extensions.SqliteProvidersExtensions"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Persistence.EFCore.Extensions.SqlServerProvidersExtensions",
+        "name": "SqlServerProvidersExtensions",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCore",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "references:member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCore->type:Elsa.Persistence.EFCore.Extensions.SqlServerProvidersExtensions",
+          "kind": "references",
+          "provenance": "static",
+          "source": "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCore",
+          "target": "type:Elsa.Persistence.EFCore.Extensions.SqlServerProvidersExtensions"
+        },
+        "path": [
+          "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCore",
+          "type:Elsa.Persistence.EFCore.Extensions.SqlServerProvidersExtensions"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Persistence.EFCore.PersistenceFeatureBase",
+        "name": "PersistenceFeatureBase",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCoreForAgents",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "references:member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCoreForAgents->type:Elsa.Persistence.EFCore.PersistenceFeatureBase",
+          "kind": "references",
+          "provenance": "static",
+          "source": "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCoreForAgents",
+          "target": "type:Elsa.Persistence.EFCore.PersistenceFeatureBase"
+        },
+        "path": [
+          "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCoreForAgents",
+          "type:Elsa.Persistence.EFCore.PersistenceFeatureBase"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Studio.Login.HttpMessageHandlers.AuthenticatingApiHttpMessageHandler",
+        "name": "AuthenticatingApiHttpMessageHandler",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Studio.BlazorServer.Bootstrap.Backend.ConfigureBackend",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "references:member:Elsa.Studio.BlazorServer.Bootstrap.Backend.ConfigureBackend->type:Elsa.Studio.Login.HttpMessageHandlers.AuthenticatingApiHttpMessageHandler",
+          "kind": "references",
+          "provenance": "static",
+          "source": "member:Elsa.Studio.BlazorServer.Bootstrap.Backend.ConfigureBackend",
+          "target": "type:Elsa.Studio.Login.HttpMessageHandlers.AuthenticatingApiHttpMessageHandler"
+        },
+        "path": [
+          "member:Elsa.Studio.BlazorServer.Bootstrap.Backend.ConfigureBackend",
+          "type:Elsa.Studio.Login.HttpMessageHandlers.AuthenticatingApiHttpMessageHandler"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Studio.Models.BackendApiConfig",
+        "name": "BackendApiConfig",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Studio.BlazorServer.Bootstrap.Backend.ConfigureBackend",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "creates:member:Elsa.Studio.BlazorServer.Bootstrap.Backend.ConfigureBackend->type:Elsa.Studio.Models.BackendApiConfig",
+          "kind": "creates",
+          "provenance": "static",
+          "source": "member:Elsa.Studio.BlazorServer.Bootstrap.Backend.ConfigureBackend",
+          "target": "type:Elsa.Studio.Models.BackendApiConfig"
+        },
+        "path": [
+          "member:Elsa.Studio.BlazorServer.Bootstrap.Backend.ConfigureBackend",
+          "type:Elsa.Studio.Models.BackendApiConfig"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Workflows.Activities.Workflow",
+        "name": "Workflow",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:NativeCompensation.E1.Program.Main",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "creates:member:NativeCompensation.E1.Program.Main->type:Elsa.Workflows.Activities.Workflow",
+          "kind": "creates",
+          "provenance": "static",
+          "source": "member:NativeCompensation.E1.Program.Main",
+          "target": "type:Elsa.Workflows.Activities.Workflow"
+        },
+        "path": [
+          "member:NativeCompensation.E1.Program.Main",
+          "type:Elsa.Workflows.Activities.Workflow"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Workflows.ActivityCompletedContext",
+        "name": "ActivityCompletedContext",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:NativeCompensation.E1.ProbeScope.OnCompletedAsync",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "references:member:NativeCompensation.E1.ProbeScope.OnCompletedAsync->type:Elsa.Workflows.ActivityCompletedContext",
+          "kind": "references",
+          "provenance": "static",
+          "source": "member:NativeCompensation.E1.ProbeScope.OnCompletedAsync",
+          "target": "type:Elsa.Workflows.ActivityCompletedContext"
+        },
+        "path": [
+          "member:NativeCompensation.E1.ProbeScope.OnCompletedAsync",
+          "type:Elsa.Workflows.ActivityCompletedContext"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Workflows.ActivityExecutionContext",
+        "name": "ActivityExecutionContext",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:NativeCompensation.E1.CaptureProtection.For",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "references:member:NativeCompensation.E1.CaptureProtection.For->type:Elsa.Workflows.ActivityExecutionContext",
+          "kind": "references",
+          "provenance": "static",
+          "source": "member:NativeCompensation.E1.CaptureProtection.For",
+          "target": "type:Elsa.Workflows.ActivityExecutionContext"
+        },
+        "path": [
+          "member:NativeCompensation.E1.CaptureProtection.For",
+          "type:Elsa.Workflows.ActivityExecutionContext"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Workflows.IActivity",
+        "name": "IActivity",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:NativeCompensation.E1.ProbeScope.ScheduleAsync",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "references:member:NativeCompensation.E1.ProbeScope.ScheduleAsync->type:Elsa.Workflows.IActivity",
+          "kind": "references",
+          "provenance": "static",
+          "source": "member:NativeCompensation.E1.ProbeScope.ScheduleAsync",
+          "target": "type:Elsa.Workflows.IActivity"
+        },
+        "path": [
+          "member:NativeCompensation.E1.ProbeScope.ScheduleAsync",
+          "type:Elsa.Workflows.IActivity"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Workflows.Management.Filters.WorkflowInstanceFilter",
+        "name": "WorkflowInstanceFilter",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:NativeCompensation.E1.Program.Main",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "creates:member:NativeCompensation.E1.Program.Main->type:Elsa.Workflows.Management.Filters.WorkflowInstanceFilter",
+          "kind": "creates",
+          "provenance": "static",
+          "source": "member:NativeCompensation.E1.Program.Main",
+          "target": "type:Elsa.Workflows.Management.Filters.WorkflowInstanceFilter"
+        },
+        "path": [
+          "member:NativeCompensation.E1.Program.Main",
+          "type:Elsa.Workflows.Management.Filters.WorkflowInstanceFilter"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Workflows.Models.Input",
+        "name": "Input",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:NativeCompensation.E1.ParticipantEffect.Target",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "attribute:member:NativeCompensation.E1.ParticipantEffect.Target->type:Elsa.Workflows.Models.Input",
+          "kind": "attribute",
+          "provenance": "static",
+          "source": "member:NativeCompensation.E1.ParticipantEffect.Target",
+          "target": "type:Elsa.Workflows.Models.Input"
+        },
+        "path": [
+          "member:NativeCompensation.E1.ParticipantEffect.Target",
+          "type:Elsa.Workflows.Models.Input"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Workflows.Models.WorkflowIdentity",
+        "name": "WorkflowIdentity",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:NativeCompensation.E1.Program.Main",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "creates:member:NativeCompensation.E1.Program.Main->type:Elsa.Workflows.Models.WorkflowIdentity",
+          "kind": "creates",
+          "provenance": "static",
+          "source": "member:NativeCompensation.E1.Program.Main",
+          "target": "type:Elsa.Workflows.Models.WorkflowIdentity"
+        },
+        "path": [
+          "member:NativeCompensation.E1.Program.Main",
+          "type:Elsa.Workflows.Models.WorkflowIdentity"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Workflows.Options.RunWorkflowOptions",
+        "name": "RunWorkflowOptions",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:NativeCompensation.E1.Program.Main",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "creates:member:NativeCompensation.E1.Program.Main->type:Elsa.Workflows.Options.RunWorkflowOptions",
+          "kind": "creates",
+          "provenance": "static",
+          "source": "member:NativeCompensation.E1.Program.Main",
+          "target": "type:Elsa.Workflows.Options.RunWorkflowOptions"
+        },
+        "path": [
+          "member:NativeCompensation.E1.Program.Main",
+          "type:Elsa.Workflows.Options.RunWorkflowOptions"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Workflows.Options.ScheduleWorkOptions",
+        "name": "ScheduleWorkOptions",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:NativeCompensation.E1.ProbeScope.ScheduleAsync",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "creates:member:NativeCompensation.E1.ProbeScope.ScheduleAsync->type:Elsa.Workflows.Options.ScheduleWorkOptions",
+          "kind": "creates",
+          "provenance": "static",
+          "source": "member:NativeCompensation.E1.ProbeScope.ScheduleAsync",
+          "target": "type:Elsa.Workflows.Options.ScheduleWorkOptions"
+        },
+        "path": [
+          "member:NativeCompensation.E1.ProbeScope.ScheduleAsync",
+          "type:Elsa.Workflows.Options.ScheduleWorkOptions"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Workflows.Runtime.Notifications.WorkflowStateCommitted",
+        "name": "WorkflowStateCommitted",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:NativeCompensation.E1.CommitObserver.HandleAsync",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "references:member:NativeCompensation.E1.CommitObserver.HandleAsync->type:Elsa.Workflows.Runtime.Notifications.WorkflowStateCommitted",
+          "kind": "references",
+          "provenance": "static",
+          "source": "member:NativeCompensation.E1.CommitObserver.HandleAsync",
+          "target": "type:Elsa.Workflows.Runtime.Notifications.WorkflowStateCommitted"
+        },
+        "path": [
+          "member:NativeCompensation.E1.CommitObserver.HandleAsync",
+          "type:Elsa.Workflows.Runtime.Notifications.WorkflowStateCommitted"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Workflows.SignalContext",
+        "name": "SignalContext",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:NativeCompensation.E1.ProbeScope.OnFaultAsync",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "references:member:NativeCompensation.E1.ProbeScope.OnFaultAsync->type:Elsa.Workflows.SignalContext",
+          "kind": "references",
+          "provenance": "static",
+          "source": "member:NativeCompensation.E1.ProbeScope.OnFaultAsync",
+          "target": "type:Elsa.Workflows.SignalContext"
+        },
+        "path": [
+          "member:NativeCompensation.E1.ProbeScope.OnFaultAsync",
+          "type:Elsa.Workflows.SignalContext"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Workflows.Signals.FaultSignal",
+        "name": "FaultSignal",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:NativeCompensation.E1.ProbeScope.OnFaultAsync",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "references:member:NativeCompensation.E1.ProbeScope.OnFaultAsync->type:Elsa.Workflows.Signals.FaultSignal",
+          "kind": "references",
+          "provenance": "static",
+          "source": "member:NativeCompensation.E1.ProbeScope.OnFaultAsync",
+          "target": "type:Elsa.Workflows.Signals.FaultSignal"
+        },
+        "path": [
+          "member:NativeCompensation.E1.ProbeScope.OnFaultAsync",
+          "type:Elsa.Workflows.Signals.FaultSignal"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Workflows.WorkflowExecutionContext",
+        "name": "WorkflowExecutionContext",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:NativeCompensation.E1.Journal.Write",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "references:member:NativeCompensation.E1.Journal.Write->type:Elsa.Workflows.WorkflowExecutionContext",
+          "kind": "references",
+          "provenance": "static",
+          "source": "member:NativeCompensation.E1.Journal.Write",
+          "target": "type:Elsa.Workflows.WorkflowExecutionContext"
+        },
+        "path": [
+          "member:NativeCompensation.E1.Journal.Write",
+          "type:Elsa.Workflows.WorkflowExecutionContext"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Elsa.Common.ISystemClock.UtcNow",
+        "name": "UtcNow",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 2,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Workflows.ActivityExecutionContext.CompleteActivityAsync",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "accesses:member:Elsa.Workflows.ActivityExecutionContext.CompleteActivityAsync->member:Elsa.Common.ISystemClock.UtcNow",
+          "kind": "accesses",
+          "provenance": "static",
+          "source": "member:Elsa.Workflows.ActivityExecutionContext.CompleteActivityAsync",
+          "target": "member:Elsa.Common.ISystemClock.UtcNow"
+        },
+        "path": [
+          "member:NativeCompensation.E1.Handoff.ExecuteAsync",
+          "member:Elsa.Workflows.ActivityExecutionContext.CompleteActivityAsync",
+          "member:Elsa.Common.ISystemClock.UtcNow"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Elsa.Extensions.ValidateIdentityTokenOptions.IsDemoOrDevelopment",
+        "name": "IsDemoOrDevelopment",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 2,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Extensions.ValidateIdentityTokenOptions.Validate",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "calls:member:Elsa.Extensions.ValidateIdentityTokenOptions.Validate->member:Elsa.Extensions.ValidateIdentityTokenOptions.IsDemoOrDevelopment",
+          "kind": "calls",
+          "provenance": "static",
+          "source": "member:Elsa.Extensions.ValidateIdentityTokenOptions.Validate",
+          "target": "member:Elsa.Extensions.ValidateIdentityTokenOptions.IsDemoOrDevelopment"
+        },
+        "path": [
+          "member:Elsa.ModularServer.Web.IdentityTokenStartupValidation.ValidateOptions",
+          "member:Elsa.Extensions.ValidateIdentityTokenOptions.Validate",
+          "member:Elsa.Extensions.ValidateIdentityTokenOptions.IsDemoOrDevelopment"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Elsa.Extensions.ValidateIdentityTokenOptions.IsPrintableAscii",
+        "name": "IsPrintableAscii",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 2,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Extensions.ValidateIdentityTokenOptions.Validate",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "calls:member:Elsa.Extensions.ValidateIdentityTokenOptions.Validate->member:Elsa.Extensions.ValidateIdentityTokenOptions.IsPrintableAscii",
+          "kind": "calls",
+          "provenance": "static",
+          "source": "member:Elsa.Extensions.ValidateIdentityTokenOptions.Validate",
+          "target": "member:Elsa.Extensions.ValidateIdentityTokenOptions.IsPrintableAscii"
+        },
+        "path": [
+          "member:Elsa.ModularServer.Web.IdentityTokenStartupValidation.ValidateOptions",
+          "member:Elsa.Extensions.ValidateIdentityTokenOptions.Validate",
+          "member:Elsa.Extensions.ValidateIdentityTokenOptions.IsPrintableAscii"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Elsa.Identity.Options.IdentityTokenOptions.SigningKey",
+        "name": "SigningKey",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 2,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Extensions.ValidateIdentityTokenOptions.Validate",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "accesses:member:Elsa.Extensions.ValidateIdentityTokenOptions.Validate->member:Elsa.Identity.Options.IdentityTokenOptions.SigningKey",
+          "kind": "accesses",
+          "provenance": "static",
+          "source": "member:Elsa.Extensions.ValidateIdentityTokenOptions.Validate",
+          "target": "member:Elsa.Identity.Options.IdentityTokenOptions.SigningKey"
+        },
+        "path": [
+          "member:Elsa.ModularServer.Web.IdentityTokenStartupValidation.ValidateOptions",
+          "member:Elsa.Extensions.ValidateIdentityTokenOptions.Validate",
+          "member:Elsa.Identity.Options.IdentityTokenOptions.SigningKey"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Elsa.Workflows.ActivityExecutionContext.AddBookmark",
+        "name": "AddBookmark",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 2,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Workflows.ActivityExecutionContext.CreateBookmark",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "calls:member:Elsa.Workflows.ActivityExecutionContext.CreateBookmark->member:Elsa.Workflows.ActivityExecutionContext.AddBookmark",
+          "kind": "calls",
+          "provenance": "static",
+          "source": "member:Elsa.Workflows.ActivityExecutionContext.CreateBookmark",
+          "target": "member:Elsa.Workflows.ActivityExecutionContext.AddBookmark"
+        },
+        "path": [
+          "member:NativeCompensation.E1.ProbeScope.OnFaultAsync",
+          "member:Elsa.Workflows.ActivityExecutionContext.CreateBookmark",
+          "member:Elsa.Workflows.ActivityExecutionContext.AddBookmark"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Elsa.Workflows.ActivityExecutionContext.AddExecutionLogEntry",
+        "name": "AddExecutionLogEntry",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 2,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Workflows.ActivityExecutionContext.CompleteActivityAsync",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "calls:member:Elsa.Workflows.ActivityExecutionContext.CompleteActivityAsync->member:Elsa.Workflows.ActivityExecutionContext.AddExecutionLogEntry",
+          "kind": "calls",
+          "provenance": "static",
+          "source": "member:Elsa.Workflows.ActivityExecutionContext.CompleteActivityAsync",
+          "target": "member:Elsa.Workflows.ActivityExecutionContext.AddExecutionLogEntry"
+        },
+        "path": [
+          "member:NativeCompensation.E1.Handoff.ExecuteAsync",
+          "member:Elsa.Workflows.ActivityExecutionContext.CompleteActivityAsync",
+          "member:Elsa.Workflows.ActivityExecutionContext.AddExecutionLogEntry"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Elsa.Workflows.ActivityExecutionContext.ClearBookmarks",
+        "name": "ClearBookmarks",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 2,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Workflows.ActivityExecutionContext.CompleteActivityAsync",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "calls:member:Elsa.Workflows.ActivityExecutionContext.CompleteActivityAsync->member:Elsa.Workflows.ActivityExecutionContext.ClearBookmarks",
+          "kind": "calls",
+          "provenance": "static",
+          "source": "member:Elsa.Workflows.ActivityExecutionContext.CompleteActivityAsync",
+          "target": "member:Elsa.Workflows.ActivityExecutionContext.ClearBookmarks"
+        },
+        "path": [
+          "member:NativeCompensation.E1.Handoff.ExecuteAsync",
+          "member:Elsa.Workflows.ActivityExecutionContext.CompleteActivityAsync",
+          "member:Elsa.Workflows.ActivityExecutionContext.ClearBookmarks"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Elsa.Workflows.ActivityExecutionContext.ClearCompletionCallbacks",
+        "name": "ClearCompletionCallbacks",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 2,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Workflows.ActivityExecutionContext.CompleteActivityAsync",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "calls:member:Elsa.Workflows.ActivityExecutionContext.CompleteActivityAsync->member:Elsa.Workflows.ActivityExecutionContext.ClearCompletionCallbacks",
+          "kind": "calls",
+          "provenance": "static",
+          "source": "member:Elsa.Workflows.ActivityExecutionContext.CompleteActivityAsync",
+          "target": "member:Elsa.Workflows.ActivityExecutionContext.ClearCompletionCallbacks"
+        },
+        "path": [
+          "member:NativeCompensation.E1.Handoff.ExecuteAsync",
+          "member:Elsa.Workflows.ActivityExecutionContext.CompleteActivityAsync",
+          "member:Elsa.Workflows.ActivityExecutionContext.ClearCompletionCallbacks"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Elsa.Workflows.ActivityExecutionContext.TransitionTo",
+        "name": "TransitionTo",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 2,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Workflows.ActivityExecutionContext.CompleteActivityAsync",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "calls:member:Elsa.Workflows.ActivityExecutionContext.CompleteActivityAsync->member:Elsa.Workflows.ActivityExecutionContext.TransitionTo",
+          "kind": "calls",
+          "provenance": "static",
+          "source": "member:Elsa.Workflows.ActivityExecutionContext.CompleteActivityAsync",
+          "target": "member:Elsa.Workflows.ActivityExecutionContext.TransitionTo"
+        },
+        "path": [
+          "member:NativeCompensation.E1.Handoff.ExecuteAsync",
+          "member:Elsa.Workflows.ActivityExecutionContext.CompleteActivityAsync",
+          "member:Elsa.Workflows.ActivityExecutionContext.TransitionTo"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Elsa.Workflows.CommitStates.ICommitStateHandler.CommitAsync",
+        "name": "CommitAsync",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 2,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Workflows.WorkflowExecutionContext.CommitAsync",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "calls:member:Elsa.Workflows.WorkflowExecutionContext.CommitAsync->member:Elsa.Workflows.CommitStates.ICommitStateHandler.CommitAsync",
+          "kind": "calls",
+          "provenance": "static",
+          "source": "member:Elsa.Workflows.WorkflowExecutionContext.CommitAsync",
+          "target": "member:Elsa.Workflows.CommitStates.ICommitStateHandler.CommitAsync"
+        },
+        "path": [
+          "member:NativeCompensation.E1.ParticipantEffect.ExecuteAsync",
+          "member:Elsa.Workflows.WorkflowExecutionContext.CommitAsync",
+          "member:Elsa.Workflows.CommitStates.ICommitStateHandler.CommitAsync"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Elsa.Workflows.Helpers.ActivityTypeNameHelper.GenerateTypeName",
+        "name": "GenerateTypeName",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 2,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Workflows.Activity..ctor",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "calls:member:Elsa.Workflows.Activity..ctor->member:Elsa.Workflows.Helpers.ActivityTypeNameHelper.GenerateTypeName",
+          "kind": "calls",
+          "provenance": "static",
+          "source": "member:Elsa.Workflows.Activity..ctor",
+          "target": "member:Elsa.Workflows.Helpers.ActivityTypeNameHelper.GenerateTypeName"
+        },
+        "path": [
+          "member:NativeCompensation.E1.ProbeScope..ctor",
+          "member:Elsa.Workflows.Activity..ctor",
+          "member:Elsa.Workflows.Helpers.ActivityTypeNameHelper.GenerateTypeName"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Elsa.Workflows.IActivity.Id",
+        "name": "Id",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 2,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Workflows.ActivityExecutionContext.CreateBookmark",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "accesses:member:Elsa.Workflows.ActivityExecutionContext.CreateBookmark->member:Elsa.Workflows.IActivity.Id",
+          "kind": "accesses",
+          "provenance": "static",
+          "source": "member:Elsa.Workflows.ActivityExecutionContext.CreateBookmark",
+          "target": "member:Elsa.Workflows.IActivity.Id"
+        },
+        "path": [
+          "member:NativeCompensation.E1.ProbeScope.OnFaultAsync",
+          "member:Elsa.Workflows.ActivityExecutionContext.CreateBookmark",
+          "member:Elsa.Workflows.IActivity.Id"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Elsa.Workflows.IActivity.Type",
+        "name": "Type",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 2,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Workflows.ActivityExecutionContext.CreateBookmark",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "accesses:member:Elsa.Workflows.ActivityExecutionContext.CreateBookmark->member:Elsa.Workflows.IActivity.Type",
+          "kind": "accesses",
+          "provenance": "static",
+          "source": "member:Elsa.Workflows.ActivityExecutionContext.CreateBookmark",
+          "target": "member:Elsa.Workflows.IActivity.Type"
+        },
+        "path": [
+          "member:NativeCompensation.E1.ProbeScope.OnFaultAsync",
+          "member:Elsa.Workflows.ActivityExecutionContext.CreateBookmark",
+          "member:Elsa.Workflows.IActivity.Type"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Elsa.Workflows.Models.ActivityNode.NodeId",
+        "name": "NodeId",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 2,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Workflows.ActivityExecutionContext.CreateBookmark",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "accesses:member:Elsa.Workflows.ActivityExecutionContext.CreateBookmark->member:Elsa.Workflows.Models.ActivityNode.NodeId",
+          "kind": "accesses",
+          "provenance": "static",
+          "source": "member:Elsa.Workflows.ActivityExecutionContext.CreateBookmark",
+          "target": "member:Elsa.Workflows.Models.ActivityNode.NodeId"
+        },
+        "path": [
+          "member:NativeCompensation.E1.ProbeScope.OnFaultAsync",
+          "member:Elsa.Workflows.ActivityExecutionContext.CreateBookmark",
+          "member:Elsa.Workflows.Models.ActivityNode.NodeId"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Elsa.Workflows.Models.Bookmark..ctor",
+        "name": ".ctor",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 2,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Workflows.ActivityExecutionContext.CreateBookmark",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "calls:member:Elsa.Workflows.ActivityExecutionContext.CreateBookmark->member:Elsa.Workflows.Models.Bookmark..ctor",
+          "kind": "calls",
+          "provenance": "static",
+          "source": "member:Elsa.Workflows.ActivityExecutionContext.CreateBookmark",
+          "target": "member:Elsa.Workflows.Models.Bookmark..ctor"
+        },
+        "path": [
+          "member:NativeCompensation.E1.ProbeScope.OnFaultAsync",
+          "member:Elsa.Workflows.ActivityExecutionContext.CreateBookmark",
+          "member:Elsa.Workflows.Models.Bookmark..ctor"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Elsa.Workflows.Models.Output..ctor",
+        "name": ".ctor",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 2,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Workflows.Activity..ctor",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "calls:member:Elsa.Workflows.Activity..ctor->member:Elsa.Workflows.Models.Output..ctor",
+          "kind": "calls",
+          "provenance": "static",
+          "source": "member:Elsa.Workflows.Activity..ctor",
+          "target": "member:Elsa.Workflows.Models.Output..ctor"
+        },
+        "path": [
+          "member:NativeCompensation.E1.ProbeScope..ctor",
+          "member:Elsa.Workflows.Activity..ctor",
+          "member:Elsa.Workflows.Models.Output..ctor"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Elsa.Workflows.WorkflowExecutionContext.Bookmarks",
+        "name": "Bookmarks",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 2,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Workflows.ActivityExecutionContext.CompleteActivityAsync",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "accesses:member:Elsa.Workflows.ActivityExecutionContext.CompleteActivityAsync->member:Elsa.Workflows.WorkflowExecutionContext.Bookmarks",
+          "kind": "accesses",
+          "provenance": "static",
+          "source": "member:Elsa.Workflows.ActivityExecutionContext.CompleteActivityAsync",
+          "target": "member:Elsa.Workflows.WorkflowExecutionContext.Bookmarks"
+        },
+        "path": [
+          "member:NativeCompensation.E1.Handoff.ExecuteAsync",
+          "member:Elsa.Workflows.ActivityExecutionContext.CompleteActivityAsync",
+          "member:Elsa.Workflows.WorkflowExecutionContext.Bookmarks"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Elsa.Workflows.WorkflowExecutionContext.GetRequiredService",
+        "name": "GetRequiredService",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 2,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Workflows.ActivityExecutionContext.GetRequiredService",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "calls:member:Elsa.Workflows.ActivityExecutionContext.GetRequiredService->member:Elsa.Workflows.WorkflowExecutionContext.GetRequiredService",
+          "kind": "calls",
+          "provenance": "static",
+          "source": "member:Elsa.Workflows.ActivityExecutionContext.GetRequiredService",
+          "target": "member:Elsa.Workflows.WorkflowExecutionContext.GetRequiredService"
+        },
+        "path": [
+          "member:NativeCompensation.E1.CaptureProtection.For",
+          "member:Elsa.Workflows.ActivityExecutionContext.GetRequiredService",
+          "member:Elsa.Workflows.WorkflowExecutionContext.GetRequiredService"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Elsa.Workflows.WorkflowExecutionContext.SystemClock",
+        "name": "SystemClock",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 2,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Workflows.ActivityExecutionContext.CompleteActivityAsync",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "accesses:member:Elsa.Workflows.ActivityExecutionContext.CompleteActivityAsync->member:Elsa.Workflows.WorkflowExecutionContext.SystemClock",
+          "kind": "accesses",
+          "provenance": "static",
+          "source": "member:Elsa.Workflows.ActivityExecutionContext.CompleteActivityAsync",
+          "target": "member:Elsa.Workflows.WorkflowExecutionContext.SystemClock"
+        },
+        "path": [
+          "member:NativeCompensation.E1.Handoff.ExecuteAsync",
+          "member:Elsa.Workflows.ActivityExecutionContext.CompleteActivityAsync",
+          "member:Elsa.Workflows.WorkflowExecutionContext.SystemClock"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Expressions.Models.MemoryBlockReference",
+        "name": "MemoryBlockReference",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 2,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Workflows.Activity..ctor",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "references:member:Elsa.Workflows.Activity..ctor->type:Elsa.Expressions.Models.MemoryBlockReference",
+          "kind": "references",
+          "provenance": "static",
+          "source": "member:Elsa.Workflows.Activity..ctor",
+          "target": "type:Elsa.Expressions.Models.MemoryBlockReference"
+        },
+        "path": [
+          "member:NativeCompensation.E1.ProbeScope..ctor",
+          "member:Elsa.Workflows.Activity..ctor",
+          "type:Elsa.Expressions.Models.MemoryBlockReference"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Features.Abstractions.FeatureBase",
+        "name": "FeatureBase",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 2,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "type:Elsa.Persistence.EFCore.PersistenceFeatureBase",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "inherits:type:Elsa.Persistence.EFCore.PersistenceFeatureBase->type:Elsa.Features.Abstractions.FeatureBase",
+          "kind": "inherits",
+          "provenance": "static",
+          "source": "type:Elsa.Persistence.EFCore.PersistenceFeatureBase",
+          "target": "type:Elsa.Features.Abstractions.FeatureBase"
+        },
+        "path": [
+          "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCoreForAgents",
+          "type:Elsa.Persistence.EFCore.PersistenceFeatureBase",
+          "type:Elsa.Features.Abstractions.FeatureBase"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Mediator.Contracts.INotification",
+        "name": "INotification",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 2,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "type:Elsa.Workflows.Runtime.Notifications.WorkflowStateCommitted",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "implements:type:Elsa.Workflows.Runtime.Notifications.WorkflowStateCommitted->type:Elsa.Mediator.Contracts.INotification",
+          "kind": "implements",
+          "provenance": "static",
+          "source": "type:Elsa.Workflows.Runtime.Notifications.WorkflowStateCommitted",
+          "target": "type:Elsa.Mediator.Contracts.INotification"
+        },
+        "path": [
+          "member:NativeCompensation.E1.CommitObserver.HandleAsync",
+          "type:Elsa.Workflows.Runtime.Notifications.WorkflowStateCommitted",
+          "type:Elsa.Mediator.Contracts.INotification"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Permissions.IPermissionDescriptorProvider",
+        "name": "IPermissionDescriptorProvider",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 2,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "type:Elsa.ModularServer.Web.RoleManagementE2EFixturePermissionDescriptorProvider",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "implements:type:Elsa.ModularServer.Web.RoleManagementE2EFixturePermissionDescriptorProvider->type:Elsa.Permissions.IPermissionDescriptorProvider",
+          "kind": "implements",
+          "provenance": "static",
+          "source": "type:Elsa.ModularServer.Web.RoleManagementE2EFixturePermissionDescriptorProvider",
+          "target": "type:Elsa.Permissions.IPermissionDescriptorProvider"
+        },
+        "path": [
+          "member:Elsa.ModularServer.Web.RoleManagementE2EFixturePermissionDescriptorProvider.Instance",
+          "type:Elsa.ModularServer.Web.RoleManagementE2EFixturePermissionDescriptorProvider",
+          "type:Elsa.Permissions.IPermissionDescriptorProvider"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Workflows.Activities.Composite",
+        "name": "Composite",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 2,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "type:Elsa.Workflows.Activities.Workflow",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "inherits:type:Elsa.Workflows.Activities.Workflow->type:Elsa.Workflows.Activities.Composite",
+          "kind": "inherits",
+          "provenance": "static",
+          "source": "type:Elsa.Workflows.Activities.Workflow",
+          "target": "type:Elsa.Workflows.Activities.Composite"
+        },
+        "path": [
+          "member:NativeCompensation.E1.Program.Main",
+          "type:Elsa.Workflows.Activities.Workflow",
+          "type:Elsa.Workflows.Activities.Composite"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Workflows.Activities.Container",
+        "name": "Container",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 2,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "type:NativeCompensation.E1.ProbeScope",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "inherits:type:NativeCompensation.E1.ProbeScope->type:Elsa.Workflows.Activities.Container",
+          "kind": "inherits",
+          "provenance": "static",
+          "source": "type:NativeCompensation.E1.ProbeScope",
+          "target": "type:Elsa.Workflows.Activities.Container"
+        },
+        "path": [
+          "member:NativeCompensation.E1.Program.Main",
+          "type:NativeCompensation.E1.ProbeScope",
+          "type:Elsa.Workflows.Activities.Container"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Workflows.Activities.Flowchart.Models.Outcomes",
+        "name": "Outcomes",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 2,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Workflows.ActivityExecutionContext.CompleteActivityAsync",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "references:member:Elsa.Workflows.ActivityExecutionContext.CompleteActivityAsync->type:Elsa.Workflows.Activities.Flowchart.Models.Outcomes",
+          "kind": "references",
+          "provenance": "static",
+          "source": "member:Elsa.Workflows.ActivityExecutionContext.CompleteActivityAsync",
+          "target": "type:Elsa.Workflows.Activities.Flowchart.Models.Outcomes"
+        },
+        "path": [
+          "member:NativeCompensation.E1.Handoff.ExecuteAsync",
+          "member:Elsa.Workflows.ActivityExecutionContext.CompleteActivityAsync",
+          "type:Elsa.Workflows.Activities.Flowchart.Models.Outcomes"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Workflows.Activity",
+        "name": "Activity",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 2,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Workflows.Activity..ctor",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "references:member:Elsa.Workflows.Activity..ctor->type:Elsa.Workflows.Activity",
+          "kind": "references",
+          "provenance": "static",
+          "source": "member:Elsa.Workflows.Activity..ctor",
+          "target": "type:Elsa.Workflows.Activity"
+        },
+        "path": [
+          "member:NativeCompensation.E1.ProbeScope..ctor",
+          "member:Elsa.Workflows.Activity..ctor",
+          "type:Elsa.Workflows.Activity"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Workflows.ActivityCompletionCallback",
+        "name": "ActivityCompletionCallback",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 2,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Workflows.ActivityExecutionContext.ScheduleActivityAsync",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "references:member:Elsa.Workflows.ActivityExecutionContext.ScheduleActivityAsync->type:Elsa.Workflows.ActivityCompletionCallback",
+          "kind": "references",
+          "provenance": "static",
+          "source": "member:Elsa.Workflows.ActivityExecutionContext.ScheduleActivityAsync",
+          "target": "type:Elsa.Workflows.ActivityCompletionCallback"
+        },
+        "path": [
+          "member:NativeCompensation.E1.ProbeScope.ScheduleAsync",
+          "member:Elsa.Workflows.ActivityExecutionContext.ScheduleActivityAsync",
+          "type:Elsa.Workflows.ActivityCompletionCallback"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Workflows.ExecuteActivityDelegate",
+        "name": "ExecuteActivityDelegate",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 2,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Workflows.ActivityExecutionContext.CreateBookmark",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "references:member:Elsa.Workflows.ActivityExecutionContext.CreateBookmark->type:Elsa.Workflows.ExecuteActivityDelegate",
+          "kind": "references",
+          "provenance": "static",
+          "source": "member:Elsa.Workflows.ActivityExecutionContext.CreateBookmark",
+          "target": "type:Elsa.Workflows.ExecuteActivityDelegate"
+        },
+        "path": [
+          "member:NativeCompensation.E1.ProbeScope.OnFaultAsync",
+          "member:Elsa.Workflows.ActivityExecutionContext.CreateBookmark",
+          "type:Elsa.Workflows.ExecuteActivityDelegate"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Workflows.IExecutionContext",
+        "name": "IExecutionContext",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 2,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "type:Elsa.Workflows.ActivityExecutionContext",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "implements:type:Elsa.Workflows.ActivityExecutionContext->type:Elsa.Workflows.IExecutionContext",
+          "kind": "implements",
+          "provenance": "static",
+          "source": "type:Elsa.Workflows.ActivityExecutionContext",
+          "target": "type:Elsa.Workflows.IExecutionContext"
+        },
+        "path": [
+          "member:NativeCompensation.E1.CaptureProtection.For",
+          "type:Elsa.Workflows.ActivityExecutionContext",
+          "type:Elsa.Workflows.IExecutionContext"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Workflows.Models.ActivityNode",
+        "name": "ActivityNode",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 2,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Workflows.ActivityExecutionContext.ScheduleActivityAsync",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "references:member:Elsa.Workflows.ActivityExecutionContext.ScheduleActivityAsync->type:Elsa.Workflows.Models.ActivityNode",
+          "kind": "references",
+          "provenance": "static",
+          "source": "member:Elsa.Workflows.ActivityExecutionContext.ScheduleActivityAsync",
+          "target": "type:Elsa.Workflows.Models.ActivityNode"
+        },
+        "path": [
+          "member:NativeCompensation.E1.ProbeScope.ScheduleAsync",
+          "member:Elsa.Workflows.ActivityExecutionContext.ScheduleActivityAsync",
+          "type:Elsa.Workflows.Models.ActivityNode"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Workflows.Models.Argument",
+        "name": "Argument",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 2,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "type:Elsa.Workflows.Models.Input",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "inherits:type:Elsa.Workflows.Models.Input->type:Elsa.Workflows.Models.Argument",
+          "kind": "inherits",
+          "provenance": "static",
+          "source": "type:Elsa.Workflows.Models.Input",
+          "target": "type:Elsa.Workflows.Models.Argument"
+        },
+        "path": [
+          "member:NativeCompensation.E1.ParticipantEffect.Target",
+          "type:Elsa.Workflows.Models.Input",
+          "type:Elsa.Workflows.Models.Argument"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Workflows.Models.Bookmark",
+        "name": "Bookmark",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 2,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Workflows.ActivityExecutionContext.CreateBookmark",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "creates:member:Elsa.Workflows.ActivityExecutionContext.CreateBookmark->type:Elsa.Workflows.Models.Bookmark",
+          "kind": "creates",
+          "provenance": "static",
+          "source": "member:Elsa.Workflows.ActivityExecutionContext.CreateBookmark",
+          "target": "type:Elsa.Workflows.Models.Bookmark"
+        },
+        "path": [
+          "member:NativeCompensation.E1.ProbeScope.OnFaultAsync",
+          "member:Elsa.Workflows.ActivityExecutionContext.CreateBookmark",
+          "type:Elsa.Workflows.Models.Bookmark"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Workflows.Models.CreateBookmarkArgs",
+        "name": "CreateBookmarkArgs",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 2,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Workflows.ActivityExecutionContext.CreateBookmark",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "references:member:Elsa.Workflows.ActivityExecutionContext.CreateBookmark->type:Elsa.Workflows.Models.CreateBookmarkArgs",
+          "kind": "references",
+          "provenance": "static",
+          "source": "member:Elsa.Workflows.ActivityExecutionContext.CreateBookmark",
+          "target": "type:Elsa.Workflows.Models.CreateBookmarkArgs"
+        },
+        "path": [
+          "member:NativeCompensation.E1.ProbeScope.OnFaultAsync",
+          "member:Elsa.Workflows.ActivityExecutionContext.CreateBookmark",
+          "type:Elsa.Workflows.Models.CreateBookmarkArgs"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Workflows.Models.Output",
+        "name": "Output",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 2,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Workflows.Activity..ctor",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "creates:member:Elsa.Workflows.Activity..ctor->type:Elsa.Workflows.Models.Output",
+          "kind": "creates",
+          "provenance": "static",
+          "source": "member:Elsa.Workflows.Activity..ctor",
+          "target": "type:Elsa.Workflows.Models.Output"
+        },
+        "path": [
+          "member:NativeCompensation.E1.ProbeScope..ctor",
+          "member:Elsa.Workflows.Activity..ctor",
+          "type:Elsa.Workflows.Models.Output"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Workflows.Models.SignalHandlerRegistration",
+        "name": "SignalHandlerRegistration",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 2,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Workflows.Activity.OnSignalReceived",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "creates:member:Elsa.Workflows.Activity.OnSignalReceived->type:Elsa.Workflows.Models.SignalHandlerRegistration",
+          "kind": "creates",
+          "provenance": "static",
+          "source": "member:Elsa.Workflows.Activity.OnSignalReceived",
+          "target": "type:Elsa.Workflows.Models.SignalHandlerRegistration"
+        },
+        "path": [
+          "member:NativeCompensation.E1.ProbeScope..ctor",
+          "member:Elsa.Workflows.Activity.OnSignalReceived",
+          "type:Elsa.Workflows.Models.SignalHandlerRegistration"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Workflows.Models.WorkflowMetadata",
+        "name": "WorkflowMetadata",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 2,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Workflows.Activities.Workflow..ctor",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "references:member:Elsa.Workflows.Activities.Workflow..ctor->type:Elsa.Workflows.Models.WorkflowMetadata",
+          "kind": "references",
+          "provenance": "static",
+          "source": "member:Elsa.Workflows.Activities.Workflow..ctor",
+          "target": "type:Elsa.Workflows.Models.WorkflowMetadata"
+        },
+        "path": [
+          "member:NativeCompensation.E1.Program.Main",
+          "member:Elsa.Workflows.Activities.Workflow..ctor",
+          "type:Elsa.Workflows.Models.WorkflowMetadata"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Workflows.Models.WorkflowOptions",
+        "name": "WorkflowOptions",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 2,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Workflows.Activities.Workflow..ctor",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "references:member:Elsa.Workflows.Activities.Workflow..ctor->type:Elsa.Workflows.Models.WorkflowOptions",
+          "kind": "references",
+          "provenance": "static",
+          "source": "member:Elsa.Workflows.Activities.Workflow..ctor",
+          "target": "type:Elsa.Workflows.Models.WorkflowOptions"
+        },
+        "path": [
+          "member:NativeCompensation.E1.Program.Main",
+          "member:Elsa.Workflows.Activities.Workflow..ctor",
+          "type:Elsa.Workflows.Models.WorkflowOptions"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Workflows.Models.WorkflowPublication",
+        "name": "WorkflowPublication",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 2,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Workflows.Activities.Workflow..ctor",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "references:member:Elsa.Workflows.Activities.Workflow..ctor->type:Elsa.Workflows.Models.WorkflowPublication",
+          "kind": "references",
+          "provenance": "static",
+          "source": "member:Elsa.Workflows.Activities.Workflow..ctor",
+          "target": "type:Elsa.Workflows.Models.WorkflowPublication"
+        },
+        "path": [
+          "member:NativeCompensation.E1.Program.Main",
+          "member:Elsa.Workflows.Activities.Workflow..ctor",
+          "type:Elsa.Workflows.Models.WorkflowPublication"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Workflows.Signals.ActivityCompleted",
+        "name": "ActivityCompleted",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 2,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Workflows.ActivityExecutionContext.CompleteActivityAsync",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "creates:member:Elsa.Workflows.ActivityExecutionContext.CompleteActivityAsync->type:Elsa.Workflows.Signals.ActivityCompleted",
+          "kind": "creates",
+          "provenance": "static",
+          "source": "member:Elsa.Workflows.ActivityExecutionContext.CompleteActivityAsync",
+          "target": "type:Elsa.Workflows.Signals.ActivityCompleted"
+        },
+        "path": [
+          "member:NativeCompensation.E1.Handoff.ExecuteAsync",
+          "member:Elsa.Workflows.ActivityExecutionContext.CompleteActivityAsync",
+          "type:Elsa.Workflows.Signals.ActivityCompleted"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Elsa.Expressions.Models.MemoryBlockReference..ctor",
+        "name": ".ctor",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 3,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Workflows.Models.Output..ctor",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "calls:member:Elsa.Workflows.Models.Output..ctor->member:Elsa.Expressions.Models.MemoryBlockReference..ctor",
+          "kind": "calls",
+          "provenance": "static",
+          "source": "member:Elsa.Workflows.Models.Output..ctor",
+          "target": "member:Elsa.Expressions.Models.MemoryBlockReference..ctor"
+        },
+        "path": [
+          "member:NativeCompensation.E1.ProbeScope..ctor",
+          "member:Elsa.Workflows.Activity..ctor",
+          "member:Elsa.Workflows.Models.Output..ctor",
+          "member:Elsa.Expressions.Models.MemoryBlockReference..ctor"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Elsa.Workflows.ActivityExecutionContext.Taint",
+        "name": "Taint",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 3,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Workflows.ActivityExecutionContext.ClearBookmarks",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "calls:member:Elsa.Workflows.ActivityExecutionContext.ClearBookmarks->member:Elsa.Workflows.ActivityExecutionContext.Taint",
+          "kind": "calls",
+          "provenance": "static",
+          "source": "member:Elsa.Workflows.ActivityExecutionContext.ClearBookmarks",
+          "target": "member:Elsa.Workflows.ActivityExecutionContext.Taint"
+        },
+        "path": [
+          "member:NativeCompensation.E1.Handoff.ExecuteAsync",
+          "member:Elsa.Workflows.ActivityExecutionContext.CompleteActivityAsync",
+          "member:Elsa.Workflows.ActivityExecutionContext.ClearBookmarks",
+          "member:Elsa.Workflows.ActivityExecutionContext.Taint"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Elsa.Workflows.Helpers.ActivityTypeNameHelper.GenerateNamespace",
+        "name": "GenerateNamespace",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 3,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Workflows.Helpers.ActivityTypeNameHelper.GenerateTypeName",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "calls:member:Elsa.Workflows.Helpers.ActivityTypeNameHelper.GenerateTypeName->member:Elsa.Workflows.Helpers.ActivityTypeNameHelper.GenerateNamespace",
+          "kind": "calls",
+          "provenance": "static",
+          "source": "member:Elsa.Workflows.Helpers.ActivityTypeNameHelper.GenerateTypeName",
+          "target": "member:Elsa.Workflows.Helpers.ActivityTypeNameHelper.GenerateNamespace"
+        },
+        "path": [
+          "member:NativeCompensation.E1.ProbeScope..ctor",
+          "member:Elsa.Workflows.Activity..ctor",
+          "member:Elsa.Workflows.Helpers.ActivityTypeNameHelper.GenerateTypeName",
+          "member:Elsa.Workflows.Helpers.ActivityTypeNameHelper.GenerateNamespace"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Elsa.Workflows.IActivity.Name",
+        "name": "Name",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 3,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Workflows.ActivityExecutionContext.AddExecutionLogEntry",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "accesses:member:Elsa.Workflows.ActivityExecutionContext.AddExecutionLogEntry->member:Elsa.Workflows.IActivity.Name",
+          "kind": "accesses",
+          "provenance": "static",
+          "source": "member:Elsa.Workflows.ActivityExecutionContext.AddExecutionLogEntry",
+          "target": "member:Elsa.Workflows.IActivity.Name"
+        },
+        "path": [
+          "member:NativeCompensation.E1.Handoff.ExecuteAsync",
+          "member:Elsa.Workflows.ActivityExecutionContext.CompleteActivityAsync",
+          "member:Elsa.Workflows.ActivityExecutionContext.AddExecutionLogEntry",
+          "member:Elsa.Workflows.IActivity.Name"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Elsa.Workflows.IActivity.Version",
+        "name": "Version",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 3,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Workflows.ActivityExecutionContext.AddExecutionLogEntry",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "accesses:member:Elsa.Workflows.ActivityExecutionContext.AddExecutionLogEntry->member:Elsa.Workflows.IActivity.Version",
+          "kind": "accesses",
+          "provenance": "static",
+          "source": "member:Elsa.Workflows.ActivityExecutionContext.AddExecutionLogEntry",
+          "target": "member:Elsa.Workflows.IActivity.Version"
+        },
+        "path": [
+          "member:NativeCompensation.E1.Handoff.ExecuteAsync",
+          "member:Elsa.Workflows.ActivityExecutionContext.CompleteActivityAsync",
+          "member:Elsa.Workflows.ActivityExecutionContext.AddExecutionLogEntry",
+          "member:Elsa.Workflows.IActivity.Version"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Elsa.Workflows.Models.ActivityNode.Ancestors",
+        "name": "Ancestors",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 3,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Workflows.Models.ActivityNode.NodeId",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "calls:member:Elsa.Workflows.Models.ActivityNode.NodeId->member:Elsa.Workflows.Models.ActivityNode.Ancestors",
+          "kind": "calls",
+          "provenance": "static",
+          "source": "member:Elsa.Workflows.Models.ActivityNode.NodeId",
+          "target": "member:Elsa.Workflows.Models.ActivityNode.Ancestors"
+        },
+        "path": [
+          "member:NativeCompensation.E1.ProbeScope.OnFaultAsync",
+          "member:Elsa.Workflows.ActivityExecutionContext.CreateBookmark",
+          "member:Elsa.Workflows.Models.ActivityNode.NodeId",
+          "member:Elsa.Workflows.Models.ActivityNode.Ancestors"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Elsa.Workflows.WorkflowExecutionContext.CompletionCallbacks",
+        "name": "CompletionCallbacks",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 3,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Workflows.ActivityExecutionContext.ClearCompletionCallbacks",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "accesses:member:Elsa.Workflows.ActivityExecutionContext.ClearCompletionCallbacks->member:Elsa.Workflows.WorkflowExecutionContext.CompletionCallbacks",
+          "kind": "accesses",
+          "provenance": "static",
+          "source": "member:Elsa.Workflows.ActivityExecutionContext.ClearCompletionCallbacks",
+          "target": "member:Elsa.Workflows.WorkflowExecutionContext.CompletionCallbacks"
+        },
+        "path": [
+          "member:NativeCompensation.E1.Handoff.ExecuteAsync",
+          "member:Elsa.Workflows.ActivityExecutionContext.CompleteActivityAsync",
+          "member:Elsa.Workflows.ActivityExecutionContext.ClearCompletionCallbacks",
+          "member:Elsa.Workflows.WorkflowExecutionContext.CompletionCallbacks"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Elsa.Workflows.WorkflowExecutionContext.ExecutionLog",
+        "name": "ExecutionLog",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 3,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Workflows.ActivityExecutionContext.AddExecutionLogEntry",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "accesses:member:Elsa.Workflows.ActivityExecutionContext.AddExecutionLogEntry->member:Elsa.Workflows.WorkflowExecutionContext.ExecutionLog",
+          "kind": "accesses",
+          "provenance": "static",
+          "source": "member:Elsa.Workflows.ActivityExecutionContext.AddExecutionLogEntry",
+          "target": "member:Elsa.Workflows.WorkflowExecutionContext.ExecutionLog"
+        },
+        "path": [
+          "member:NativeCompensation.E1.Handoff.ExecuteAsync",
+          "member:Elsa.Workflows.ActivityExecutionContext.CompleteActivityAsync",
+          "member:Elsa.Workflows.ActivityExecutionContext.AddExecutionLogEntry",
+          "member:Elsa.Workflows.WorkflowExecutionContext.ExecutionLog"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Elsa.Workflows.WorkflowExecutionContext.ExecutionLogSequence",
+        "name": "ExecutionLogSequence",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 3,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Workflows.ActivityExecutionContext.AddExecutionLogEntry",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "accesses:member:Elsa.Workflows.ActivityExecutionContext.AddExecutionLogEntry->member:Elsa.Workflows.WorkflowExecutionContext.ExecutionLogSequence",
+          "kind": "accesses",
+          "provenance": "static",
+          "source": "member:Elsa.Workflows.ActivityExecutionContext.AddExecutionLogEntry",
+          "target": "member:Elsa.Workflows.WorkflowExecutionContext.ExecutionLogSequence"
+        },
+        "path": [
+          "member:NativeCompensation.E1.Handoff.ExecuteAsync",
+          "member:Elsa.Workflows.ActivityExecutionContext.CompleteActivityAsync",
+          "member:Elsa.Workflows.ActivityExecutionContext.AddExecutionLogEntry",
+          "member:Elsa.Workflows.WorkflowExecutionContext.ExecutionLogSequence"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Elsa.Workflows.WorkflowExecutionContext.RemoveCompletionCallbacks",
+        "name": "RemoveCompletionCallbacks",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 3,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Workflows.ActivityExecutionContext.ClearCompletionCallbacks",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "calls:member:Elsa.Workflows.ActivityExecutionContext.ClearCompletionCallbacks->member:Elsa.Workflows.WorkflowExecutionContext.RemoveCompletionCallbacks",
+          "kind": "calls",
+          "provenance": "static",
+          "source": "member:Elsa.Workflows.ActivityExecutionContext.ClearCompletionCallbacks",
+          "target": "member:Elsa.Workflows.WorkflowExecutionContext.RemoveCompletionCallbacks"
+        },
+        "path": [
+          "member:NativeCompensation.E1.Handoff.ExecuteAsync",
+          "member:Elsa.Workflows.ActivityExecutionContext.CompleteActivityAsync",
+          "member:Elsa.Workflows.ActivityExecutionContext.ClearCompletionCallbacks",
+          "member:Elsa.Workflows.WorkflowExecutionContext.RemoveCompletionCallbacks"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Common.ISystemClock",
+        "name": "ISystemClock",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 3,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Workflows.WorkflowExecutionContext.SystemClock",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "references:member:Elsa.Workflows.WorkflowExecutionContext.SystemClock->type:Elsa.Common.ISystemClock",
+          "kind": "references",
+          "provenance": "static",
+          "source": "member:Elsa.Workflows.WorkflowExecutionContext.SystemClock",
+          "target": "type:Elsa.Common.ISystemClock"
+        },
+        "path": [
+          "member:NativeCompensation.E1.Handoff.ExecuteAsync",
+          "member:Elsa.Workflows.ActivityExecutionContext.CompleteActivityAsync",
+          "member:Elsa.Workflows.WorkflowExecutionContext.SystemClock",
+          "type:Elsa.Common.ISystemClock"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Features.Services.IFeature",
+        "name": "IFeature",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 3,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "type:Elsa.Features.Abstractions.FeatureBase",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "implements:type:Elsa.Features.Abstractions.FeatureBase->type:Elsa.Features.Services.IFeature",
+          "kind": "implements",
+          "provenance": "static",
+          "source": "type:Elsa.Features.Abstractions.FeatureBase",
+          "target": "type:Elsa.Features.Services.IFeature"
+        },
+        "path": [
+          "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCoreForAgents",
+          "type:Elsa.Persistence.EFCore.PersistenceFeatureBase",
+          "type:Elsa.Features.Abstractions.FeatureBase",
+          "type:Elsa.Features.Services.IFeature"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Workflows.ActivityStatus",
+        "name": "ActivityStatus",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 3,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Workflows.ActivityExecutionContext.TransitionTo",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "references:member:Elsa.Workflows.ActivityExecutionContext.TransitionTo->type:Elsa.Workflows.ActivityStatus",
+          "kind": "references",
+          "provenance": "static",
+          "source": "member:Elsa.Workflows.ActivityExecutionContext.TransitionTo",
+          "target": "type:Elsa.Workflows.ActivityStatus"
+        },
+        "path": [
+          "member:NativeCompensation.E1.Handoff.ExecuteAsync",
+          "member:Elsa.Workflows.ActivityExecutionContext.CompleteActivityAsync",
+          "member:Elsa.Workflows.ActivityExecutionContext.TransitionTo",
+          "type:Elsa.Workflows.ActivityStatus"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Workflows.IActivityWithResult",
+        "name": "IActivityWithResult",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 3,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "type:Elsa.Workflows.Activity",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "implements:type:Elsa.Workflows.Activity->type:Elsa.Workflows.IActivityWithResult",
+          "kind": "implements",
+          "provenance": "static",
+          "source": "type:Elsa.Workflows.Activity",
+          "target": "type:Elsa.Workflows.IActivityWithResult"
+        },
+        "path": [
+          "member:NativeCompensation.E1.ProbeScope..ctor",
+          "member:Elsa.Workflows.Activity..ctor",
+          "type:Elsa.Workflows.Activity",
+          "type:Elsa.Workflows.IActivityWithResult"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Workflows.IComposite",
+        "name": "IComposite",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 3,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "type:Elsa.Workflows.Activities.Composite",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "implements:type:Elsa.Workflows.Activities.Composite->type:Elsa.Workflows.IComposite",
+          "kind": "implements",
+          "provenance": "static",
+          "source": "type:Elsa.Workflows.Activities.Composite",
+          "target": "type:Elsa.Workflows.IComposite"
+        },
+        "path": [
+          "member:NativeCompensation.E1.Program.Main",
+          "type:Elsa.Workflows.Activities.Workflow",
+          "type:Elsa.Workflows.Activities.Composite",
+          "type:Elsa.Workflows.IComposite"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Workflows.ISignalHandler",
+        "name": "ISignalHandler",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 3,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "type:Elsa.Workflows.Activity",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "implements:type:Elsa.Workflows.Activity->type:Elsa.Workflows.ISignalHandler",
+          "kind": "implements",
+          "provenance": "static",
+          "source": "type:Elsa.Workflows.Activity",
+          "target": "type:Elsa.Workflows.ISignalHandler"
+        },
+        "path": [
+          "member:NativeCompensation.E1.ProbeScope..ctor",
+          "member:Elsa.Workflows.Activity..ctor",
+          "type:Elsa.Workflows.Activity",
+          "type:Elsa.Workflows.ISignalHandler"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Workflows.IVariableContainer",
+        "name": "IVariableContainer",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 3,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "type:Elsa.Workflows.Activities.Composite",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "implements:type:Elsa.Workflows.Activities.Composite->type:Elsa.Workflows.IVariableContainer",
+          "kind": "implements",
+          "provenance": "static",
+          "source": "type:Elsa.Workflows.Activities.Composite",
+          "target": "type:Elsa.Workflows.IVariableContainer"
+        },
+        "path": [
+          "member:NativeCompensation.E1.Program.Main",
+          "type:Elsa.Workflows.Activities.Workflow",
+          "type:Elsa.Workflows.Activities.Composite",
+          "type:Elsa.Workflows.IVariableContainer"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Workflows.Models.WorkflowExecutionLogEntry",
+        "name": "WorkflowExecutionLogEntry",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 3,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Workflows.ActivityExecutionContext.AddExecutionLogEntry",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "creates:member:Elsa.Workflows.ActivityExecutionContext.AddExecutionLogEntry->type:Elsa.Workflows.Models.WorkflowExecutionLogEntry",
+          "kind": "creates",
+          "provenance": "static",
+          "source": "member:Elsa.Workflows.ActivityExecutionContext.AddExecutionLogEntry",
+          "target": "type:Elsa.Workflows.Models.WorkflowExecutionLogEntry"
+        },
+        "path": [
+          "member:NativeCompensation.E1.Handoff.ExecuteAsync",
+          "member:Elsa.Workflows.ActivityExecutionContext.CompleteActivityAsync",
+          "member:Elsa.Workflows.ActivityExecutionContext.AddExecutionLogEntry",
+          "type:Elsa.Workflows.Models.WorkflowExecutionLogEntry"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Workflows.State.WorkflowState",
+        "name": "WorkflowState",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 3,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Workflows.CommitStates.ICommitStateHandler.CommitAsync",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "references:member:Elsa.Workflows.CommitStates.ICommitStateHandler.CommitAsync->type:Elsa.Workflows.State.WorkflowState",
+          "kind": "references",
+          "provenance": "static",
+          "source": "member:Elsa.Workflows.CommitStates.ICommitStateHandler.CommitAsync",
+          "target": "type:Elsa.Workflows.State.WorkflowState"
+        },
+        "path": [
+          "member:NativeCompensation.E1.ParticipantEffect.ExecuteAsync",
+          "member:Elsa.Workflows.WorkflowExecutionContext.CommitAsync",
+          "member:Elsa.Workflows.CommitStates.ICommitStateHandler.CommitAsync",
+          "type:Elsa.Workflows.State.WorkflowState"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      }
+    ]
+  },
+  "artifacts": {
+    "in": [],
+    "out": []
+  },
+  "sameApi": [],
+  "siblingEndpoints": [],
+  "wiring": []
+}

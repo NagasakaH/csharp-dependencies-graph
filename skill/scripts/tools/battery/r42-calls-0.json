@@ -1,0 +1,66 @@
+{
+  "nodes": [
+    {
+      "id": "member:N0",
+      "kind": "member",
+      "name": "N0"
+    },
+    {
+      "id": "member:N3",
+      "kind": "member",
+      "name": "N3"
+    },
+    {
+      "id": "member:N2",
+      "kind": "member",
+      "name": "N2"
+    },
+    {
+      "id": "member:N6",
+      "kind": "member",
+      "name": "N6"
+    },
+    {
+      "id": "member:N1",
+      "kind": "member",
+      "name": "N1"
+    }
+  ],
+  "edges": [
+    {
+      "id": "e7",
+      "kind": "calls",
+      "source": "member:N6",
+      "target": "member:N1",
+      "provenance": "static"
+    },
+    {
+      "id": "e9",
+      "kind": "calls",
+      "source": "member:N3",
+      "target": "member:N0",
+      "provenance": "static"
+    },
+    {
+      "id": "e11",
+      "kind": "calls",
+      "source": "member:N3",
+      "target": "member:N6",
+      "provenance": "static"
+    },
+    {
+      "id": "e3",
+      "kind": "calls",
+      "source": "member:N1",
+      "target": "member:N0",
+      "provenance": "static"
+    },
+    {
+      "id": "e4",
+      "kind": "calls",
+      "source": "member:N6",
+      "target": "member:N2",
+      "provenance": "static"
+    }
+  ]
+}

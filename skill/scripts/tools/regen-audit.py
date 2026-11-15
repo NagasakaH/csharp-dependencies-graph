@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# 保存済み 18 条件（既定 `out/tmp-r29/audit-full`）で今の report.mjs を走らせ、指定ディレクトリへ
+# 保存済み 18 条件（既定 `skill/scripts/tools/battery/baseline-v1`）で今の report.mjs を走らせ、指定ディレクトリへ
 # レポート JSON を再生成する。条件は保存済みレポートの `summary`（graph / hops / wiringHops /
 # limit）と `starts[].id` から復元する。**この 18 条件に限った復元**である（元の引数配列・標準入力・
 # 入力グラフのハッシュは保存していないので、汎用の再生成には使えない。第 48 ラウンド Codex 意見）
@@ -13,8 +13,8 @@ import json, os, pathlib, subprocess, sys
 args = [a for a in sys.argv[1:] if a != '--force']
 force = '--force' in sys.argv
 script = args[0] if len(args) > 0 else 'skill/scripts/report.mjs'
-base = pathlib.Path(os.environ.get('CGD_AUDIT_BASE', 'out/tmp-r29/audit-full'))
-out = pathlib.Path(args[1] if len(args) > 1 else 'out/tmp-r29/audit')
+base = pathlib.Path(os.environ.get('CGD_AUDIT_BASE', 'skill/scripts/tools/battery/baseline-v1'))
+out = pathlib.Path(args[1] if len(args) > 1 else 'out/audit-current')
 if not base.is_dir():
     raise SystemExit(f'条件の保存先が無い: {base}')
 if out.resolve() == base.resolve():

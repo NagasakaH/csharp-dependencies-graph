@@ -273,7 +273,7 @@ node $SKILL/scripts/report.mjs --graph out/graph/graph.json --api "POST /orders"
 - **レポート JSON の版の判別**: `schemaVersion` は入れない（2026-11-15 に人が決定。
   `docs/decisions.md` 決 71）。`in` / `out` しかなかった旧版か否かは `summary.directionless` の
   有無で見分ける。読み手は `direction` の未知の値を中立（`none` 相当）として扱い、方向別の欄へ
-  落とさないこと。比較基準の v1 出力 `out/tmp-r29/audit-full` は差し替えていないので、同じ条件で
+  落とさないこと。比較基準の v1 出力 `skill/scripts/tools/battery/baseline-v1` は差し替えていないので、同じ条件で
   再生成しても**既知差分 74 件**が残る（理由を決 69 と決 71 に書く）
 - `--expect` に期待する着地一覧（`{"expect": [...], "direction": "out"}`。`direction` は `in` / `out` /
   `none` / `both`、既定 `both` は 向き で絞らない）を渡すと再現率・適合率を
@@ -399,7 +399,7 @@ python3 skill/scripts/tools/regen-audit.py skill/scripts/report.mjs out/audit-ch
 python3 skill/scripts/tools/count-kinds.py out/audit-check
 ```
 
-保存済み 18 条件（`out/tmp-r29/audit-full`。`CGD_AUDIT_BASE` で変更可）で今の `report.mjs` を
+保存済み 18 条件（`skill/scripts/tools/battery/baseline-v1`。`CGD_AUDIT_BASE` で変更可）で今の `report.mjs` を
 走らせて枠別・縁別の延べ回数を出す。**出力先に基準ディレクトリ自身は渡せない**（比較相手を壊す）。
 中身のある出力先の上書きは `--force` が要る。子プロセスが 1 件でも失敗すれば非 0 で終わる
 

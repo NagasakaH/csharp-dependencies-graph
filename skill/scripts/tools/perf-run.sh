@@ -14,8 +14,12 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 cd "$root"
 dir="${CGD_PERF_DIR:-out/tmp-perf}"
 mkdir -p "$dir"
+raw="$dir/perf-raw-${tag}.jsonl"
+# 生ログは毎回**作り直す**。追記のままだと、中断して残った生ログに新しい標本が混ざり、
+# 同じタグの再実行が 2 標本の集計を「1 標本」として通してしまう（第 50 ラウンド Codex 指摘）
+: > "$raw"
 for c in demo-api elsa-50 elsa-folder v2-mix; do
-  python3 skill/scripts/tools/perf-measure.py "r-${c}" "$c" >> "$dir/perf-raw-${tag}.jsonl"
+  python3 skill/scripts/tools/perf-measure.py "r-${c}" "$c" >> "$raw"
 done
 python3 - "$tag" "$dir" <<'PY'
 import collections, json, statistics, sys

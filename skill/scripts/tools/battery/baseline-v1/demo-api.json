@@ -1,0 +1,1066 @@
+{
+  "summary": {
+    "graph": "/Users/haoming/git/csharp-dependencies-graph/out/demo/graph.json",
+    "starts": 1,
+    "expandedStarts": 1,
+    "limit": 100000,
+    "listTruncated": false,
+    "fallbacks": 0,
+    "hops": 8,
+    "wiringHops": 3,
+    "primaryIn": 1,
+    "primaryOut": 4,
+    "entryIn": 0,
+    "entryOut": 10,
+    "artifactsIn": 0,
+    "artifactsOut": 3,
+    "wiring": 3,
+    "sameApi": 5,
+    "siblings": 1,
+    "siblingEndpointsOnly": 1,
+    "siblingDefs": 0,
+    "secondOrder": 16,
+    "rows": 27,
+    "rounds": 1,
+    "maxRounds": 46,
+    "unresolved": false,
+    "startIsEndpoint": true,
+    "startEndpoints": [
+      {
+        "id": "tf:aws_api_gateway_method.post_order",
+        "kind": "resource",
+        "name": "POST /orders",
+        "resourceType": "aws_api_gateway_method",
+        "category": "apigateway"
+      }
+    ],
+    "reachedEndpoints": [
+      {
+        "id": "tf:aws_api_gateway_method.get_order",
+        "kind": "resource",
+        "name": "GET /orders",
+        "resourceType": "aws_api_gateway_method",
+        "category": "apigateway"
+      }
+    ],
+    "startIds": [
+      "tf:aws_api_gateway_method.post_order"
+    ],
+    "startIdsTruncated": false,
+    "pathsByRoot": {
+      "start": 27,
+      "second-stage": 0,
+      "broken": 0
+    },
+    "correspondenceRows": 6,
+    "unresolvedCorr": 0,
+    "annotationRows": 4,
+    "byProvenance": {
+      "llm": 4,
+      "terraform": 13,
+      "static": 10
+    }
+  },
+  "starts": [
+    {
+      "id": "tf:aws_api_gateway_method.post_order",
+      "why": "指定 (tf:aws_api_gateway_method.post_order)"
+    }
+  ],
+  "api": [],
+  "fallbacks": [],
+  "score": null,
+  "external": {
+    "in": [
+      {
+        "direction": "in",
+        "id": "tf:aws_sfn_state_machine.order_process",
+        "name": "aws_sfn_state_machine:order_process",
+        "kind": "resource",
+        "category": "stepfunctions",
+        "resourceType": "aws_sfn_state_machine",
+        "endpoint": null,
+        "hops": 6,
+        "switches": 0,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "tf:aws_lambda_function.notify",
+        "movementEvidence": {
+          "id": "invokes:tf:aws_sfn_state_machine.order_process->tf:aws_lambda_function.notify",
+          "source": "tf:aws_sfn_state_machine.order_process",
+          "target": "tf:aws_lambda_function.notify",
+          "kind": "invokes",
+          "provenance": "terraform",
+          "detail": "infra/main.tf 内の参照",
+          "count": 1
+        },
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "invokes:tf:aws_sfn_state_machine.order_process->tf:aws_lambda_function.notify",
+          "source": "tf:aws_sfn_state_machine.order_process",
+          "target": "tf:aws_lambda_function.notify",
+          "kind": "invokes",
+          "provenance": "terraform",
+          "detail": "infra/main.tf 内の参照",
+          "count": 1
+        },
+        "path": [
+          "tf:aws_api_gateway_method.post_order",
+          "member:Orders.Api.Functions.CreateOrder",
+          "tf:aws_lambda_function.orders_api",
+          "project:src/Orders.Api/Orders.Api.csproj",
+          "project:src/Orders.Infrastructure/Orders.Infrastructure.csproj",
+          "tf:aws_lambda_function.notify",
+          "tf:aws_sfn_state_machine.order_process"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "external.in"
+      }
+    ],
+    "out": [
+      {
+        "direction": "out",
+        "id": "tf:aws_lambda_function.orders_api",
+        "name": "aws_lambda_function:orders_api",
+        "kind": "resource",
+        "category": "lambda",
+        "resourceType": "aws_lambda_function",
+        "endpoint": null,
+        "hops": 2,
+        "switches": 0,
+        "correspondence": true,
+        "pathRoot": "start",
+        "via": "member:Orders.Api.Functions.CreateOrder",
+        "movementEvidence": {
+          "id": "handler:tf:aws_lambda_function.orders_api->member:Orders.Api.Functions.CreateOrder",
+          "kind": "handler",
+          "provenance": "terraform",
+          "source": "tf:aws_lambda_function.orders_api",
+          "target": "member:Orders.Api.Functions.CreateOrder"
+        },
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "handler:tf:aws_lambda_function.orders_api->member:Orders.Api.Functions.CreateOrder",
+          "kind": "handler",
+          "provenance": "terraform",
+          "source": "tf:aws_lambda_function.orders_api",
+          "target": "member:Orders.Api.Functions.CreateOrder"
+        },
+        "path": [
+          "tf:aws_api_gateway_method.post_order",
+          "member:Orders.Api.Functions.CreateOrder",
+          "tf:aws_lambda_function.orders_api"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "external.out"
+      },
+      {
+        "direction": "out",
+        "id": "tf:aws_lambda_function.notify",
+        "name": "aws_lambda_function:notify",
+        "kind": "resource",
+        "category": "lambda",
+        "resourceType": "aws_lambda_function",
+        "endpoint": null,
+        "hops": 5,
+        "switches": 1,
+        "correspondence": true,
+        "pathRoot": "start",
+        "via": "project:src/Orders.Infrastructure/Orders.Infrastructure.csproj",
+        "movementEvidence": {
+          "id": "handler:tf:aws_lambda_function.notify->member:Orders.Infrastructure.NotifyHandler.FunctionHandler",
+          "source": "tf:aws_lambda_function.notify",
+          "target": "member:Orders.Infrastructure.NotifyHandler.FunctionHandler",
+          "kind": "handler",
+          "provenance": "terraform",
+          "detail": "handler = Orders.Infrastructure::Orders.Infrastructure.NotifyHandler::FunctionHandler",
+          "count": 1
+        },
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": true,
+        "evidence": {
+          "id": "deploys:project:src/Orders.Infrastructure/Orders.Infrastructure.csproj->tf:aws_lambda_function.notify",
+          "kind": "deploys",
+          "provenance": "llm",
+          "source": "project:src/Orders.Infrastructure/Orders.Infrastructure.csproj",
+          "target": "tf:aws_lambda_function.notify"
+        },
+        "path": [
+          "tf:aws_api_gateway_method.post_order",
+          "member:Orders.Api.Functions.CreateOrder",
+          "tf:aws_lambda_function.orders_api",
+          "project:src/Orders.Api/Orders.Api.csproj",
+          "project:src/Orders.Infrastructure/Orders.Infrastructure.csproj",
+          "tf:aws_lambda_function.notify"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "external.out"
+      },
+      {
+        "direction": "out",
+        "id": "tf:aws_sqs_queue.fulfilment",
+        "name": "aws_sqs_queue:fulfilment",
+        "kind": "resource",
+        "category": "sqs",
+        "resourceType": "aws_sqs_queue",
+        "endpoint": null,
+        "hops": 6,
+        "switches": 1,
+        "correspondence": true,
+        "pathRoot": "start",
+        "via": "tf:aws_lambda_function.notify",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "references:tf:aws_lambda_function.notify->tf:aws_sqs_queue.fulfilment",
+          "kind": "references",
+          "provenance": "terraform",
+          "source": "tf:aws_lambda_function.notify",
+          "target": "tf:aws_sqs_queue.fulfilment"
+        },
+        "path": [
+          "tf:aws_api_gateway_method.post_order",
+          "member:Orders.Api.Functions.CreateOrder",
+          "tf:aws_lambda_function.orders_api",
+          "project:src/Orders.Api/Orders.Api.csproj",
+          "project:src/Orders.Infrastructure/Orders.Infrastructure.csproj",
+          "tf:aws_lambda_function.notify",
+          "tf:aws_sqs_queue.fulfilment"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "external.out"
+      },
+      {
+        "direction": "out",
+        "id": "ext:rds-table/orders-analytics.public.order_summary",
+        "name": "rds-table:order_summary",
+        "kind": "resource",
+        "category": "storage",
+        "resourceType": "rds-table",
+        "endpoint": null,
+        "hops": 7,
+        "switches": 1,
+        "correspondence": true,
+        "pathRoot": "start",
+        "via": "member:Orders.Infrastructure.NotifyHandler.FunctionHandler",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "writes:member:Orders.Infrastructure.NotifyHandler.FunctionHandler->ext:rds-table/orders-analytics.public.order_summary",
+          "kind": "writes",
+          "provenance": "llm",
+          "source": "member:Orders.Infrastructure.NotifyHandler.FunctionHandler",
+          "target": "ext:rds-table/orders-analytics.public.order_summary"
+        },
+        "path": [
+          "tf:aws_api_gateway_method.post_order",
+          "member:Orders.Api.Functions.CreateOrder",
+          "tf:aws_lambda_function.orders_api",
+          "project:src/Orders.Api/Orders.Api.csproj",
+          "project:src/Orders.Infrastructure/Orders.Infrastructure.csproj",
+          "tf:aws_lambda_function.notify",
+          "member:Orders.Infrastructure.NotifyHandler.FunctionHandler",
+          "ext:rds-table/orders-analytics.public.order_summary"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "external.out"
+      }
+    ]
+  },
+  "entries": {
+    "in": [],
+    "out": [
+      {
+        "direction": "out",
+        "id": "member:Orders.Api.Functions.CreateOrder",
+        "name": "CreateOrder",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 0,
+        "correspondence": true,
+        "pathRoot": "start",
+        "via": "tf:aws_api_gateway_method.post_order",
+        "movementEvidence": {
+          "id": "exposed-by:member:Orders.Api.Functions.CreateOrder->tf:aws_api_gateway_method.post_order",
+          "kind": "exposed-by",
+          "provenance": "llm",
+          "source": "member:Orders.Api.Functions.CreateOrder",
+          "target": "tf:aws_api_gateway_method.post_order"
+        },
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "exposed-by:member:Orders.Api.Functions.CreateOrder->tf:aws_api_gateway_method.post_order",
+          "kind": "exposed-by",
+          "provenance": "llm",
+          "source": "member:Orders.Api.Functions.CreateOrder",
+          "target": "tf:aws_api_gateway_method.post_order"
+        },
+        "path": [
+          "tf:aws_api_gateway_method.post_order",
+          "member:Orders.Api.Functions.CreateOrder"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Orders.Api.Functions.Respond",
+        "name": "Respond",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 2,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Orders.Api.Functions.CreateOrder",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "calls:member:Orders.Api.Functions.CreateOrder->member:Orders.Api.Functions.Respond",
+          "kind": "calls",
+          "provenance": "static",
+          "source": "member:Orders.Api.Functions.CreateOrder",
+          "target": "member:Orders.Api.Functions.Respond"
+        },
+        "path": [
+          "tf:aws_api_gateway_method.post_order",
+          "member:Orders.Api.Functions.CreateOrder",
+          "member:Orders.Api.Functions.Respond"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Orders.Domain.IOrderProcessLauncher.StartAsync",
+        "name": "StartAsync",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 2,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Orders.Api.Functions.CreateOrder",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "calls:member:Orders.Api.Functions.CreateOrder->member:Orders.Domain.IOrderProcessLauncher.StartAsync",
+          "kind": "calls",
+          "provenance": "static",
+          "source": "member:Orders.Api.Functions.CreateOrder",
+          "target": "member:Orders.Domain.IOrderProcessLauncher.StartAsync"
+        },
+        "path": [
+          "tf:aws_api_gateway_method.post_order",
+          "member:Orders.Api.Functions.CreateOrder",
+          "member:Orders.Domain.IOrderProcessLauncher.StartAsync"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Orders.Domain.IOrderRepository.SaveAsync",
+        "name": "SaveAsync",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 2,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Orders.Api.Functions.CreateOrder",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "calls:member:Orders.Api.Functions.CreateOrder->member:Orders.Domain.IOrderRepository.SaveAsync",
+          "kind": "calls",
+          "provenance": "static",
+          "source": "member:Orders.Api.Functions.CreateOrder",
+          "target": "member:Orders.Domain.IOrderRepository.SaveAsync"
+        },
+        "path": [
+          "tf:aws_api_gateway_method.post_order",
+          "member:Orders.Api.Functions.CreateOrder",
+          "member:Orders.Domain.IOrderRepository.SaveAsync"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Orders.Domain.Order.Create",
+        "name": "Create",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 2,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Orders.Api.Functions.CreateOrder",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "calls:member:Orders.Api.Functions.CreateOrder->member:Orders.Domain.Order.Create",
+          "kind": "calls",
+          "provenance": "static",
+          "source": "member:Orders.Api.Functions.CreateOrder",
+          "target": "member:Orders.Domain.Order.Create"
+        },
+        "path": [
+          "tf:aws_api_gateway_method.post_order",
+          "member:Orders.Api.Functions.CreateOrder",
+          "member:Orders.Domain.Order.Create"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Orders.Domain.Order.Id",
+        "name": "Id",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 2,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Orders.Api.Functions.CreateOrder",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "accesses:member:Orders.Api.Functions.CreateOrder->member:Orders.Domain.Order.Id",
+          "kind": "accesses",
+          "provenance": "static",
+          "source": "member:Orders.Api.Functions.CreateOrder",
+          "target": "member:Orders.Domain.Order.Id"
+        },
+        "path": [
+          "tf:aws_api_gateway_method.post_order",
+          "member:Orders.Api.Functions.CreateOrder",
+          "member:Orders.Domain.Order.Id"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Orders.Domain.Order",
+        "name": "Order",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 3,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Orders.Domain.IOrderRepository.SaveAsync",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "references:member:Orders.Domain.IOrderRepository.SaveAsync->type:Orders.Domain.Order",
+          "kind": "references",
+          "provenance": "static",
+          "source": "member:Orders.Domain.IOrderRepository.SaveAsync",
+          "target": "type:Orders.Domain.Order"
+        },
+        "path": [
+          "tf:aws_api_gateway_method.post_order",
+          "member:Orders.Api.Functions.CreateOrder",
+          "member:Orders.Domain.IOrderRepository.SaveAsync",
+          "type:Orders.Domain.Order"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Orders.Infrastructure.NotifyHandler.FunctionHandler",
+        "name": "FunctionHandler",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 6,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "tf:aws_lambda_function.notify",
+        "movementEvidence": {
+          "id": "handler:tf:aws_lambda_function.notify->member:Orders.Infrastructure.NotifyHandler.FunctionHandler",
+          "kind": "handler",
+          "provenance": "terraform",
+          "source": "tf:aws_lambda_function.notify",
+          "target": "member:Orders.Infrastructure.NotifyHandler.FunctionHandler"
+        },
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "handler:tf:aws_lambda_function.notify->member:Orders.Infrastructure.NotifyHandler.FunctionHandler",
+          "kind": "handler",
+          "provenance": "terraform",
+          "source": "tf:aws_lambda_function.notify",
+          "target": "member:Orders.Infrastructure.NotifyHandler.FunctionHandler"
+        },
+        "path": [
+          "tf:aws_api_gateway_method.post_order",
+          "member:Orders.Api.Functions.CreateOrder",
+          "tf:aws_lambda_function.orders_api",
+          "project:src/Orders.Api/Orders.Api.csproj",
+          "project:src/Orders.Infrastructure/Orders.Infrastructure.csproj",
+          "tf:aws_lambda_function.notify",
+          "member:Orders.Infrastructure.NotifyHandler.FunctionHandler"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Orders.Domain.IOrderRepository.FindAsync",
+        "name": "FindAsync",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 7,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Orders.Infrastructure.NotifyHandler.FunctionHandler",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "calls:member:Orders.Infrastructure.NotifyHandler.FunctionHandler->member:Orders.Domain.IOrderRepository.FindAsync",
+          "kind": "calls",
+          "provenance": "static",
+          "source": "member:Orders.Infrastructure.NotifyHandler.FunctionHandler",
+          "target": "member:Orders.Domain.IOrderRepository.FindAsync"
+        },
+        "path": [
+          "tf:aws_api_gateway_method.post_order",
+          "member:Orders.Api.Functions.CreateOrder",
+          "tf:aws_lambda_function.orders_api",
+          "project:src/Orders.Api/Orders.Api.csproj",
+          "project:src/Orders.Infrastructure/Orders.Infrastructure.csproj",
+          "tf:aws_lambda_function.notify",
+          "member:Orders.Infrastructure.NotifyHandler.FunctionHandler",
+          "member:Orders.Domain.IOrderRepository.FindAsync"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Orders.Domain.Order.MarkValidated",
+        "name": "MarkValidated",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 7,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Orders.Infrastructure.NotifyHandler.FunctionHandler",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "calls:member:Orders.Infrastructure.NotifyHandler.FunctionHandler->member:Orders.Domain.Order.MarkValidated",
+          "kind": "calls",
+          "provenance": "static",
+          "source": "member:Orders.Infrastructure.NotifyHandler.FunctionHandler",
+          "target": "member:Orders.Domain.Order.MarkValidated"
+        },
+        "path": [
+          "tf:aws_api_gateway_method.post_order",
+          "member:Orders.Api.Functions.CreateOrder",
+          "tf:aws_lambda_function.orders_api",
+          "project:src/Orders.Api/Orders.Api.csproj",
+          "project:src/Orders.Infrastructure/Orders.Infrastructure.csproj",
+          "tf:aws_lambda_function.notify",
+          "member:Orders.Infrastructure.NotifyHandler.FunctionHandler",
+          "member:Orders.Domain.Order.MarkValidated"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      }
+    ]
+  },
+  "artifacts": {
+    "in": [],
+    "out": [
+      {
+        "direction": "out",
+        "id": "project:src/Orders.Api/Orders.Api.csproj",
+        "name": "Orders.Api.csproj",
+        "kind": "project",
+        "category": "project",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 3,
+        "switches": 0,
+        "correspondence": true,
+        "pathRoot": "start",
+        "via": "tf:aws_lambda_function.orders_api",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "deploys:project:src/Orders.Api/Orders.Api.csproj->tf:aws_lambda_function.orders_api",
+          "kind": "deploys",
+          "provenance": "llm",
+          "source": "project:src/Orders.Api/Orders.Api.csproj",
+          "target": "tf:aws_lambda_function.orders_api"
+        },
+        "path": [
+          "tf:aws_api_gateway_method.post_order",
+          "member:Orders.Api.Functions.CreateOrder",
+          "tf:aws_lambda_function.orders_api",
+          "project:src/Orders.Api/Orders.Api.csproj"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "artifacts.out"
+      },
+      {
+        "direction": "out",
+        "id": "project:src/Orders.Domain/Orders.Domain.csproj",
+        "name": "Orders.Domain.csproj",
+        "kind": "project",
+        "category": "project",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 4,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "project:src/Orders.Api/Orders.Api.csproj",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "project-reference:project:src/Orders.Api/Orders.Api.csproj->project:src/Orders.Domain/Orders.Domain.csproj",
+          "kind": "project-reference",
+          "provenance": "static",
+          "source": "project:src/Orders.Api/Orders.Api.csproj",
+          "target": "project:src/Orders.Domain/Orders.Domain.csproj"
+        },
+        "path": [
+          "tf:aws_api_gateway_method.post_order",
+          "member:Orders.Api.Functions.CreateOrder",
+          "tf:aws_lambda_function.orders_api",
+          "project:src/Orders.Api/Orders.Api.csproj",
+          "project:src/Orders.Domain/Orders.Domain.csproj"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "artifacts.out"
+      },
+      {
+        "direction": "out",
+        "id": "project:src/Orders.Infrastructure/Orders.Infrastructure.csproj",
+        "name": "Orders.Infrastructure.csproj",
+        "kind": "project",
+        "category": "project",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 4,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "project:src/Orders.Api/Orders.Api.csproj",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "project-reference:project:src/Orders.Api/Orders.Api.csproj->project:src/Orders.Infrastructure/Orders.Infrastructure.csproj",
+          "kind": "project-reference",
+          "provenance": "static",
+          "source": "project:src/Orders.Api/Orders.Api.csproj",
+          "target": "project:src/Orders.Infrastructure/Orders.Infrastructure.csproj"
+        },
+        "path": [
+          "tf:aws_api_gateway_method.post_order",
+          "member:Orders.Api.Functions.CreateOrder",
+          "tf:aws_lambda_function.orders_api",
+          "project:src/Orders.Api/Orders.Api.csproj",
+          "project:src/Orders.Infrastructure/Orders.Infrastructure.csproj"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "artifacts.out"
+      }
+    ]
+  },
+  "sameApi": [
+    {
+      "direction": "in",
+      "id": "tf:aws_api_gateway_integration.post_order",
+      "name": "aws_api_gateway_integration:post_order",
+      "kind": "resource",
+      "category": "apigateway",
+      "resourceType": "aws_api_gateway_integration",
+      "endpoint": null,
+      "hops": 1,
+      "switches": 0,
+      "correspondence": false,
+      "pathRoot": "start",
+      "via": "tf:aws_api_gateway_method.post_order",
+      "movementEvidence": {
+        "id": "triggers:tf:aws_api_gateway_integration.post_order->tf:aws_lambda_function.orders_api",
+        "source": "tf:aws_api_gateway_integration.post_order",
+        "target": "tf:aws_lambda_function.orders_api",
+        "kind": "triggers",
+        "provenance": "terraform",
+        "detail": "infra/main.tf 内の参照",
+        "count": 1
+      },
+      "tier": "primary",
+      "sameApi": true,
+      "reachedByInvokes": false,
+      "evidence": {
+        "id": "references:tf:aws_api_gateway_integration.post_order->tf:aws_api_gateway_method.post_order",
+        "kind": "references",
+        "provenance": "terraform",
+        "source": "tf:aws_api_gateway_integration.post_order",
+        "target": "tf:aws_api_gateway_method.post_order"
+      },
+      "path": [
+        "tf:aws_api_gateway_method.post_order",
+        "tf:aws_api_gateway_integration.post_order"
+      ],
+      "unresolvedCorr": false,
+      "bucket": "sameApi"
+    },
+    {
+      "direction": "in",
+      "id": "tf:aws_api_gateway_resource.orders_path",
+      "name": "aws_api_gateway_resource:orders_path",
+      "kind": "resource",
+      "category": "apigateway",
+      "resourceType": "aws_api_gateway_resource",
+      "endpoint": null,
+      "hops": 1,
+      "switches": 0,
+      "correspondence": false,
+      "pathRoot": "start",
+      "via": "tf:aws_api_gateway_method.post_order",
+      "movementEvidence": null,
+      "tier": "wiring",
+      "sameApi": true,
+      "reachedByInvokes": false,
+      "evidence": {
+        "id": "references:tf:aws_api_gateway_method.post_order->tf:aws_api_gateway_resource.orders_path",
+        "source": "tf:aws_api_gateway_method.post_order",
+        "target": "tf:aws_api_gateway_resource.orders_path",
+        "kind": "references",
+        "provenance": "terraform",
+        "detail": "infra/main.tf 内の参照",
+        "count": 1
+      },
+      "path": [
+        "tf:aws_api_gateway_method.post_order",
+        "tf:aws_api_gateway_resource.orders_path"
+      ],
+      "unresolvedCorr": false,
+      "bucket": "sameApi"
+    },
+    {
+      "direction": "in",
+      "id": "tf:aws_api_gateway_rest_api.orders",
+      "name": "aws_api_gateway_rest_api:orders",
+      "kind": "resource",
+      "category": "apigateway",
+      "resourceType": "aws_api_gateway_rest_api",
+      "endpoint": null,
+      "hops": 1,
+      "switches": 0,
+      "correspondence": false,
+      "pathRoot": "start",
+      "via": "tf:aws_api_gateway_method.post_order",
+      "movementEvidence": null,
+      "tier": "wiring",
+      "sameApi": true,
+      "reachedByInvokes": false,
+      "evidence": {
+        "id": "references:tf:aws_api_gateway_method.post_order->tf:aws_api_gateway_rest_api.orders",
+        "source": "tf:aws_api_gateway_method.post_order",
+        "target": "tf:aws_api_gateway_rest_api.orders",
+        "kind": "references",
+        "provenance": "terraform",
+        "detail": "infra/main.tf 内の参照",
+        "count": 1
+      },
+      "path": [
+        "tf:aws_api_gateway_method.post_order",
+        "tf:aws_api_gateway_rest_api.orders"
+      ],
+      "unresolvedCorr": false,
+      "bucket": "sameApi"
+    },
+    {
+      "direction": "in",
+      "id": "tf:aws_api_gateway_deployment.live",
+      "name": "aws_api_gateway_deployment:live",
+      "kind": "resource",
+      "category": "apigateway",
+      "resourceType": "aws_api_gateway_deployment",
+      "endpoint": null,
+      "hops": 2,
+      "switches": 0,
+      "correspondence": false,
+      "pathRoot": "start",
+      "via": "tf:aws_api_gateway_integration.post_order",
+      "movementEvidence": null,
+      "tier": "wiring",
+      "sameApi": true,
+      "reachedByInvokes": false,
+      "evidence": {
+        "id": "references:tf:aws_api_gateway_deployment.live->tf:aws_api_gateway_integration.post_order",
+        "kind": "references",
+        "provenance": "terraform",
+        "source": "tf:aws_api_gateway_deployment.live",
+        "target": "tf:aws_api_gateway_integration.post_order"
+      },
+      "path": [
+        "tf:aws_api_gateway_method.post_order",
+        "tf:aws_api_gateway_integration.post_order",
+        "tf:aws_api_gateway_deployment.live"
+      ],
+      "unresolvedCorr": false,
+      "bucket": "sameApi"
+    },
+    {
+      "direction": "in",
+      "id": "tf:aws_api_gateway_integration.get_order",
+      "name": "aws_api_gateway_integration:get_order",
+      "kind": "resource",
+      "category": "apigateway",
+      "resourceType": "aws_api_gateway_integration",
+      "endpoint": null,
+      "hops": 3,
+      "switches": 0,
+      "correspondence": false,
+      "pathRoot": "start",
+      "via": "tf:aws_lambda_function.orders_api",
+      "movementEvidence": {
+        "id": "triggers:tf:aws_api_gateway_integration.get_order->tf:aws_lambda_function.orders_api",
+        "kind": "triggers",
+        "provenance": "terraform",
+        "source": "tf:aws_api_gateway_integration.get_order",
+        "target": "tf:aws_lambda_function.orders_api"
+      },
+      "tier": "primary",
+      "sameApi": true,
+      "reachedByInvokes": false,
+      "evidence": {
+        "id": "triggers:tf:aws_api_gateway_integration.get_order->tf:aws_lambda_function.orders_api",
+        "kind": "triggers",
+        "provenance": "terraform",
+        "source": "tf:aws_api_gateway_integration.get_order",
+        "target": "tf:aws_lambda_function.orders_api"
+      },
+      "path": [
+        "tf:aws_api_gateway_method.post_order",
+        "member:Orders.Api.Functions.CreateOrder",
+        "tf:aws_lambda_function.orders_api",
+        "tf:aws_api_gateway_integration.get_order"
+      ],
+      "unresolvedCorr": false,
+      "bucket": "sameApi"
+    }
+  ],
+  "siblingEndpoints": [
+    {
+      "direction": "in",
+      "id": "tf:aws_api_gateway_method.get_order",
+      "name": "GET /orders",
+      "kind": "resource",
+      "category": "apigateway",
+      "resourceType": "aws_api_gateway_method",
+      "endpoint": "GET /orders",
+      "hops": 4,
+      "switches": 0,
+      "correspondence": false,
+      "pathRoot": "start",
+      "via": "tf:aws_api_gateway_integration.get_order",
+      "movementEvidence": null,
+      "tier": "wiring",
+      "sameApi": false,
+      "reachedByInvokes": false,
+      "evidence": {
+        "id": "references:tf:aws_api_gateway_integration.get_order->tf:aws_api_gateway_method.get_order",
+        "source": "tf:aws_api_gateway_integration.get_order",
+        "target": "tf:aws_api_gateway_method.get_order",
+        "kind": "references",
+        "provenance": "terraform",
+        "detail": "infra/main.tf 内の参照",
+        "count": 1
+      },
+      "path": [
+        "tf:aws_api_gateway_method.post_order",
+        "member:Orders.Api.Functions.CreateOrder",
+        "tf:aws_lambda_function.orders_api",
+        "tf:aws_api_gateway_integration.get_order",
+        "tf:aws_api_gateway_method.get_order"
+      ],
+      "siblingReason": "shared-code-endpoint",
+      "unresolvedCorr": false,
+      "bucket": "siblingEndpoints"
+    }
+  ],
+  "wiring": [
+    {
+      "direction": "out",
+      "id": "tf:aws_iam_role_policy.lambda_dynamo_policy",
+      "name": "aws_iam_role_policy:lambda_dynamo_policy",
+      "kind": "resource",
+      "category": "iam",
+      "resourceType": "aws_iam_role_policy",
+      "endpoint": null,
+      "hops": 7,
+      "switches": 0,
+      "correspondence": false,
+      "pathRoot": "start",
+      "via": "tf:aws_dynamodb_table.orders",
+      "movementEvidence": null,
+      "tier": "wiring",
+      "sameApi": false,
+      "reachedByInvokes": false,
+      "evidence": {
+        "id": "references:tf:aws_iam_role_policy.lambda_dynamo_policy->tf:aws_dynamodb_table.orders",
+        "source": "tf:aws_iam_role_policy.lambda_dynamo_policy",
+        "target": "tf:aws_dynamodb_table.orders",
+        "kind": "references",
+        "provenance": "terraform",
+        "detail": "infra/main.tf 内の参照",
+        "count": 1
+      },
+      "path": [
+        "tf:aws_api_gateway_method.post_order",
+        "member:Orders.Api.Functions.CreateOrder",
+        "tf:aws_lambda_function.orders_api",
+        "project:src/Orders.Api/Orders.Api.csproj",
+        "project:src/Orders.Infrastructure/Orders.Infrastructure.csproj",
+        "tf:aws_lambda_function.notify",
+        "tf:aws_dynamodb_table.orders",
+        "tf:aws_iam_role_policy.lambda_dynamo_policy"
+      ],
+      "unresolvedCorr": false,
+      "bucket": "wiring"
+    },
+    {
+      "direction": "out",
+      "id": "tf:aws_dynamodb_table.orders",
+      "name": "aws_dynamodb_table:orders",
+      "kind": "resource",
+      "category": "dynamodb",
+      "resourceType": "aws_dynamodb_table",
+      "endpoint": null,
+      "hops": 6,
+      "switches": 1,
+      "correspondence": false,
+      "pathRoot": "start",
+      "via": "tf:aws_lambda_function.notify",
+      "movementEvidence": null,
+      "tier": "wiring",
+      "sameApi": false,
+      "reachedByInvokes": false,
+      "evidence": {
+        "id": "references:tf:aws_lambda_function.notify->tf:aws_dynamodb_table.orders",
+        "kind": "references",
+        "provenance": "terraform",
+        "source": "tf:aws_lambda_function.notify",
+        "target": "tf:aws_dynamodb_table.orders"
+      },
+      "path": [
+        "tf:aws_api_gateway_method.post_order",
+        "member:Orders.Api.Functions.CreateOrder",
+        "tf:aws_lambda_function.orders_api",
+        "project:src/Orders.Api/Orders.Api.csproj",
+        "project:src/Orders.Infrastructure/Orders.Infrastructure.csproj",
+        "tf:aws_lambda_function.notify",
+        "tf:aws_dynamodb_table.orders"
+      ],
+      "unresolvedCorr": false,
+      "bucket": "wiring"
+    },
+    {
+      "direction": "out",
+      "id": "tf:aws_iam_role.lambda_role",
+      "name": "aws_iam_role:lambda_role",
+      "kind": "resource",
+      "category": "iam",
+      "resourceType": "aws_iam_role",
+      "endpoint": null,
+      "hops": 6,
+      "switches": 1,
+      "correspondence": false,
+      "pathRoot": "start",
+      "via": "tf:aws_lambda_function.notify",
+      "movementEvidence": null,
+      "tier": "wiring",
+      "sameApi": false,
+      "reachedByInvokes": false,
+      "evidence": {
+        "id": "references:tf:aws_lambda_function.notify->tf:aws_iam_role.lambda_role",
+        "kind": "references",
+        "provenance": "terraform",
+        "source": "tf:aws_lambda_function.notify",
+        "target": "tf:aws_iam_role.lambda_role"
+      },
+      "path": [
+        "tf:aws_api_gateway_method.post_order",
+        "member:Orders.Api.Functions.CreateOrder",
+        "tf:aws_lambda_function.orders_api",
+        "project:src/Orders.Api/Orders.Api.csproj",
+        "project:src/Orders.Infrastructure/Orders.Infrastructure.csproj",
+        "tf:aws_lambda_function.notify",
+        "tf:aws_iam_role.lambda_role"
+      ],
+      "unresolvedCorr": false,
+      "bucket": "wiring"
+    }
+  ]
+}

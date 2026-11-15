@@ -1,0 +1,937 @@
+{
+  "summary": {
+    "graph": "/Users/haoming/git/csharp-dependencies-graph/out/elsa/graph.json",
+    "starts": 10,
+    "expandedStarts": 22,
+    "limit": 100000,
+    "listTruncated": false,
+    "fallbacks": 0,
+    "hops": 8,
+    "wiringHops": 3,
+    "primaryIn": 0,
+    "primaryOut": 0,
+    "entryIn": 0,
+    "entryOut": 26,
+    "artifactsIn": 0,
+    "artifactsOut": 0,
+    "wiring": 0,
+    "sameApi": 0,
+    "siblings": 0,
+    "siblingEndpointsOnly": 0,
+    "siblingDefs": 0,
+    "secondOrder": 26,
+    "rows": 26,
+    "rounds": 1,
+    "maxRounds": 40803,
+    "unresolved": false,
+    "startIsEndpoint": false,
+    "startEndpoints": [],
+    "reachedEndpoints": [],
+    "startIds": [
+      "file:apps/src/Elsa.Server/Program.cs",
+      "file:apps/src/Elsa.Server.Shared/DatabaseConfiguration.cs",
+      "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCoreForAgents",
+      "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCore",
+      "file:apps/src/Elsa.Server.Studio.BlazorServer/Program.cs",
+      "file:apps/src/Elsa.Server.Studio.BlazorWasm/Program.cs",
+      "file:apps/src/Elsa.Server.Studio.BlazorWasm.Client/Program.cs",
+      "file:apps/src/Elsa.Studio.BlazorServer/Bootstrap/Backend.cs",
+      "member:Elsa.Studio.BlazorServer.Bootstrap.Backend.ConfigureBackend",
+      "file:apps/src/Elsa.Studio.BlazorServer/Bootstrap/Core.cs",
+      "member:Elsa.Studio.BlazorServer.Bootstrap.Core.SetupCore",
+      "file:apps/src/Elsa.Studio.BlazorServer/Bootstrap/Diagnostics.cs",
+      "member:Elsa.Studio.BlazorServer.Bootstrap.Diagnostics.ConfigureDiagnostics",
+      "member:Elsa.Studio.BlazorServer.Bootstrap.Diagnostics.ConfigureApplicationInsights",
+      "file:apps/src/Elsa.Studio.BlazorServer/Bootstrap/HealthChecks.cs",
+      "member:Elsa.Studio.BlazorServer.Bootstrap.HealthChecks.ConfigureHealthChecks",
+      "member:Elsa.Studio.BlazorServer.Bootstrap.HealthChecks.ConfigureHealthCheckEndpoints",
+      "file:apps/src/Elsa.Studio.BlazorServer/Bootstrap/Login.cs",
+      "member:Elsa.Studio.BlazorServer.Bootstrap.Login.ConfigureLogin",
+      "member:Elsa.Studio.BlazorServer.Bootstrap.Login.ConfigureOpenIdConnect",
+      "member:Elsa.Studio.BlazorServer.Bootstrap.Login.ConfigureOAuth2",
+      "member:Elsa.Studio.BlazorServer.Bootstrap.Login.EnsureAuthOptionsNotNull"
+    ],
+    "startIdsTruncated": false,
+    "pathsByRoot": {
+      "start": 26,
+      "second-stage": 0,
+      "broken": 0
+    },
+    "correspondenceRows": 0,
+    "unresolvedCorr": 0,
+    "annotationRows": 0,
+    "byProvenance": {
+      "static": 26
+    }
+  },
+  "starts": [
+    {
+      "id": "file:apps/src/Elsa.Server/Program.cs",
+      "why": "指定 (file:apps/src/Elsa.Server/Program.cs)"
+    },
+    {
+      "id": "file:apps/src/Elsa.Server.Shared/DatabaseConfiguration.cs",
+      "why": "指定 (file:apps/src/Elsa.Server.Shared/DatabaseConfiguration.cs)"
+    },
+    {
+      "id": "file:apps/src/Elsa.Server.Studio.BlazorServer/Program.cs",
+      "why": "指定 (file:apps/src/Elsa.Server.Studio.BlazorServer/Program.cs)"
+    },
+    {
+      "id": "file:apps/src/Elsa.Server.Studio.BlazorWasm/Program.cs",
+      "why": "指定 (file:apps/src/Elsa.Server.Studio.BlazorWasm/Program.cs)"
+    },
+    {
+      "id": "file:apps/src/Elsa.Server.Studio.BlazorWasm.Client/Program.cs",
+      "why": "指定 (file:apps/src/Elsa.Server.Studio.BlazorWasm.Client/Program.cs)"
+    },
+    {
+      "id": "file:apps/src/Elsa.Studio.BlazorServer/Bootstrap/Backend.cs",
+      "why": "指定 (file:apps/src/Elsa.Studio.BlazorServer/Bootstrap/Backend.cs)"
+    },
+    {
+      "id": "file:apps/src/Elsa.Studio.BlazorServer/Bootstrap/Core.cs",
+      "why": "指定 (file:apps/src/Elsa.Studio.BlazorServer/Bootstrap/Core.cs)"
+    },
+    {
+      "id": "file:apps/src/Elsa.Studio.BlazorServer/Bootstrap/Diagnostics.cs",
+      "why": "指定 (file:apps/src/Elsa.Studio.BlazorServer/Bootstrap/Diagnostics.cs)"
+    },
+    {
+      "id": "file:apps/src/Elsa.Studio.BlazorServer/Bootstrap/HealthChecks.cs",
+      "why": "指定 (file:apps/src/Elsa.Studio.BlazorServer/Bootstrap/HealthChecks.cs)"
+    },
+    {
+      "id": "file:apps/src/Elsa.Studio.BlazorServer/Bootstrap/Login.cs",
+      "why": "指定 (file:apps/src/Elsa.Studio.BlazorServer/Bootstrap/Login.cs)"
+    }
+  ],
+  "api": [],
+  "fallbacks": [],
+  "score": null,
+  "external": {
+    "in": [],
+    "out": []
+  },
+  "entries": {
+    "in": [],
+    "out": [
+      {
+        "direction": "out",
+        "id": "member:Shared.Constants.SettingKeys.ApplicationInsights",
+        "name": "ApplicationInsights",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Studio.BlazorServer.Bootstrap.Diagnostics.ConfigureApplicationInsights",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "accesses:member:Elsa.Studio.BlazorServer.Bootstrap.Diagnostics.ConfigureApplicationInsights->member:Shared.Constants.SettingKeys.ApplicationInsights",
+          "kind": "accesses",
+          "provenance": "static",
+          "source": "member:Elsa.Studio.BlazorServer.Bootstrap.Diagnostics.ConfigureApplicationInsights",
+          "target": "member:Shared.Constants.SettingKeys.ApplicationInsights"
+        },
+        "path": [
+          "member:Elsa.Studio.BlazorServer.Bootstrap.Diagnostics.ConfigureApplicationInsights",
+          "member:Shared.Constants.SettingKeys.ApplicationInsights"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Shared.Constants.SettingKeys.Authentication",
+        "name": "Authentication",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Studio.BlazorServer.Bootstrap.Login.ConfigureLogin",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "accesses:member:Elsa.Studio.BlazorServer.Bootstrap.Login.ConfigureLogin->member:Shared.Constants.SettingKeys.Authentication",
+          "kind": "accesses",
+          "provenance": "static",
+          "source": "member:Elsa.Studio.BlazorServer.Bootstrap.Login.ConfigureLogin",
+          "target": "member:Shared.Constants.SettingKeys.Authentication"
+        },
+        "path": [
+          "member:Elsa.Studio.BlazorServer.Bootstrap.Login.ConfigureLogin",
+          "member:Shared.Constants.SettingKeys.Authentication"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Shared.Constants.SettingKeys.Backend",
+        "name": "Backend",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Studio.BlazorServer.Bootstrap.Backend.ConfigureBackend",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "accesses:member:Elsa.Studio.BlazorServer.Bootstrap.Backend.ConfigureBackend->member:Shared.Constants.SettingKeys.Backend",
+          "kind": "accesses",
+          "provenance": "static",
+          "source": "member:Elsa.Studio.BlazorServer.Bootstrap.Backend.ConfigureBackend",
+          "target": "member:Shared.Constants.SettingKeys.Backend"
+        },
+        "path": [
+          "member:Elsa.Studio.BlazorServer.Bootstrap.Backend.ConfigureBackend",
+          "member:Shared.Constants.SettingKeys.Backend"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Shared.Constants.SettingKeys.Diagnostics",
+        "name": "Diagnostics",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Studio.BlazorServer.Bootstrap.Diagnostics.ConfigureDiagnostics",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "accesses:member:Elsa.Studio.BlazorServer.Bootstrap.Diagnostics.ConfigureDiagnostics->member:Shared.Constants.SettingKeys.Diagnostics",
+          "kind": "accesses",
+          "provenance": "static",
+          "source": "member:Elsa.Studio.BlazorServer.Bootstrap.Diagnostics.ConfigureDiagnostics",
+          "target": "member:Shared.Constants.SettingKeys.Diagnostics"
+        },
+        "path": [
+          "member:Elsa.Studio.BlazorServer.Bootstrap.Diagnostics.ConfigureDiagnostics",
+          "member:Shared.Constants.SettingKeys.Diagnostics"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Shared.Constants.SettingKeys.HealthChecks",
+        "name": "HealthChecks",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Studio.BlazorServer.Bootstrap.HealthChecks.ConfigureHealthChecks",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "accesses:member:Elsa.Studio.BlazorServer.Bootstrap.HealthChecks.ConfigureHealthChecks->member:Shared.Constants.SettingKeys.HealthChecks",
+          "kind": "accesses",
+          "provenance": "static",
+          "source": "member:Elsa.Studio.BlazorServer.Bootstrap.HealthChecks.ConfigureHealthChecks",
+          "target": "member:Shared.Constants.SettingKeys.HealthChecks"
+        },
+        "path": [
+          "member:Elsa.Studio.BlazorServer.Bootstrap.HealthChecks.ConfigureHealthChecks",
+          "member:Shared.Constants.SettingKeys.HealthChecks"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Shared.Constants.SettingKeys.Identity",
+        "name": "Identity",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Studio.BlazorServer.Bootstrap.Login.ConfigureLogin",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "accesses:member:Elsa.Studio.BlazorServer.Bootstrap.Login.ConfigureLogin->member:Shared.Constants.SettingKeys.Identity",
+          "kind": "accesses",
+          "provenance": "static",
+          "source": "member:Elsa.Studio.BlazorServer.Bootstrap.Login.ConfigureLogin",
+          "target": "member:Shared.Constants.SettingKeys.Identity"
+        },
+        "path": [
+          "member:Elsa.Studio.BlazorServer.Bootstrap.Login.ConfigureLogin",
+          "member:Shared.Constants.SettingKeys.Identity"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Shared.Options.AuthenticationOptions.AuthorizationEndpoint",
+        "name": "AuthorizationEndpoint",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Studio.BlazorServer.Bootstrap.Login.ConfigureOpenIdConnect",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "accesses:member:Elsa.Studio.BlazorServer.Bootstrap.Login.ConfigureOpenIdConnect->member:Shared.Options.AuthenticationOptions.AuthorizationEndpoint",
+          "kind": "accesses",
+          "provenance": "static",
+          "source": "member:Elsa.Studio.BlazorServer.Bootstrap.Login.ConfigureOpenIdConnect",
+          "target": "member:Shared.Options.AuthenticationOptions.AuthorizationEndpoint"
+        },
+        "path": [
+          "member:Elsa.Studio.BlazorServer.Bootstrap.Login.ConfigureOpenIdConnect",
+          "member:Shared.Options.AuthenticationOptions.AuthorizationEndpoint"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Shared.Options.AuthenticationOptions.ClientId",
+        "name": "ClientId",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Studio.BlazorServer.Bootstrap.Login.ConfigureOpenIdConnect",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "accesses:member:Elsa.Studio.BlazorServer.Bootstrap.Login.ConfigureOpenIdConnect->member:Shared.Options.AuthenticationOptions.ClientId",
+          "kind": "accesses",
+          "provenance": "static",
+          "source": "member:Elsa.Studio.BlazorServer.Bootstrap.Login.ConfigureOpenIdConnect",
+          "target": "member:Shared.Options.AuthenticationOptions.ClientId"
+        },
+        "path": [
+          "member:Elsa.Studio.BlazorServer.Bootstrap.Login.ConfigureOpenIdConnect",
+          "member:Shared.Options.AuthenticationOptions.ClientId"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Shared.Options.AuthenticationOptions.ClientSecret",
+        "name": "ClientSecret",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Studio.BlazorServer.Bootstrap.Login.ConfigureOpenIdConnect",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "accesses:member:Elsa.Studio.BlazorServer.Bootstrap.Login.ConfigureOpenIdConnect->member:Shared.Options.AuthenticationOptions.ClientSecret",
+          "kind": "accesses",
+          "provenance": "static",
+          "source": "member:Elsa.Studio.BlazorServer.Bootstrap.Login.ConfigureOpenIdConnect",
+          "target": "member:Shared.Options.AuthenticationOptions.ClientSecret"
+        },
+        "path": [
+          "member:Elsa.Studio.BlazorServer.Bootstrap.Login.ConfigureOpenIdConnect",
+          "member:Shared.Options.AuthenticationOptions.ClientSecret"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Shared.Options.AuthenticationOptions.Scopes",
+        "name": "Scopes",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Studio.BlazorServer.Bootstrap.Login.ConfigureOpenIdConnect",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "accesses:member:Elsa.Studio.BlazorServer.Bootstrap.Login.ConfigureOpenIdConnect->member:Shared.Options.AuthenticationOptions.Scopes",
+          "kind": "accesses",
+          "provenance": "static",
+          "source": "member:Elsa.Studio.BlazorServer.Bootstrap.Login.ConfigureOpenIdConnect",
+          "target": "member:Shared.Options.AuthenticationOptions.Scopes"
+        },
+        "path": [
+          "member:Elsa.Studio.BlazorServer.Bootstrap.Login.ConfigureOpenIdConnect",
+          "member:Shared.Options.AuthenticationOptions.Scopes"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Shared.Options.AuthenticationOptions.TokenEndpoint",
+        "name": "TokenEndpoint",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Studio.BlazorServer.Bootstrap.Login.ConfigureOpenIdConnect",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "accesses:member:Elsa.Studio.BlazorServer.Bootstrap.Login.ConfigureOpenIdConnect->member:Shared.Options.AuthenticationOptions.TokenEndpoint",
+          "kind": "accesses",
+          "provenance": "static",
+          "source": "member:Elsa.Studio.BlazorServer.Bootstrap.Login.ConfigureOpenIdConnect",
+          "target": "member:Shared.Options.AuthenticationOptions.TokenEndpoint"
+        },
+        "path": [
+          "member:Elsa.Studio.BlazorServer.Bootstrap.Login.ConfigureOpenIdConnect",
+          "member:Shared.Options.AuthenticationOptions.TokenEndpoint"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "member:Shared.Options.AuthenticationOptions.UsePkce",
+        "name": "UsePkce",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Studio.BlazorServer.Bootstrap.Login.ConfigureOpenIdConnect",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "accesses:member:Elsa.Studio.BlazorServer.Bootstrap.Login.ConfigureOpenIdConnect->member:Shared.Options.AuthenticationOptions.UsePkce",
+          "kind": "accesses",
+          "provenance": "static",
+          "source": "member:Elsa.Studio.BlazorServer.Bootstrap.Login.ConfigureOpenIdConnect",
+          "target": "member:Shared.Options.AuthenticationOptions.UsePkce"
+        },
+        "path": [
+          "member:Elsa.Studio.BlazorServer.Bootstrap.Login.ConfigureOpenIdConnect",
+          "member:Shared.Options.AuthenticationOptions.UsePkce"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Persistence.EFCore.Extensions.AgentsMySqlProvidersExtensions",
+        "name": "AgentsMySqlProvidersExtensions",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCoreForAgents",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "references:member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCoreForAgents->type:Elsa.Persistence.EFCore.Extensions.AgentsMySqlProvidersExtensions",
+          "kind": "references",
+          "provenance": "static",
+          "source": "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCoreForAgents",
+          "target": "type:Elsa.Persistence.EFCore.Extensions.AgentsMySqlProvidersExtensions"
+        },
+        "path": [
+          "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCoreForAgents",
+          "type:Elsa.Persistence.EFCore.Extensions.AgentsMySqlProvidersExtensions"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Persistence.EFCore.Extensions.AgentsPostgreSqlProvidersExtensions",
+        "name": "AgentsPostgreSqlProvidersExtensions",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCoreForAgents",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "references:member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCoreForAgents->type:Elsa.Persistence.EFCore.Extensions.AgentsPostgreSqlProvidersExtensions",
+          "kind": "references",
+          "provenance": "static",
+          "source": "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCoreForAgents",
+          "target": "type:Elsa.Persistence.EFCore.Extensions.AgentsPostgreSqlProvidersExtensions"
+        },
+        "path": [
+          "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCoreForAgents",
+          "type:Elsa.Persistence.EFCore.Extensions.AgentsPostgreSqlProvidersExtensions"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Persistence.EFCore.Extensions.AgentsSqliteProvidersExtensions",
+        "name": "AgentsSqliteProvidersExtensions",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCoreForAgents",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "references:member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCoreForAgents->type:Elsa.Persistence.EFCore.Extensions.AgentsSqliteProvidersExtensions",
+          "kind": "references",
+          "provenance": "static",
+          "source": "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCoreForAgents",
+          "target": "type:Elsa.Persistence.EFCore.Extensions.AgentsSqliteProvidersExtensions"
+        },
+        "path": [
+          "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCoreForAgents",
+          "type:Elsa.Persistence.EFCore.Extensions.AgentsSqliteProvidersExtensions"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Persistence.EFCore.Extensions.AgentsSqlServerProvidersExtensions",
+        "name": "AgentsSqlServerProvidersExtensions",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCoreForAgents",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "references:member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCoreForAgents->type:Elsa.Persistence.EFCore.Extensions.AgentsSqlServerProvidersExtensions",
+          "kind": "references",
+          "provenance": "static",
+          "source": "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCoreForAgents",
+          "target": "type:Elsa.Persistence.EFCore.Extensions.AgentsSqlServerProvidersExtensions"
+        },
+        "path": [
+          "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCoreForAgents",
+          "type:Elsa.Persistence.EFCore.Extensions.AgentsSqlServerProvidersExtensions"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Persistence.EFCore.Extensions.MySqlProvidersExtensions",
+        "name": "MySqlProvidersExtensions",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCore",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "references:member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCore->type:Elsa.Persistence.EFCore.Extensions.MySqlProvidersExtensions",
+          "kind": "references",
+          "provenance": "static",
+          "source": "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCore",
+          "target": "type:Elsa.Persistence.EFCore.Extensions.MySqlProvidersExtensions"
+        },
+        "path": [
+          "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCore",
+          "type:Elsa.Persistence.EFCore.Extensions.MySqlProvidersExtensions"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Persistence.EFCore.Extensions.PostgreSqlProvidersExtensions",
+        "name": "PostgreSqlProvidersExtensions",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCore",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "references:member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCore->type:Elsa.Persistence.EFCore.Extensions.PostgreSqlProvidersExtensions",
+          "kind": "references",
+          "provenance": "static",
+          "source": "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCore",
+          "target": "type:Elsa.Persistence.EFCore.Extensions.PostgreSqlProvidersExtensions"
+        },
+        "path": [
+          "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCore",
+          "type:Elsa.Persistence.EFCore.Extensions.PostgreSqlProvidersExtensions"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Persistence.EFCore.Extensions.SqliteProvidersExtensions",
+        "name": "SqliteProvidersExtensions",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCore",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "references:member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCore->type:Elsa.Persistence.EFCore.Extensions.SqliteProvidersExtensions",
+          "kind": "references",
+          "provenance": "static",
+          "source": "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCore",
+          "target": "type:Elsa.Persistence.EFCore.Extensions.SqliteProvidersExtensions"
+        },
+        "path": [
+          "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCore",
+          "type:Elsa.Persistence.EFCore.Extensions.SqliteProvidersExtensions"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Persistence.EFCore.Extensions.SqlServerProvidersExtensions",
+        "name": "SqlServerProvidersExtensions",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCore",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "references:member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCore->type:Elsa.Persistence.EFCore.Extensions.SqlServerProvidersExtensions",
+          "kind": "references",
+          "provenance": "static",
+          "source": "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCore",
+          "target": "type:Elsa.Persistence.EFCore.Extensions.SqlServerProvidersExtensions"
+        },
+        "path": [
+          "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCore",
+          "type:Elsa.Persistence.EFCore.Extensions.SqlServerProvidersExtensions"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Persistence.EFCore.PersistenceFeatureBase",
+        "name": "PersistenceFeatureBase",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCoreForAgents",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "references:member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCoreForAgents->type:Elsa.Persistence.EFCore.PersistenceFeatureBase",
+          "kind": "references",
+          "provenance": "static",
+          "source": "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCoreForAgents",
+          "target": "type:Elsa.Persistence.EFCore.PersistenceFeatureBase"
+        },
+        "path": [
+          "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCoreForAgents",
+          "type:Elsa.Persistence.EFCore.PersistenceFeatureBase"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Studio.Login.HttpMessageHandlers.AuthenticatingApiHttpMessageHandler",
+        "name": "AuthenticatingApiHttpMessageHandler",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Studio.BlazorServer.Bootstrap.Backend.ConfigureBackend",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "references:member:Elsa.Studio.BlazorServer.Bootstrap.Backend.ConfigureBackend->type:Elsa.Studio.Login.HttpMessageHandlers.AuthenticatingApiHttpMessageHandler",
+          "kind": "references",
+          "provenance": "static",
+          "source": "member:Elsa.Studio.BlazorServer.Bootstrap.Backend.ConfigureBackend",
+          "target": "type:Elsa.Studio.Login.HttpMessageHandlers.AuthenticatingApiHttpMessageHandler"
+        },
+        "path": [
+          "member:Elsa.Studio.BlazorServer.Bootstrap.Backend.ConfigureBackend",
+          "type:Elsa.Studio.Login.HttpMessageHandlers.AuthenticatingApiHttpMessageHandler"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Studio.Models.BackendApiConfig",
+        "name": "BackendApiConfig",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Studio.BlazorServer.Bootstrap.Backend.ConfigureBackend",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "creates:member:Elsa.Studio.BlazorServer.Bootstrap.Backend.ConfigureBackend->type:Elsa.Studio.Models.BackendApiConfig",
+          "kind": "creates",
+          "provenance": "static",
+          "source": "member:Elsa.Studio.BlazorServer.Bootstrap.Backend.ConfigureBackend",
+          "target": "type:Elsa.Studio.Models.BackendApiConfig"
+        },
+        "path": [
+          "member:Elsa.Studio.BlazorServer.Bootstrap.Backend.ConfigureBackend",
+          "type:Elsa.Studio.Models.BackendApiConfig"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Shared.Options.AuthenticationOptions",
+        "name": "AuthenticationOptions",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 1,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "member:Elsa.Studio.BlazorServer.Bootstrap.Login.ConfigureOpenIdConnect",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "references:member:Elsa.Studio.BlazorServer.Bootstrap.Login.ConfigureOpenIdConnect->type:Shared.Options.AuthenticationOptions",
+          "kind": "references",
+          "provenance": "static",
+          "source": "member:Elsa.Studio.BlazorServer.Bootstrap.Login.ConfigureOpenIdConnect",
+          "target": "type:Shared.Options.AuthenticationOptions"
+        },
+        "path": [
+          "member:Elsa.Studio.BlazorServer.Bootstrap.Login.ConfigureOpenIdConnect",
+          "type:Shared.Options.AuthenticationOptions"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Features.Abstractions.FeatureBase",
+        "name": "FeatureBase",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 2,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "type:Elsa.Persistence.EFCore.PersistenceFeatureBase",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "inherits:type:Elsa.Persistence.EFCore.PersistenceFeatureBase->type:Elsa.Features.Abstractions.FeatureBase",
+          "kind": "inherits",
+          "provenance": "static",
+          "source": "type:Elsa.Persistence.EFCore.PersistenceFeatureBase",
+          "target": "type:Elsa.Features.Abstractions.FeatureBase"
+        },
+        "path": [
+          "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCoreForAgents",
+          "type:Elsa.Persistence.EFCore.PersistenceFeatureBase",
+          "type:Elsa.Features.Abstractions.FeatureBase"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      },
+      {
+        "direction": "out",
+        "id": "type:Elsa.Features.Services.IFeature",
+        "name": "IFeature",
+        "kind": "type",
+        "category": "type",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 3,
+        "switches": 1,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "type:Elsa.Features.Abstractions.FeatureBase",
+        "movementEvidence": null,
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "implements:type:Elsa.Features.Abstractions.FeatureBase->type:Elsa.Features.Services.IFeature",
+          "kind": "implements",
+          "provenance": "static",
+          "source": "type:Elsa.Features.Abstractions.FeatureBase",
+          "target": "type:Elsa.Features.Services.IFeature"
+        },
+        "path": [
+          "member:Elsa.Server.Shared.DatabaseConfiguration.ConfigureEntityFrameworkCoreForAgents",
+          "type:Elsa.Persistence.EFCore.PersistenceFeatureBase",
+          "type:Elsa.Features.Abstractions.FeatureBase",
+          "type:Elsa.Features.Services.IFeature"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      }
+    ]
+  },
+  "artifacts": {
+    "in": [],
+    "out": []
+  },
+  "sameApi": [],
+  "siblingEndpoints": [],
+  "wiring": []
+}

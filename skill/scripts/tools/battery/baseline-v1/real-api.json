@@ -1,0 +1,398 @@
+{
+  "summary": {
+    "graph": "/Users/haoming/git/csharp-dependencies-graph/out/tmp-r19/real/graph.json",
+    "starts": 1,
+    "expandedStarts": 1,
+    "limit": 100000,
+    "listTruncated": false,
+    "fallbacks": 0,
+    "hops": 8,
+    "wiringHops": 3,
+    "primaryIn": 0,
+    "primaryOut": 1,
+    "entryIn": 0,
+    "entryOut": 1,
+    "artifactsIn": 0,
+    "artifactsOut": 0,
+    "wiring": 2,
+    "sameApi": 5,
+    "siblings": 0,
+    "siblingEndpointsOnly": 0,
+    "siblingDefs": 0,
+    "secondOrder": 0,
+    "rows": 9,
+    "rounds": 1,
+    "maxRounds": 11,
+    "unresolved": false,
+    "startIsEndpoint": true,
+    "startEndpoints": [
+      {
+        "id": "tf:aws_api_gateway_method.example_api_method",
+        "kind": "resource",
+        "name": "POST /messages",
+        "resourceType": "aws_api_gateway_method",
+        "category": "apigateway"
+      }
+    ],
+    "reachedEndpoints": [],
+    "startIds": [
+      "tf:aws_api_gateway_method.example_api_method"
+    ],
+    "startIdsTruncated": false,
+    "pathsByRoot": {
+      "start": 9,
+      "second-stage": 0,
+      "broken": 0
+    },
+    "correspondenceRows": 0,
+    "unresolvedCorr": 0,
+    "annotationRows": 0,
+    "byProvenance": {
+      "terraform": 9
+    }
+  },
+  "starts": [
+    {
+      "id": "tf:aws_api_gateway_method.example_api_method",
+      "why": "指定 (tf:aws_api_gateway_method.example_api_method)"
+    }
+  ],
+  "api": [],
+  "fallbacks": [],
+  "score": null,
+  "external": {
+    "in": [],
+    "out": [
+      {
+        "direction": "out",
+        "id": "tf:aws_lambda_function.example_test_function",
+        "name": "aws_lambda_function:example_test_function",
+        "kind": "resource",
+        "category": "lambda",
+        "resourceType": "aws_lambda_function",
+        "endpoint": null,
+        "hops": 2,
+        "switches": 0,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "tf:aws_api_gateway_integration.example_api_method-integration",
+        "movementEvidence": {
+          "id": "handler:tf:aws_lambda_function.example_test_function->member:ExampleLambdaApi.Handler.Handle",
+          "kind": "handler",
+          "provenance": "terraform",
+          "source": "tf:aws_lambda_function.example_test_function",
+          "target": "member:ExampleLambdaApi.Handler.Handle"
+        },
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "triggers:tf:aws_api_gateway_integration.example_api_method-integration->tf:aws_lambda_function.example_test_function",
+          "source": "tf:aws_api_gateway_integration.example_api_method-integration",
+          "target": "tf:aws_lambda_function.example_test_function",
+          "kind": "triggers",
+          "provenance": "terraform",
+          "detail": "main.tf 内の参照",
+          "count": 1
+        },
+        "path": [
+          "tf:aws_api_gateway_method.example_api_method",
+          "tf:aws_api_gateway_integration.example_api_method-integration",
+          "tf:aws_lambda_function.example_test_function"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "external.out"
+      }
+    ]
+  },
+  "entries": {
+    "in": [],
+    "out": [
+      {
+        "direction": "out",
+        "id": "member:ExampleLambdaApi.Handler.Handle",
+        "name": "Handle",
+        "kind": "member",
+        "category": "member",
+        "resourceType": null,
+        "endpoint": null,
+        "hops": 3,
+        "switches": 0,
+        "correspondence": false,
+        "pathRoot": "start",
+        "via": "tf:aws_lambda_function.example_test_function",
+        "movementEvidence": {
+          "id": "handler:tf:aws_lambda_function.example_test_function->member:ExampleLambdaApi.Handler.Handle",
+          "source": "tf:aws_lambda_function.example_test_function",
+          "target": "member:ExampleLambdaApi.Handler.Handle",
+          "kind": "handler",
+          "provenance": "terraform",
+          "detail": "handler = ExampleLambdaApi::ExampleLambdaApi.Handler::Handle",
+          "count": 1
+        },
+        "tier": "primary",
+        "sameApi": false,
+        "reachedByInvokes": false,
+        "evidence": {
+          "id": "handler:tf:aws_lambda_function.example_test_function->member:ExampleLambdaApi.Handler.Handle",
+          "source": "tf:aws_lambda_function.example_test_function",
+          "target": "member:ExampleLambdaApi.Handler.Handle",
+          "kind": "handler",
+          "provenance": "terraform",
+          "detail": "handler = ExampleLambdaApi::ExampleLambdaApi.Handler::Handle",
+          "count": 1
+        },
+        "path": [
+          "tf:aws_api_gateway_method.example_api_method",
+          "tf:aws_api_gateway_integration.example_api_method-integration",
+          "tf:aws_lambda_function.example_test_function",
+          "member:ExampleLambdaApi.Handler.Handle"
+        ],
+        "unresolvedCorr": false,
+        "bucket": "entries.out"
+      }
+    ]
+  },
+  "artifacts": {
+    "in": [],
+    "out": []
+  },
+  "sameApi": [
+    {
+      "direction": "out",
+      "id": "tf:aws_api_gateway_deployment.example_deployment_dev",
+      "name": "aws_api_gateway_deployment:example_deployment_dev",
+      "kind": "resource",
+      "category": "apigateway",
+      "resourceType": "aws_api_gateway_deployment",
+      "endpoint": null,
+      "hops": 1,
+      "switches": 0,
+      "correspondence": false,
+      "pathRoot": "start",
+      "via": "tf:aws_api_gateway_method.example_api_method",
+      "movementEvidence": null,
+      "tier": "wiring",
+      "sameApi": true,
+      "reachedByInvokes": false,
+      "evidence": {
+        "id": "references:tf:aws_api_gateway_deployment.example_deployment_dev->tf:aws_api_gateway_method.example_api_method",
+        "kind": "references",
+        "provenance": "terraform",
+        "source": "tf:aws_api_gateway_deployment.example_deployment_dev",
+        "target": "tf:aws_api_gateway_method.example_api_method"
+      },
+      "path": [
+        "tf:aws_api_gateway_method.example_api_method",
+        "tf:aws_api_gateway_deployment.example_deployment_dev"
+      ],
+      "unresolvedCorr": false,
+      "bucket": "sameApi"
+    },
+    {
+      "direction": "out",
+      "id": "tf:aws_api_gateway_deployment.example_deployment_prod",
+      "name": "aws_api_gateway_deployment:example_deployment_prod",
+      "kind": "resource",
+      "category": "apigateway",
+      "resourceType": "aws_api_gateway_deployment",
+      "endpoint": null,
+      "hops": 1,
+      "switches": 0,
+      "correspondence": false,
+      "pathRoot": "start",
+      "via": "tf:aws_api_gateway_method.example_api_method",
+      "movementEvidence": null,
+      "tier": "wiring",
+      "sameApi": true,
+      "reachedByInvokes": false,
+      "evidence": {
+        "id": "references:tf:aws_api_gateway_deployment.example_deployment_prod->tf:aws_api_gateway_method.example_api_method",
+        "kind": "references",
+        "provenance": "terraform",
+        "source": "tf:aws_api_gateway_deployment.example_deployment_prod",
+        "target": "tf:aws_api_gateway_method.example_api_method"
+      },
+      "path": [
+        "tf:aws_api_gateway_method.example_api_method",
+        "tf:aws_api_gateway_deployment.example_deployment_prod"
+      ],
+      "unresolvedCorr": false,
+      "bucket": "sameApi"
+    },
+    {
+      "direction": "in",
+      "id": "tf:aws_api_gateway_integration.example_api_method-integration",
+      "name": "aws_api_gateway_integration:example_api_method-integration",
+      "kind": "resource",
+      "category": "apigateway",
+      "resourceType": "aws_api_gateway_integration",
+      "endpoint": null,
+      "hops": 1,
+      "switches": 0,
+      "correspondence": false,
+      "pathRoot": "start",
+      "via": "tf:aws_api_gateway_method.example_api_method",
+      "movementEvidence": {
+        "id": "triggers:tf:aws_api_gateway_integration.example_api_method-integration->tf:aws_lambda_function.example_test_function",
+        "source": "tf:aws_api_gateway_integration.example_api_method-integration",
+        "target": "tf:aws_lambda_function.example_test_function",
+        "kind": "triggers",
+        "provenance": "terraform",
+        "detail": "main.tf 内の参照",
+        "count": 1
+      },
+      "tier": "primary",
+      "sameApi": true,
+      "reachedByInvokes": false,
+      "evidence": {
+        "id": "references:tf:aws_api_gateway_integration.example_api_method-integration->tf:aws_api_gateway_method.example_api_method",
+        "kind": "references",
+        "provenance": "terraform",
+        "source": "tf:aws_api_gateway_integration.example_api_method-integration",
+        "target": "tf:aws_api_gateway_method.example_api_method"
+      },
+      "path": [
+        "tf:aws_api_gateway_method.example_api_method",
+        "tf:aws_api_gateway_integration.example_api_method-integration"
+      ],
+      "unresolvedCorr": false,
+      "bucket": "sameApi"
+    },
+    {
+      "direction": "out",
+      "id": "tf:aws_api_gateway_resource.example_api_resource",
+      "name": "aws_api_gateway_resource:example_api_resource",
+      "kind": "resource",
+      "category": "apigateway",
+      "resourceType": "aws_api_gateway_resource",
+      "endpoint": null,
+      "hops": 1,
+      "switches": 0,
+      "correspondence": false,
+      "pathRoot": "start",
+      "via": "tf:aws_api_gateway_method.example_api_method",
+      "movementEvidence": null,
+      "tier": "wiring",
+      "sameApi": true,
+      "reachedByInvokes": false,
+      "evidence": {
+        "id": "references:tf:aws_api_gateway_method.example_api_method->tf:aws_api_gateway_resource.example_api_resource",
+        "source": "tf:aws_api_gateway_method.example_api_method",
+        "target": "tf:aws_api_gateway_resource.example_api_resource",
+        "kind": "references",
+        "provenance": "terraform",
+        "detail": "main.tf 内の参照",
+        "count": 1
+      },
+      "path": [
+        "tf:aws_api_gateway_method.example_api_method",
+        "tf:aws_api_gateway_resource.example_api_resource"
+      ],
+      "unresolvedCorr": false,
+      "bucket": "sameApi"
+    },
+    {
+      "direction": "out",
+      "id": "tf:aws_api_gateway_rest_api.example_api",
+      "name": "aws_api_gateway_rest_api:example_api",
+      "kind": "resource",
+      "category": "apigateway",
+      "resourceType": "aws_api_gateway_rest_api",
+      "endpoint": null,
+      "hops": 1,
+      "switches": 0,
+      "correspondence": false,
+      "pathRoot": "start",
+      "via": "tf:aws_api_gateway_method.example_api_method",
+      "movementEvidence": null,
+      "tier": "wiring",
+      "sameApi": true,
+      "reachedByInvokes": false,
+      "evidence": {
+        "id": "references:tf:aws_api_gateway_method.example_api_method->tf:aws_api_gateway_rest_api.example_api",
+        "source": "tf:aws_api_gateway_method.example_api_method",
+        "target": "tf:aws_api_gateway_rest_api.example_api",
+        "kind": "references",
+        "provenance": "terraform",
+        "detail": "main.tf 内の参照",
+        "count": 1
+      },
+      "path": [
+        "tf:aws_api_gateway_method.example_api_method",
+        "tf:aws_api_gateway_rest_api.example_api"
+      ],
+      "unresolvedCorr": false,
+      "bucket": "sameApi"
+    }
+  ],
+  "siblingEndpoints": [],
+  "wiring": [
+    {
+      "direction": "out",
+      "id": "tf:aws_lambda_permission.allow_api_gateway",
+      "name": "aws_lambda_permission:allow_api_gateway",
+      "kind": "resource",
+      "category": "lambda",
+      "resourceType": "aws_lambda_permission",
+      "endpoint": null,
+      "hops": 1,
+      "switches": 0,
+      "correspondence": false,
+      "pathRoot": "start",
+      "via": "tf:aws_api_gateway_method.example_api_method",
+      "movementEvidence": null,
+      "tier": "wiring",
+      "sameApi": false,
+      "reachedByInvokes": false,
+      "evidence": {
+        "id": "references:tf:aws_lambda_permission.allow_api_gateway->tf:aws_api_gateway_method.example_api_method",
+        "kind": "references",
+        "provenance": "terraform",
+        "source": "tf:aws_lambda_permission.allow_api_gateway",
+        "target": "tf:aws_api_gateway_method.example_api_method"
+      },
+      "path": [
+        "tf:aws_api_gateway_method.example_api_method",
+        "tf:aws_lambda_permission.allow_api_gateway"
+      ],
+      "unresolvedCorr": false,
+      "bucket": "wiring"
+    },
+    {
+      "direction": "out",
+      "id": "tf:aws_iam_role.example_api_role",
+      "name": "aws_iam_role:example_api_role",
+      "kind": "resource",
+      "category": "iam",
+      "resourceType": "aws_iam_role",
+      "endpoint": null,
+      "hops": 3,
+      "switches": 0,
+      "correspondence": false,
+      "pathRoot": "start",
+      "via": "tf:aws_lambda_function.example_test_function",
+      "movementEvidence": null,
+      "tier": "wiring",
+      "sameApi": false,
+      "reachedByInvokes": false,
+      "evidence": {
+        "id": "references:tf:aws_lambda_function.example_test_function->tf:aws_iam_role.example_api_role",
+        "source": "tf:aws_lambda_function.example_test_function",
+        "target": "tf:aws_iam_role.example_api_role",
+        "kind": "references",
+        "provenance": "terraform",
+        "detail": "main.tf 内の参照",
+        "count": 1
+      },
+      "path": [
+        "tf:aws_api_gateway_method.example_api_method",
+        "tf:aws_api_gateway_integration.example_api_method-integration",
+        "tf:aws_lambda_function.example_test_function",
+        "tf:aws_iam_role.example_api_role"
+      ],
+      "unresolvedCorr": false,
+      "bucket": "wiring"
+    }
+  ]
+}

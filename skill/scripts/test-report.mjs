@@ -862,7 +862,7 @@ check('--limit で一覧が切れてもカウンタの不変条件は保たれ�
   check('--limit で切った一覧に出る注記が「JSON にも入っていない」ことを告げる（コード側の出口）',
     !!lim && lim.result.summary.entryOut === 2
       && limSec.split('\n').filter((l) => l.startsWith('|')).length === 3   // 表ヘッダ 2 行 + 1 行
-      && /他 1 件は --limit 1 で打ち切られているため Markdown にも JSON にも入っていません/.test(limSec || '')
+      && /他 1 件は --limit 1 で打ち切られていて、どの出力にも入っていません/.test(limSec || '')
       && !/--json 参照/.test(limSec || ''),
     lim ? `entryOut=${lim.result.summary.entryOut} 注記=${/他 1 件/.test(limSec || '')}` : '実行失敗');
 
@@ -879,9 +879,23 @@ check('--limit で一覧が切れてもカウンタの不変条件は保たれ�
   check('--limit で切った「影響を受けるコード側の入口」にも同じ注記が出る',
     !!inLimit && inLimit.result.summary.entryIn === 2
       && inSec.split('\n').filter((l) => l.startsWith('|')).length === 3
-      && /他 1 件は --limit 1 で打ち切られているため Markdown にも JSON にも入っていません/.test(inSec)
+      && /他 1 件は --limit 1 で打ち切られていて、どの出力にも入っていません/.test(inSec)
       && !/--json 参照/.test(inSec),
     inLimit ? JSON.stringify([inLimit.result.summary.entryIn, /他 1 件/.test(inSec)]) : '実行失敗');
+
+  // 同じ打ち切り注記を、ファイルを出さない実行で出す（第 50 ラウンド双人レビュー。前の版は
+  // 「Markdown にも JSON にも入っていません。--json の summary の件数で」と、存在しない 2 つの
+  // 出力を名指ししていた）
+  const bareTrunc = spawnSync(process.execPath, [join(HERE, 'report.mjs'),
+    '--graph', join(FACTS, 'code-chain.graph.json'), '--from', 'member:M0', '--limit', '1'],
+    { cwd: root, encoding: 'utf8' });
+  const bareTruncLine = bareTrunc.status === 0
+    ? (bareTrunc.stdout.split('\n').find((l) => l.includes('打ち切られていて')) || '') : '';
+  check('--md / --json を付けない打ち切り注記は存在しない出力を名指ししない',
+    bareTrunc.status === 0
+      && /他 3 件は --limit 1 で打ち切られていて、どの出力にも入っていません/.test(bareTruncLine)
+      && bareTruncLine.includes('--json を付ければ summary') && !bareTruncLine.includes('Markdown'),
+    bareTrunc.status === 0 ? bareTruncLine.slice(0, 190) : '実行失敗');
 
   // 同じく agy P1: ターミナルに出す外部リソースの一覧は 12 件固定で `--limit` を無視し、
   // 13 件目以降を黙って落としていた（Markdown は 2 件なのにここだけ 4 件並ぶ）
@@ -890,7 +904,7 @@ check('--limit で一覧が切れてもカウンタの不変条件は保たれ�
   check('ターミナルの外部リソース一覧も --limit に従い、打ち切った件数を出す（12 件固定に戻さない）',
     !!outLim && outLim.result.summary.primaryOut === 4
       && outLim.result.external.out.length === 2 && outLines === 2
-      && /他 2 件は --limit 2 で打ち切られているため Markdown にも JSON にも入っていません/.test(outLim.stdout)
+      && /他 2 件は --limit 2 で打ち切られていて、どの出力にも入っていません/.test(outLim.stdout)
       // --limit 2 で打ったのに 12 件を引用するのは嘘になる（第 48 ラウンド agy 指摘）
       && !/最大 12 件/.test(outLim.stdout) && !/Markdown と --json に出しています/.test(outLim.stdout),
     outLim ? JSON.stringify([outLim.result.summary.primaryOut, outLim.result.external.out.length, outLines,
@@ -920,7 +934,7 @@ check('--limit で一覧が切れてもカウンタの不変条件は保たれ�
   check('--limit 13 では「12 件で打った分」と「--limit で打った分」を分けて告げる',
     !!cap13 && cap13.result.external.out.length === 13
       && /他 1 件は Markdown と --json に出しています/.test(capLine(cap13))
-      && /他 2 件は --limit 13 で打ち切られているため Markdown にも JSON にも入っていません/.test(capLine(cap13)),
+      && /他 2 件は --limit 13 で打ち切られていて、どの出力にも入っていません/.test(capLine(cap13)),
     cap13 ? JSON.stringify([cap13.result.external.out.length, capLine(cap13).trim()]) : '実行失敗');
 
   // --md / --json を付けていない実行で「Markdown と --json に出しています」と言うのも同じ嘘だった
@@ -985,6 +999,28 @@ check('--limit で一覧が切れてもカウンタの不変条件は保たれ�
       bare.status === 0 && /--json を指定すると/.test(bareTerm) && /いまはターミナルだけ/.test(bareTerm)
         && !/この一覧に出しませんが --json の/.test(bareTerm),
       bare.status === 0 ? bareTerm.slice(0, 170) : '実行失敗');
+
+    // Markdown を書き出した実行に「いまはターミナルだけ」と書かせない（第 50 ラウンド双人レビュー両名。
+    // --md だけの実行では Markdown の本文自体が自分をターミナルと呼んでいた）
+    const epMdOnly = join(dir, 'ep-list-md-only.md');
+    const epMd = spawnSync(process.execPath, [join(HERE, 'report.mjs'),
+      '--graph', join(dir, 'ep-list.graph.json'), '--api', 'POST /a', '--limit', '2', '--md', epMdOnly],
+      { cwd: root, encoding: 'utf8' });
+    const epMdText = epMd.status === 0 ? readFileSync(epMdOnly, 'utf8') : '';
+    check('--md だけの実行は Markdown に「いまはターミナルだけ」と書かない',
+      epMd.status === 0 && !epMdText.includes('いまはターミナルだけ')
+        && epMdText.includes('--json を指定すると'),
+      epMd.status === 0 ? (epMdText.match(/.{0,70}いまはターミナルだけ.{0,30}/) || ['（出ていない）'])[0] : '実行失敗');
+
+    // --limit 0 で全部打ったとき「該当なし」（= 存在しない）と言わせない
+    const zero = spawnSync(process.execPath, [join(HERE, 'report.mjs'),
+      '--graph', join(dir, 'ep-list.graph.json'), '--api', 'POST /a', '--limit', '0'],
+      { cwd: root, encoding: 'utf8' });
+    const zeroTerm = zero.status === 0 ? (zero.stdout.split('\n')[0] || '') : '';
+    check('--limit 0 はエンドポイント欄を「該当なし」でなく「打ち切った」と言う',
+      zero.status === 0 && zeroTerm.includes('（--limit で全部打ち切りました）')
+        && !zeroTerm.includes('該当なし') && /表示 0 \/ 3 件/.test(zeroTerm),
+      zero.status === 0 ? zeroTerm.slice(0, 170) : '実行失敗');
   }
 
   const d = runOn('code-chain-long.graph.json', ['--from', 's', '--hops', '100'], 'code-rounds');
@@ -1214,7 +1250,7 @@ check('--limit で一覧が切れてもカウンタの不変条件は保たれ�
   // 兄弟の一覧の打ち切り行は Markdown の生バッククォートがそのまま出ていた（第 47 ラウンド agy）
   const sibNote = listed ? (listed.stdout.split('\n').find((l) => l.includes('他のルート')) || '') : '';
   check('兄弟ルートの一覧の打ち切り行は素のターミナルテキスト（Markdown のバッククォートを出さない）',
-    !!listed && sibNote.includes('他のルート 24 件') && sibNote.includes('他のルート 24 件は --limit 5 で打ち切られているため Markdown にも JSON にも入っていません')
+    !!listed && sibNote.includes('他のルート 24 件') && sibNote.includes('他のルート 24 件は --limit 5 で打ち切られていて、どの出力にも入っていません')
       && !sibNote.includes('`'),
     JSON.stringify(sibNote) || '実行失敗');
 
@@ -1321,6 +1357,22 @@ check('--limit で一覧が切れてもカウンタの不変条件は保たれ�
       mdOnly.status === 0 && mdHead.includes('`--json` を付けると出る')
         && !mdHead.includes('`--json` の'),
       mdOnly.status === 0 ? mdHead.slice(0, 170) : '実行失敗');
+
+    // --md だけの実行の Markdown 本文も同じ基準に揃える（凡例の JSON 参照と、兄弟一覧が
+    // --limit 0 で空になったときの言い方。第 50 ラウンド双人レビュー）
+    const sibZeroFile = join(dir, 'sib-defs-md-zero.md');
+    const sibZero = spawnSync(process.execPath, [join(HERE, 'report.mjs'),
+      '--graph', join(dir, 'sib-defs.graph.json'), '--api', 'POST /a', '--list-siblings',
+      '--limit', '0', '--md', sibZeroFile], { cwd: root, encoding: 'utf8' });
+    const sibZeroMd = sibZero.status === 0 ? readFileSync(sibZeroFile, 'utf8') : '';
+    check('--md だけの実行は凡例で --json を「付けると見る」と言い、全部打った一覧は「なし」にしない',
+      sibZero.status === 0
+        && sibZeroMd.includes('--json を付けると `siblingEndpoints` で見ます')
+        && !sibZeroMd.includes('そこは JSON の')
+        && sibZeroMd.includes('（--limit で全部打ち切りました）') && !sibZeroMd.includes('（なし）'),
+      sibZero.status === 0 ? JSON.stringify([
+        sibZeroMd.includes('そこは JSON の'), /（なし）/.test(sibZeroMd),
+        (sibZeroMd.match(/.{0,50}打ち切りました.{0,20}/) || ['（出ていない）'])[0]]) : '実行失敗');
   }
 
   // 一覧を既定で出すのをやめたぶん、JSON 単体で「どの欄の・なぜこの行なのか」が読めること

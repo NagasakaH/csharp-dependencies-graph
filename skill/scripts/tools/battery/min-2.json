@@ -1,0 +1,70 @@
+{
+ "graph": {
+  "nodes": [
+   {
+    "id": "member:N0",
+    "kind": "member",
+    "name": "N0",
+    "label": "N0"
+   },
+   {
+    "id": "member:N1",
+    "kind": "member",
+    "name": "N1",
+    "label": "N1"
+   },
+   {
+    "id": "member:N4",
+    "kind": "member",
+    "name": "N4",
+    "label": "N4"
+   },
+   {
+    "id": "member:N7",
+    "kind": "member",
+    "name": "N7",
+    "label": "N7"
+   }
+  ],
+  "edges": [
+   {
+    "id": "e2",
+    "source": "member:N1",
+    "target": "member:N7",
+    "kind": "calls",
+    "provenance": "terraform",
+    "metadata": {}
+   },
+   {
+    "id": "e4",
+    "source": "member:N0",
+    "target": "member:N7",
+    "kind": "calls",
+    "provenance": "human",
+    "metadata": {}
+   },
+   {
+    "id": "e6",
+    "source": "member:N0",
+    "target": "member:N4",
+    "kind": "triggers",
+    "provenance": "llm",
+    "metadata": {}
+   },
+   {
+    "id": "e8",
+    "source": "member:N4",
+    "target": "member:N1",
+    "kind": "triggers",
+    "provenance": "static",
+    "metadata": {}
+   }
+  ]
+ },
+ "extra": [
+  "--from",
+  "member:N0",
+  "--hops",
+  "4"
+ ]
+}

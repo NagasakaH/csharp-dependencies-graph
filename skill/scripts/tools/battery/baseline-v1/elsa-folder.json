@@ -1,0 +1,68 @@
+{
+  "summary": {
+    "graph": "/Users/haoming/git/csharp-dependencies-graph/out/elsa/graph.json",
+    "starts": 1,
+    "expandedStarts": 1,
+    "limit": 100000,
+    "listTruncated": false,
+    "fallbacks": 0,
+    "hops": 8,
+    "wiringHops": 3,
+    "primaryIn": 0,
+    "primaryOut": 0,
+    "entryIn": 0,
+    "entryOut": 0,
+    "artifactsIn": 0,
+    "artifactsOut": 0,
+    "wiring": 0,
+    "sameApi": 0,
+    "siblings": 0,
+    "siblingEndpointsOnly": 0,
+    "siblingDefs": 0,
+    "secondOrder": 0,
+    "rows": 0,
+    "rounds": 0,
+    "maxRounds": 40803,
+    "unresolved": false,
+    "startIsEndpoint": false,
+    "startEndpoints": [],
+    "reachedEndpoints": [],
+    "startIds": [
+      "file:apps/src/Elsa.Server/Program.cs"
+    ],
+    "startIdsTruncated": false,
+    "pathsByRoot": {
+      "start": 0,
+      "second-stage": 0,
+      "broken": 0
+    },
+    "correspondenceRows": 0,
+    "unresolvedCorr": 0,
+    "annotationRows": 0,
+    "byProvenance": {}
+  },
+  "starts": [
+    {
+      "id": "file:apps/src/Elsa.Server/Program.cs",
+      "why": "指定 (file:apps/src/Elsa.Server/Program.cs)"
+    }
+  ],
+  "api": [],
+  "fallbacks": [],
+  "score": null,
+  "external": {
+    "in": [],
+    "out": []
+  },
+  "entries": {
+    "in": [],
+    "out": []
+  },
+  "artifacts": {
+    "in": [],
+    "out": []
+  },
+  "sameApi": [],
+  "siblingEndpoints": [],
+  "wiring": []
+}

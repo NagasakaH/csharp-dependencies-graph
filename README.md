@@ -36,7 +36,7 @@ UX 目標**、最大応答時間はゲートにしない。4 とおりの入力�
 
 ```sh
 node skill/scripts/test-analyzer.mjs                          # 静的解析の精度（96 項目、ブラウザ不要）
-node skill/scripts/test-report.mjs                            # 影響範囲レポート（125 項目）
+node skill/scripts/test-report.mjs                            # 影響範囲レポート（129 項目）
 node skill/scripts/test-query.mjs                             # 逆引き・影響範囲の照会（28 項目、.NET 不要）
 node skill/scripts/test-merge.mjs                             # Lambda handler の解決規則（12 項目、.NET 必要）
 node skill/scripts/test-terraform.mjs                         # API Gateway のパス組み立てと HTTP API (v2) の `target`（46 項目、.NET 不要）
@@ -190,8 +190,16 @@ true になり、`summary` の各欄の数は**打ち切る前**のままなの�
 **`--md` / `--json` を付けた実行だけ**の真実なので、付けていない実行では
 「`--md` / `--json` を指定するとそこに入ります（いまはターミナルだけ）」と書く
 （第 50 ラウンド双人レビュー。前の版はファイルを 1 つも出していない実行で同じ嘘を言っていた）。
+「（いまはターミナルだけ）」も同じ理屈で、**どちらの旗も付いていない実行だけ**が書ける
+（前の版は `--md` だけの実行が Markdown の本文でそれを言っていた。第 50 ラウンド Codex P2 / agy）。
+同じく「どの出力にも入っていない」注記も、その実行が**実際に書いたファイルを名指ししない**
+（存在しない出力を指さない）
 `--limit` は Markdown・JSON・ターミナルのすべてに掛かるので、`--limit` で打った分が
 `--json` の中から見つかることはない（第 48 ラウンド双人レビューの実測）
+
+表示対象が 0 件という結果は無いので、`--limit 0` の一覧は「該当なし」「（なし）」にせず
+「`--limit` で全部打ち切りました」と書く（第 50 ラウンド双人レビュー。「該当なし」は
+直後の「（表示 0 / 3 件 …）」と矛盾していた）
 
 同じ理屈で、**JSON の欄を指す案内も `--json` を出した実行だけが断定できる**。`--json` を
 付けていない実行では「`--json` を指定すると `summary.startEndpoints` … に全件入ります」
@@ -261,6 +269,8 @@ skill/
                        + test-analyzer / test-query / test-merge / test-terraform / test-report（回帰テスト）
   scripts/tools/       測定と再生成の道具（regen-audit / count-kinds / make-changed-list /
                        make-v2-graph / perf-measure.py / perf-run.sh / paired-gate.sh）
+  scripts/tools/battery/  v1 の出力契約を突き合わせる照合器・順列と入れ替えの検査器と、
+                       それが入力に固定する 18 レポート（開発側の回帰バッテリー）
   tests/fixtures/      静的解析と照会のテスト用データ（C# と graph.json）
   viewer/template.html 単一ファイルのビューア（データ埋め込み）
   reference/schema.md  データ契約

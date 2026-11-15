@@ -2463,8 +2463,8 @@ const truncNote = (total, shown, fileCap, stem = '他', extra = '') => {
       : `${stem} ${inFiles} 件は --md / --json を指定するとそこに入ります（いまはターミナルだけ）`);
   }
   if (nowhere > 0) {
-    bits.push(`${stem} ${nowhere} 件は --limit ${fileCap} で打ち切られているため Markdown にも JSON にも入っていません`);
-    bits.push('--limit を上げるか --json の summary の件数で全体量を見てください');
+    bits.push(`${stem} ${nowhere} 件は --limit ${fileCap} で打ち切られていて、どの出力にも入っていません`);
+    bits.push('--limit を上げるのが一番早く、--json を付ければ summary の件数で全体量も見られます');
   }
   if (extra) bits.push(extra);
   return `（${bits.join('。')}）`;
@@ -2505,17 +2505,20 @@ const endpointShown = endpointRows.slice(0, opts.limit);
 // （この 2 つは --limit で切らない）。一覧自体には入らないのでそう書く
 // ターミナル行に Markdown の記号をそのまま出さない
 const plain = (s) => s.replace(/`/g, '');
-const epInto = opts.json
+// 「（いまはターミナルだけ）」は **ファイルを 1 つも書き出さない実行**だけ。--md だけの
+// 実行にこれを付けると、Markdown の中身が自分を嘘に言う（第 50 ラウンド双人レビュー両名）
+const termOnly = !opts.md && !opts.json ? '（いまはターミナルだけ）' : '';
+const epInto = (opts.json
   ? `--json の \`summary.startEndpoints\` と \`summary.reachedEndpoints\` に全件入ります`
-  : `--json を指定すると \`summary.startEndpoints\` と \`summary.reachedEndpoints\` に全件入ります`
-    + `（いまはターミナルだけ）`;
+  : `--json を指定すると \`summary.startEndpoints\` と \`summary.reachedEndpoints\` に全件入ります`)
+  + termOnly;
 const endpointNote = endpointRows.length > endpointShown.length
   ? `（表示 ${endpointShown.length} / ${endpointRows.length} 件。他のエンドポイント `
     + `${endpointRows.length - endpointShown.length} 件はこの一覧に出しませんが ${epInto}。`
     + `一覧を長くするには --limit を上げます）`
   : '';
 const SIBLING_LIST_HINT = '一覧は `--list-siblings`（本数は `--limit`）';
-let md = `# 影響範囲レポート\n\n- グラフ: \`${summary.graph}\`\n- 起点 ${summary.starts} 件（展開後 ${summary.expandedStarts} 件、グラフに無く起点にしなかった変更 ${summary.fallbacks} 件）\n- 探索 ${summary.hops} ホップ（向きの変えは探索中 1 回まで許可、表示経路で向き変えを含む行 ${summary.secondOrder} 件）/ Terraform の定義単位は ${summary.wiringHops} 段まで無方向で閉じる / 階層（parent・contains）は起点の展開にのみ使用\n- 本命: 影響する先 ${summary.primaryOut} / 影響を受ける入口 ${summary.primaryIn} / コード 出口 ${summary.entryOut}・入口 ${summary.entryIn} / 成果物 先 ${summary.artifactsOut}・受 ${summary.artifactsIn} / 定義上の関連 ${summary.wiring} / 同じ API の定義 ${summary.sameApi} / 同じコードを使う別の API ${summary.siblings}（エンドポイント ${summary.siblingEndpointsOnly}・定義ノード ${summary.siblingDefs}）/ 向き を決める関係が無い行 ${summary.directionless}（うち 本命 の資格を持つ行 ${summary.directionlessPrimary}）。**「本命」は「最短」を意味しません**\n- 行の 向き（JSON の direction）は in（影響を受ける入口）/ out（影響する先）/ none（**この表示経路に 向き を決める関係が無い**。Terraform の定義の縁だけを辿った行。一覧の 向き 列では「—」と書きます）。none は「そのノードに他の有向関係が存在しない」意味ではなく、動きの根拠 が無いこととは同義ではありません（以前の有向縁から 向き を継承した行があります）。継承した in / out は、その無方向の縁自体が動作方向を証明した値ではありません。none の行は 定義上の関連・同じ API の定義・同じコードを使う別の API に並び、tier（本命の資格）はそのまま保ちます（同じコードを使う別の API の一覧は 向き 列を出さないので、そこは JSON の \`siblingEndpoints\` で見ます）\n- 各段数欄は**表示経路の段数**です（起点 0 段、表示経路の関係 1 本を 1 段。表の値と行の経路表示は一致させます）。**最短とは限りません**。経路全体の整合性を保つため、より長い代表経路を表示する場合があります。この段数は影響の強さやレビューの優先度を示しません\n- 根拠の由来: ${Object.entries(summary.byProvenance).map(([k, v]) => `${provLabel(k)} ${v}`).join(' / ') || 'なし'}（**注釈由来 ${summary.annotationRows} 件**は静的解析では決まらない対応付け）\n\n`;
+let md = `# 影響範囲レポート\n\n- グラフ: \`${summary.graph}\`\n- 起点 ${summary.starts} 件（展開後 ${summary.expandedStarts} 件、グラフに無く起点にしなかった変更 ${summary.fallbacks} 件）\n- 探索 ${summary.hops} ホップ（向きの変えは探索中 1 回まで許可、表示経路で向き変えを含む行 ${summary.secondOrder} 件）/ Terraform の定義単位は ${summary.wiringHops} 段まで無方向で閉じる / 階層（parent・contains）は起点の展開にのみ使用\n- 本命: 影響する先 ${summary.primaryOut} / 影響を受ける入口 ${summary.primaryIn} / コード 出口 ${summary.entryOut}・入口 ${summary.entryIn} / 成果物 先 ${summary.artifactsOut}・受 ${summary.artifactsIn} / 定義上の関連 ${summary.wiring} / 同じ API の定義 ${summary.sameApi} / 同じコードを使う別の API ${summary.siblings}（エンドポイント ${summary.siblingEndpointsOnly}・定義ノード ${summary.siblingDefs}）/ 向き を決める関係が無い行 ${summary.directionless}（うち 本命 の資格を持つ行 ${summary.directionlessPrimary}）。**「本命」は「最短」を意味しません**\n- 行の 向き（JSON の direction）は in（影響を受ける入口）/ out（影響する先）/ none（**この表示経路に 向き を決める関係が無い**。Terraform の定義の縁だけを辿った行。一覧の 向き 列では「—」と書きます）。none は「そのノードに他の有向関係が存在しない」意味ではなく、動きの根拠 が無いこととは同義ではありません（以前の有向縁から 向き を継承した行があります）。継承した in / out は、その無方向の縁自体が動作方向を証明した値ではありません。none の行は 定義上の関連・同じ API の定義・同じコードを使う別の API に並び、tier（本命の資格）はそのまま保ちます（同じコードを使う別の API の一覧は 向き 列を出さないので、そこは ${opts.json ? 'JSON の `siblingEndpoints` で見ます' : '--json を付けると `siblingEndpoints` で見ます'}）\n- 各段数欄は**表示経路の段数**です（起点 0 段、表示経路の関係 1 本を 1 段。表の値と行の経路表示は一致させます）。**最短とは限りません**。経路全体の整合性を保つため、より長い代表経路を表示する場合があります。この段数は影響の強さやレビューの優先度を示しません\n- 根拠の由来: ${Object.entries(summary.byProvenance).map(([k, v]) => `${provLabel(k)} ${v}`).join(' / ') || 'なし'}（**注釈由来 ${summary.annotationRows} 件**は静的解析では決まらない対応付け）\n\n`;
 if (result.score) {
   const s = result.score;
   md += `## 精度（期待一覧との突き合わせ）\n\n- ケース: ${s.case}（方向 ${s.direction}）\n- 期待 ${s.expected} 件 / 外部リソースへの着地 ${s.landedExternal} 件 / 的中 ${s.hitExternal} 件\n- **再現率 ${s.recall} / 適合率 ${s.precision}**\n- 取りこぼし: ${s.missed.map((x) => `\`${x}\``).join(', ') || 'なし'}\n- 余分な着地: ${s.extraExternal.map((x) => `\`${label(x)}\``).join(', ') || 'なし'}\n- 取りこぼしのうち到達はしていた（定義上の関連に回ったもの）: ${s.wiringOnly} 件\n${s.note ? `\n> ${s.note}\n` : ''}\n`;
@@ -2552,7 +2555,8 @@ md += epShownStart.length
   : '';
 md += epShownReached.length
   ? `${epShownStart.length ? 'それを使う' : '到達した'}エンドポイント（**起点の定義ではない**同じコードを使う別エンドポイントを含む）:\n\n${epShownReached.map(epLine).join('\n')}\n\n`
-  : (epShownStart.length ? '' : '該当なし\n\n');
+  : (epShownStart.length ? ''
+    : (endpointRows.length ? '（--limit で全部打ち切りました。次の注記を見てください）\n\n' : '該当なし\n\n'));
 if (endpointNote) md += `${endpointNote}\n\n`;
 // 兄弟ルートは 本命 の結果に影響しないので、この欄には**件数だけ**出す（指摘 F）
 if (reachedSiblingEndpoints.length) {
@@ -2573,7 +2577,8 @@ if (startIsEndpoint && siblingRows().length) {
     + `**この一覧のルートを先頭に**、`
     + `そのうしろに定義ノードを並べて \`--limit\` まで入ります。${SIBLING_LIST_HINT}）\n\n`;
 if (opts.listSiblings) {
-    md += (siblingListShown.map((r) => `- \`${r.name}\`（\`${r.id}\`、段数 ${r.hops}（最短とは限りません）、根拠 \`${r.evidence.kind}\`、理由 \`${r.siblingReason}\`）`).join('\n') || '（なし）') + '\n\n';
+    md += (siblingListShown.map((r) => `- \`${r.name}\`（\`${r.id}\`、段数 ${r.hops}（最短とは限りません）、根拠 \`${r.evidence.kind}\`、理由 \`${r.siblingReason}\`）`).join('\n')
+      || (siblingEpRows.length ? '（--limit で全部打ち切りました）' : '（なし）')) + '\n\n';
     const rest = truncNote(siblingEpRows.length, siblingListShown.length, opts.limit, '他のルート');
     if (rest) md += `${rest}\n\n`;
     if (siblingDefNote) md += `${siblingDefNote}\n\n`;
@@ -2594,7 +2599,8 @@ if (opts.md) writeFileSync(resolve(opts.md), md);
 
 // 兄弟ルートは既定では**件数だけ**出す（指摘 F）。一覧は `--list-siblings`、本数は `--limit`
 const sibEpCount = summary.siblingEndpointsOnly;
-console.log(`API エンドポイント: ${endpointShown.map((e) => e.name).join(', ') || '該当なし'}`
+console.log(`API エンドポイント: ${endpointShown.map((e) => e.name).join(', ')
+  || (endpointRows.length ? '（--limit で全部打ち切りました）' : '該当なし')}`
   + (endpointNote ? ` ${plain(endpointNote)}` : '')
   + (sibEpCount ? ` / 兄弟ルート ${sibEpCount} 件（${opts.listSiblings ? '下に一覧' : '一覧は --list-siblings'}）` : ''));
 console.log(`起点 ${summary.starts} 件（展開後 ${summary.expandedStarts}）/ 影響する先 ${summary.primaryOut} / 影響を受ける入口 ${summary.primaryIn} / コード 出口 ${summary.entryOut}・入口 ${summary.entryIn} / 成果物 先 ${summary.artifactsOut}・受 ${summary.artifactsIn} / 定義上 ${summary.wiring} / 同じ API の定義 ${summary.sameApi} / 別の API ${summary.siblings}（エンドポイント ${summary.siblingEndpointsOnly}・定義 ${summary.siblingDefs}） / 向き を決める関係が無い ${summary.directionless}（本命の資格 ${summary.directionlessPrimary}） / 注釈由来 ${summary.annotationRows}`);
