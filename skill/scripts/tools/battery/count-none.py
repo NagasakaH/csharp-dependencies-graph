@@ -99,9 +99,10 @@ agree = (not IN.guard('none-expectations')) or (total_rows == RULING['rows'] and
 # 見張り番を名前 1 個ずつ消せる `CGD_GUARD_OFF`（検査の検査専用。第 55 ラウンド agy P1）
 print('期待値（expectations.directionless）と一致' if agree
       else '期待値と**不一致**（1 行ずつ説明が必要）')
-if bad_counters and IN.guard('none-counters'):
+counters_blocked = bool(bad_counters) and IN.guard('none-counters')
+if counters_blocked:
     # 「サマリカウンタ不一致 N 件」の行は合否と関係なく常に出す。なので不合格の合図は別の文面に
     # する（第 58 ラウンド agy P2-2 の制御を実測したら、見張り番を消した実行にも同じ行が出て
     # いた。制御が判別に使える文面を道具側が持っていなかった）
     print('サマリカウンタが割れているので不合格（summary を欄の実測と揃えない限り数えない）')
-sys.exit(0 if agree and (not bad_counters or not IN.guard('none-counters')) else 1)
+sys.exit(0 if agree and not counters_blocked else 1)

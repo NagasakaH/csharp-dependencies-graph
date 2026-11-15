@@ -389,14 +389,14 @@ def permutation_guards(n_edges, ran, expected, label):
     for k in range(2, n_edges + 1):
         want *= k
     if ran is None:
-        if guard('perm-count') and expected is not None and expected != want:
+        if guard('perm-declared') and expected is not None and expected != want:
             raise SystemExit(f'{label}: 期待した縁順の通り数 {expected} 件は {n_edges} 本の順列'
                              f' {want} 通りと違う（走る前に分かる食い違い）')
         return
     if guard('perm-count') and ran != want:
         raise SystemExit(f'{label}: 縁順 {ran} 通りは {n_edges} 本の順列 {want} 通りと違う'
                          '（順列を組み立てる側が壊れている）')
-    if guard('perm-count') and expected is not None and ran != expected:
+    if guard('perm-expected') and expected is not None and ran != expected:
         raise SystemExit(f'{label}: 期待した縁順の通り数 {expected} 件に対して {ran} 件走った'
                          f'（グラフ {n_edges} 本の順列は {want} 通り）')
 
@@ -408,7 +408,7 @@ def require_sampled_runs(n_ran, label, cap=None):
     も何も言わない。実測（第 56 ラウンド Codex）: 縁順で出力が変わる stub に対して
     `allperm-full.py <stub> min-2.json 1` は「縁順 1 通り / JSON 1 通り / 判定: JSON 完全一致」
     で終了 0、同じ stub で上限 24 なら「JSON 4 通り」で終了 1"""
-    if guard('perm-cap') and n_ran < 2:
+    if guard('perm-runs-min') and n_ran < 2:
         raise SystemExit(
             f'{label}: 実際に走らせた縁順が {n_ran} とおりしかない'
             + (f'（順列上限 {cap} で間引かれた）。' if cap is not None else '。')
@@ -692,11 +692,21 @@ COVERAGE_KINDS = ('invariantRows', 'parentChild')
 
 
 def expectations(repo=None):
-    """追跡下の期待値（要求一覧の中に入れて別の正本を増やさない。Astra 裁定 問 6）"""
-    exp = required_spec(repo).get('expectations')
+    """追跡下の期待値（要求一覧の中に入れて別の正本を増やさない。Astra 裁定 問 6）
+
+    第 60 ラウンド Astra 問 1 の裁定で、**一覧を使う道具は自分の欄に関係なく一覧全体を
+    検査してから取り出す**。検査前は `fixtures` を消した一覧でも条件を組み立てない
+    `count-none.py` / `check-dir-rule.py` は終了 0 で素通りし、`expectations` を `{}` にした日は
+    `check-dir-rule.py` だけが `KeyError: 'dirRule'` の traceback になっていた（第 59 ラウンド
+    agy P2-1 の実測）。ここで通せば一覧を根拠にする道具が同じ見出しと 4 手順で止まる"""
+    repo = pathlib.Path(repo or repo_root())
+    spec = validate_required_spec(required_spec(repo), repo)
+    exp = spec.get('expectations')
     if not isinstance(exp, dict):
-        fail('要求一覧に expectations が無い（要求一覧の作り直し: '
-             f'python3 skill/scripts/tools/battery/emit-required.py {REQUIRED}）')
+        # `validate_required_spec` が必須欄で落とすので本来ここには来ない。生の `KeyError` を
+        # 出さないための守りで、出るなら同じ入口へ集約する
+        fail_required_spec([f'expectations が辞書ではない: {type(exp).__name__}'
+                            '（`directionless` / `dirRule` / `coverage` を持つ辞書）'])
     return exp
 
 
@@ -925,15 +935,21 @@ def fail_required_spec(bad):
     必須キーの欠落だけは生の文面で落ちていて、入口を通る道具ごとに見え方が違った
     （`launch_conditions()` を経由する道具は `KeyError` の traceback）。ここで揃える。
     作り直しには測った件数が要るので、実行できる手順の所在まで書く（Astra 追加穴 3:
-    案内だけでは `--measured` が抜けていて復旧できなかった）"""
+    案内だけでは `--measured` が抜けていて復旧できなかった）。第 59 ラウンド Codex P2-2 の実測で、
+    **壊れた一覧のままでは `--emit-measured` を持つ測定道具も入口の検査で同じ案内に止まる**と
+    判った（入口の検査が先に走る前提なので、ここは直さない）。だから復旧の**先頭**に
+    「追跡下の一覧を戻す」を置いて、実行できる順序のまま書く"""
     tail = f'\n  …ほか {len(bad) - 24} 件' if len(bad) > 24 else ''
     fail('要求一覧（required-checks.json）が壊れている:\n  ' + '\n  '.join(bad[:24]) + tail +
-         '\n  作り直し: 4 本の測定道具に `--emit-measured` で件数を書き出させてから'
-         '\n    python3 skill/scripts/tools/battery/emit-required.py '
+         '\n  作り直し（この順で。壊れた一覧のままでは測定道具も入口の検査で同じ案内に止まる）:'
+         '\n    1) 追跡下の一覧を戻す: git checkout -- '
+         'skill/scripts/tools/battery/required-checks.json'
+         '\n    2) 4 本の測定道具に `--emit-measured` で件数を書き出させる（手順の全文は'
+         ' `emit-required.py` の先頭コメント）'
+         '\n    3) python3 skill/scripts/tools/battery/emit-required.py '
          f'{REQUIRED} --measured <書き出した JSON のパス>'
-         '\n    （手順の全文は `emit-required.py` の先頭コメント。作られた一覧を人がレビューして'
-         'コミットする。追跡下の物なので `git checkout -- skill/scripts/tools/battery/'
-         'required-checks.json` でも戻せる）')
+         '\n    4) 作られた一覧を人がレビューしてコミットする（直前の自分の編集が原因なら、'
+         '戻した一覧へ同じ編集をもう一度行う）')
 
 
 def validate_required_spec(spec, repo=None):
@@ -945,7 +961,11 @@ def validate_required_spec(spec, repo=None):
     repo = pathlib.Path(repo or repo_root())
     bad = []
     if not isinstance(spec, dict):
-        fail(f'要求一覧が JSON のオブジェクトではない: {type(spec).__name__}')
+        # 第 59 ラウンド Codex P2-3 の実測: ここだけ生の文面で落ちていた（`root=[]` →
+        # 「要求一覧が JSON のオブジェクトではない: list」）。復旧手順が他の経路と違ったので、
+        # 同じ入口へ集約して見出しと作り直しの順序を完全に揃える
+        fail_required_spec([f'要求一覧が JSON のオブジェクトではない: {type(spec).__name__}'
+                            '（`fixtures` / `conditions` / `expectations` の 3 欄を持つオブジェクト）'])
     for k in ('fixtures', 'conditions', 'expectations'):
         if k not in spec:
             bad.append(f'要求一覧に {k} が無い（第 55 ラウンドの形へ作り直す: '
@@ -987,7 +1007,11 @@ def validate_required_spec(spec, repo=None):
             bad.append(f'要求一覧に有るのに fixture が無い: {extra_}')
     conds = spec['conditions']
     if not isinstance(conds, list):
-        fail('conditions は配列でなければならない')
+        # 同じく Codex P2-3。この後のループは配列が前提なのでここで終わらせる。`bad` に
+        # fixture の診断が残っていれば、それも同じ一覧に出す
+        bad.append(f'conditions が配列ではない: {type(conds).__name__}'
+                   '（一覧の `conditions` は条件オブジェクトの配列）')
+        fail_required_spec(bad)
     seen_key, seen_id = {}, {}
     for i, c in enumerate(conds):
         where = f'conditions[{i}]'
@@ -995,15 +1019,15 @@ def validate_required_spec(spec, repo=None):
             bad.append(f'{where} がオブジェクトではない')
             continue
         want_keys = {'id', 'case', 'graph', 'kind', 'args'}
-        if set(c) != want_keys and guard('cond-shape'):
+        if set(c) != want_keys and guard('cond-keys'):
             bad.append(f'{where} の欄が期待と違う（有る欄 {sorted(c)} / 必要 {sorted(want_keys)}）')
         cid, graph, kind = c.get('id'), c.get('graph'), c.get('kind')
         args, case = c.get('args') or [], c.get('case')
         # `graph` の型・空・`#`・絶対パス・`..` は要求一覧の内容に対する契約なので、
-        # `args` や `kind` と同じ `cond-shape` にまとめる（第 57 ラウンド agy P2-2 の実測で
+        # `args` や `kind` の検査と同じ段に置く（第 57 ラウンド agy P2-2 の実測で
         # 「`cond-shape` を消したのに `graph` の `#` で REJECTED」＝消せない穴が出ていた。
         # Astra 裁定 問 1 ②）。**id も同じ中身から recompute した細工**で孤立を測る
-        if guard('cond-shape'):
+        if guard('cond-graph'):
             if not isinstance(graph, str) or not graph:
                 bad.append(f'{where} の graph が文字列ではない')
                 continue
@@ -1012,13 +1036,13 @@ def validate_required_spec(spec, repo=None):
                            f'実際に読むファイルの相対パスだけを書く: {graph}）')
             if pathlib.PurePosixPath(graph).is_absolute() or graph.startswith('..'):
                 bad.append(f'{where} の graph がリポジトリ相対ではない: {graph}')
-        if case is not None and not isinstance(case, str) and guard('cond-shape'):
+        if case is not None and not isinstance(case, str) and guard('cond-case'):
             bad.append(f'{where} の case は null か文字列')
         if not isinstance(args, list) or not all(isinstance(a, str) for a in args):
-            if guard('cond-shape'):
+            if guard('cond-args'):
                 bad.append(f'{where} の args は文字列の配列')
             args = [str(a) for a in args]
-        if guard('cond-shape'):
+        if guard('cond-kind-args'):
             for e in spec_shape_errors(kind, args):
                 bad.append(f'{where} {graph} [{kind}]: {e}')
         key = condition_key(case, graph, kind, args)

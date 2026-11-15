@@ -244,8 +244,10 @@ def negative(name, fn, guard=None, message=None, clean=True, fallback=None):
         tier = 'clean'
     if tier and len(names) == 1:
         # 網羅を数える正控制は、ソースに書いてある制御ではなく**通った**単独名指しだけを使う
-        # （Astra 第 59 ラウンド 問 4）
-        ran['singleton'][names[0]] = tier
+        # （Astra 第 59 ラウンド 問 4）。第 60 ラウンド Astra 問 3 の裁定で**後勝ち上書きをやめ**、
+        # 「どの控制がどの階級で通った」を名前ごとに全部残す（`child-fail` のように clean と
+        # fallback が並ぶ名前で、後に走った方の階級だけが残ることを防ぐ）
+        ran['singleton'].setdefault(names[0], []).append((name, tier))
 
 
 def positive(name, fn):
@@ -319,6 +321,107 @@ def cond_graph_hash_rekeyed():
         if old in by:
             by[cond['id']] = by.pop(old)
     IN.validate_required_spec(spec, REPO)
+
+
+def _rekey(spec, old_id, new_id):
+    """条件の id が変わるとき、条件別の期待値のキーも揃える（`cov-keys` が先に落ちるため）"""
+    for key in ('invariantRows', 'parentChild'):
+        by = spec['expectations'].get(key, {}).get('byCondition', {})
+        if old_id in by:
+            by[new_id] = by.pop(old_id)
+
+
+def _reid(spec, cond):
+    """条件の中身から id を作り直して書き戻す（素で壊すと `canonical-id` が手前に落ちる）"""
+    old = cond['id']
+    cond['id'] = IN.condition_id(IN.condition_key(cond.get('case'), cond['graph'],
+                                                 cond['kind'], cond['args']))
+    _rekey(spec, old, cond['id'])
+
+
+def cond_keys_extra_field():
+    """条件オブジェクトに無い欄を 1 つ足す（`cond-keys` だけを測る）
+
+    id は `case` / `graph` / `kind` / `args` の 4 欄から作る細工なので、余分な欄を足しても
+    `canonical-id` は割れない。第 60 ラウンドまで `cond-shape` の 1 個だった箇所"""
+    spec = spec_copy()
+    spec['conditions'][3]['note'] = '表示の残り'
+    IN.validate_required_spec(spec, REPO)
+
+
+def cond_case_not_string():
+    """条件の `case` に文字列以外を置く（`cond-case` だけを測る。Astra 問 2 の実測レシピ）
+
+    Astra が A 案（スイッチの読みを 1 箇所へまとめる）の弱点として示した入力その物で、
+    `case = 1` は型判定の 1 個だけを無力化すると通ってしまう。細工は id も同じ中身から作り直す"""
+    spec = spec_copy()
+    cond = spec['conditions'][3]
+    cond['case'] = 1
+    _reid(spec, cond)
+    IN.validate_required_spec(spec, REPO)
+
+
+def cond_args_not_strings():
+    """条件の `args` の 1 つを数値にする（`cond-args` だけを測る）
+
+    `--hops 3` の `3` を数値にすると `spec_shape_errors` の `int(args[k])` は通るので
+    `cond-kind-args` は落ちない。id は欄を文字列化して作る細工なので数値にしても割れず、
+    見張り番を消した実行はそのまま通る（実測。`clean` の側）"""
+    spec = spec_copy()
+    cond = spec['conditions'][26]   # audit-full（`--hops 3 ...` の 3 を数値にする）
+    cond['args'] = list(cond['args'])
+    cond['args'][1] = int(cond['args'][1])
+    _reid(spec, cond)
+    IN.validate_required_spec(spec, REPO)
+
+
+def cond_kind_out_of_range():
+    """条件の `kind` を値域外へ変える（`cond-kind-args` だけを測る）"""
+    spec = spec_copy()
+    cond = spec['conditions'][3]
+    cond['kind'] = 'no-such-kind'
+    _reid(spec, cond)
+    IN.validate_required_spec(spec, REPO)
+
+
+def perm_expected_not_matched():
+    """走った縁順の通り数が宣言と違う（`perm-expected` だけを測る。第 60 ラウンドの分割で生まれた名）
+
+    `ran` が順列の通り数その物と一致するなら `perm-count` は黙るので、宣言だけ 7 件に違わせる。
+    CLI 経由では組み立てる側が壊れないと作れない形なので、判定関数を直接呼ぶ（Astra 問 2 の
+    「関数を直接呼ぶ制御などで短縮して構いません」）"""
+    IN.permutation_guards(3, 6, 7, '制御')
+
+
+def perm_count_mismatch():
+    """走った縁順の通り数が順列の本数と違う（`perm-count` だけを測る）
+
+    第 60 ラウンドの分割で「走る前の宣言との食い違い」（`perm-declared`）と「走った後の宣言との
+    食い違い」（`perm-expected`）が別名になったので、**順列の本数その物と違う**判定だけの制御を
+    分ける。縁 3 本の順列は 6 通りなので、そこへ 5 件を渡す"""
+    IN.permutation_guards(3, 5, None, '制御')
+
+
+def run_json_non_json_output():
+    """終了 0 で JSON でない文字列を書く実行（`json-parse` だけを測る。共有の `run_json`）
+
+    第 60 ラウンドまで `edge-order.py` 自身の物と名前を分かっていたので、共有側にも単独名指しが
+    要る。`expect_report=False` で読んだ後の形の検査（`report-shape`）を退けて、この判定だけを測る"""
+    bad = TMP / 'not-json.mjs'
+    bad.write_text("""
+import fs from 'node:fs';
+const argv = process.argv.slice(2);
+fs.writeFileSync(argv[argv.indexOf('--json') + 1], 'レポートではなく本文の書き出し');
+""", encoding='utf-8')
+    IN.run_json(str(bad), [], tmp_out('not-json'), REPO, label='制御', expect_report=False)
+
+
+def sampled_runs_single():
+    """間引き後に 1 とおりしか走らない比較（`perm-runs-min` だけを測る）
+
+    CLI 経由では `r43-permute.py` の試行 1 とおりが `trial-count` に、`allperm-full.py` の上限 1 が
+    `perm-cap` に先へ拾われる（実測）。関数を直接呼んでこの判定だけを測る"""
+    IN.require_sampled_runs(1, '制御', cap=5)
 
 
 def fixture_missing_from_spec():
@@ -561,19 +664,23 @@ def dir_rule_counters_rebalanced():
         restore()
 
 
-def dir_rule_report_fake_key():
-    """`byReport` を実在しないレポート名 1 本に集め替えた一覧（合計は同じ。agy P2-2 の ①）
+def dir_rule_report_swapped():
+    """実在する 2 本のレポートの比較件数を入れ替えた一覧（キー集合も合計もそのまま）
 
-    形の検査は 18 本という実体を知らない。ここで測るのは `check-dir-rule.py` が**レポート別**に
-    実測と突き合わせる一かどうか。第 57 ラウンド agy P2-4 の実測でこの形は要求一覧の検査も
-    通っていたので、キー集合その物を見る `cov-keys` を別制御で用意した
-    （`dir_rule_report_unknown_key` / `coverage_condition_unknown_key`）"""
+    前の形（実在しないレポート名 1 本に合計を寄せる）は第 60 ラウンドの入口の共通検査で
+    `cov-keys` が先に落とすので、`check-dir-rule.py` の**レポート別**の照合を測れなくなった
+    （実測: 「expectations.dirRule.current.byReport にレポート名が無い」で止まった）。
+    Astra 第 60 ラウンド 問 1 の裁定どおり、形の検査を通る不一致にして道具自身の比較を測る"""
     rel = f'{BATTERY}/required-checks.json'
     p = stash(rel)
     doc = json.loads(p.read_text(encoding='utf-8'))
     by = doc['expectations']['dirRule']['current']['byReport']
-    total = sum(by.values())
-    doc['expectations']['dirRule']['current']['byReport'] = {'not-a-report.json': total}
+    names = sorted(by)
+    pair = next(((x, y) for i, x in enumerate(names) for y in names[i + 1:] if by[x] != by[y]), None)
+    if pair is None:
+        raise NotDetected('byReport の件数がすべて同じ一覧では入れ替えで何も変わらない')
+    x, y = pair
+    by[x], by[y] = by[y], by[x]
     p.write_text(json.dumps(doc, ensure_ascii=False, indent=1) + '\n', encoding='utf-8')
     try:
         return py('check-dir-rule.py', '--profile', 'current', 'out/audit-current')
@@ -1296,20 +1403,54 @@ def _const_str(node):
     return None
 
 
-def _guard_call_names(path):
-    """検査器側が見張り番に付けた名前を AST で集める（`guard('名前')` の呼び出しだけ）
+def _guard_scan(text, origin):
+    """見張り番の呼び出しを AST で読む。**静的に読めない形は穴として返す**（第 59 ラウンド Codex P2-1）
 
     第 58 ラウンドまで文字列検索だった。説明文・コメント・引用符の書き方で集合が化けたので、
-    Astra 第 59 ラウンド 問 4 の裁定どおり構文を見て数える"""
-    found = set()
-    for node in ast.walk(ast.parse(path.read_text(encoding='utf-8'))):
+    Astra 第 59 ラウンド 問 4 の裁定どおり構文を見て数える。ただし Codex 実測どおり
+    `guard(name)`（変数引数）も `check = guard`（別名）も名前集合に**何も足さない**ので、
+    網羅の分母から黙って消える。ここでは穴として返し、網羅の点検で失敗させる
+
+    戻り値は（名前の集合、穴の説明文の列、名前の呼び出し回数の辞書）。回数は
+    「1 名前 = 呼び出し 1 箇所」の規則を見る（Astra 第 60 ラウンド 問 2）"""
+    found, holes, counts = set(), [], {}
+    aliases = set()
+    for node in ast.walk(ast.parse(text)):
+        if isinstance(node, ast.Assign):
+            v = node.value
+            named = ((isinstance(v, ast.Name) and v.id == 'guard') or
+                     (isinstance(v, ast.Attribute) and v.attr == 'guard'))
+            if named:
+                for tgt in node.targets:
+                    if isinstance(tgt, ast.Name):
+                        aliases.add(tgt.id)
+                        holes.append(f'{origin}:{node.lineno} 見張り番を「{tgt.id}」へ別名代入'
+                                     '（別名にした側の呼び出しは名前の集合から見えない）')
         if not isinstance(node, ast.Call):
             continue
         f = node.func
         called = f.attr if isinstance(f, ast.Attribute) else getattr(f, 'id', '')
-        if called == 'guard' and len(node.args) == 1 and _const_str(node.args[0]):
-            found.add(node.args[0].value)
-    return found
+        if called in aliases:
+            holes.append(f'{origin}:{node.lineno} 見張り番の別名「{called}」の呼び出し'
+                         '（`guard` という目で見えないので網羅の分母から消える）')
+            continue
+        if called != 'guard':
+            continue
+        one = node.args[0] if len(node.args) == 1 else None
+        lit = _const_str(one) if one is not None else None
+        if lit:
+            found.add(lit)
+            counts[lit] = counts.get(lit, 0) + 1
+        else:
+            holes.append(f'{origin}:{node.lineno} `guard()` の引数が文字列リテラルではない'
+                         '（変数・式・複数引数なら網羅の分母に入らない）')
+    return found, holes, counts
+
+
+def _guard_call_names(path):
+    """`_guard_scan` が読んだ名前集合だけ返す（穴を数えない所で使う）"""
+    names, _, _counts = _guard_scan(path.read_text(encoding='utf-8'), path)
+    return names
 
 
 def _negative_guard_groups(path):
@@ -1334,6 +1475,24 @@ def _negative_guard_groups(path):
     return out
 
 
+def _singleton_controls(path):
+    """`negative(...)` に**書いてある単独名指しの控制**を `(説明, 名前)` で集める
+
+    第 60 ラウンド Astra 問 3 の裁定は「登録した控制はすべて実行・成功を必須とし、片方の成功で
+    他方の失敗や未実行を埋め合わせない」。ここでは**登録**を見て、実行後に通った記録と突き合わせる"""
+    out = []
+    for node in ast.walk(ast.parse(path.read_text(encoding='utf-8'))):
+        if not (isinstance(node, ast.Call) and getattr(node.func, 'id', '') == 'negative'):
+            continue
+        label = _const_str(node.args[0]) if node.args else None
+        for kw in node.keywords:
+            if kw.arg == 'guard':
+                one = _const_str(kw.value)
+                if one and label:
+                    out.append((label, one))
+    return out
+
+
 def guard_names_have_singleton_controls():
     """見張り番に名前を付けた判定すべてに、**その 1 個だけを消して通った**負控制が有る
 
@@ -1342,9 +1501,28 @@ def guard_names_have_singleton_controls():
     `fp-bytes` を `and False:` に完全無力化しても検出されなかった。Astra 第 59 ラウンド 問 4 の
     裁定どおり、**ソースに書いてある制御は数えず、通った単独名指しだけ**を数える
     （例外台帳は作らない。網羅不足は失敗にする）"""
-    tree = set()
-    for path in (REPO / 'skill' / 'scripts' / 'tools').rglob('*.py'):
-        tree |= _guard_call_names(path)
+    tree, holes, counts = set(), [], {}
+    for path in sorted((REPO / 'skill' / 'scripts' / 'tools').rglob('*.py')):
+        got, got_holes, got_counts = _guard_scan(path.read_text(encoding='utf-8'), path)
+        for k, v in got_counts.items():
+            counts[k] = counts.get(k, 0) + v
+        tree |= got
+        holes += got_holes
+    if holes:
+        failed.append(f'見張り番の呼び出し {len(holes)} 件が静的に読めない'
+                      f'（網羅の分母から黙って消える）: {holes[:4]}。'
+                      '`guard()` の引数は文字列リテラルだけ書き、`guard` を別名に代入しない')
+    # **1 名前 = 呼び出し 1 箇所**（Astra 第 60 ラウンド 問 2 の裁定）。同じ名前を複数箇所で
+    # 使うと、1 個だけを無力化しても他の箇所が生きているので「その 1 個だけを消して成功」する
+    # 控制がそのまま通る（第 59 ラウンド agy P2-3 の 2 の実測）。判定が違うなら名前を分け、
+    # 同じ判定ならスイッチの読みを 1 箇所へまとめる（第 60 ラウンドで `none-counters` を実装）
+    multi = {k: v for k, v in sorted(counts.items()) if v > 1}
+    if multi:
+        failed.append(f'見張り番 {list(multi)[:5]} が呼び出し {multi} 箇所で使われている'
+                      '（1 箇所だけを消した無力化を単独名指しの控制が検出できない。判定ごとに'
+                      '名前を分けるか、同じ判定ならスイッチの読みを 1 箇所にまとめる）')
+    print(f'  見張り番 {len(counts)} 名 = 呼び出し {sum(counts.values())} 箇所'
+          f'（1 名前 1 箇所{"を満たす" if not multi else f" の規則の破れ {len(multi)} 名"}）')
     declared = set()
     for grp in _negative_guard_groups(pathlib.Path(__file__)):
         declared.update(grp)
@@ -1359,11 +1537,40 @@ def guard_names_have_singleton_controls():
     if missing:
         failed.append(f'見張り番 {len(missing)} 個は「その 1 個だけを消した」負控制が通っていない'
                       f'（複数名を同時に消す制御は網羅に数えない）: {missing[:8]}')
+    # 登録した単独名指しの控制が 1 本でも走っていなければ失敗（Astra 第 60 ラウンド 問 3。
+    # 失敗した控制は `negative()` が `failed` に入れるので、ここでは**走っていない**物を見る）
+    never = sorted(set(_singleton_controls(pathlib.Path(__file__))) -
+                   {(lbl, n) for n, recs in passed.items() for lbl, _t in recs})
+    if never:
+        failed.append(f'登録だけの単独名指し控制 {len(never)} 本が走っていない'
+                      f'（通った控制だけを網羅に数える規則では黙って減る）: {never[:4]}')
     both = tree & set(passed)
-    ok = sorted(n for n in both if passed[n] == 'clean')
-    fb = sorted(n for n in both if passed[n] == 'fallback')
+    tiers = {n: {tier for _lbl, tier in recs} for n, recs in passed.items()}
+    ok = sorted(n for n in both if tiers[n] == {'clean'})
+    fb = sorted(n for n in both if tiers[n] == {'fallback'})
+    mix = sorted(n for n in both if len(tiers[n]) > 1)
     print(f'  見張り番 {len(tree)} 個のうち {len(both)} 個に単独名指しの負控制が有り'
-          f'（単独無効化・成功確認 {len(ok)} 個 / 単独無効化・診断消失確認 {len(fb)} 個）')
+          f'（成功だけの控制 {len(ok)} 名 / 診断消失確認だけ {len(fb)} 名 / 両方が並ぶ {len(mix)} 名'
+          f'{mix[:3]}。通った控制 {sum(len(v) for v in passed.values())} 本を名前ごとに保持し、'
+          '後勝ちで潰さない')
+
+
+def scanner_reads_only_literals():
+    """静的に読めない見張り番の呼び出しを `_guard_scan` が穴として返す（第 59 ラウンド Codex P2-1）
+
+    Codex の再現は「別名・変数引数でも名前集合が変わらない（`before= 42 after= 42`）」ことだった。
+    ここでは実ファイルを変えず、その 2 形を直接渡して**穴として出る**ことを検査する
+    （実ツリーで失敗する側は `guard_names_have_singleton_controls` が見る）"""
+    names1, holes1, _c1 = _guard_scan('if guard(name):\n    raise SystemExit(1)\n', '<変数引数>')
+    if names1 or len(holes1) != 1 or '文字列リテラル' not in holes1[0]:
+        return f'変数引数の `guard(name)` を穴として報告しない: names={sorted(names1)} holes={holes1}'
+    src2 = "check = guard\nif check('uncovered'):\n    raise SystemExit(1)\n"
+    names2, holes2, _c2 = _guard_scan(src2, '<別名>')
+    if 'uncovered' in names2:
+        return f'別名呼び出しの名前を網羅に数えてしまった: {sorted(names2)}'
+    if not any('別名代入' in h for h in holes2):
+        return f'`check = guard` を別名として報告しない: {holes2}'
+    return None
 
 
 def main():
@@ -1374,6 +1581,20 @@ def main():
         # 書く。無効化しても別の所で落ちる制御は「空振り」として失敗する（agy P1）
         negative('要求一覧の graph を書き換えて id を据え置く', cond_graph_tampered,
                  guard='canonical-id', message='id が中身から再計算できない')
+        # 第 60 ラウンド Astra 問 2 の裁定で分割した判定それぞれの単独名指し（旧 `cond-shape` の
+        # 5 箇所・`perm-count` の 3 箇所・`perm-cap` の 2 箇所）
+        negative('条件オブジェクトに無い欄を 1 つ足す', cond_keys_extra_field,
+                 guard='cond-keys', message='の欄が期待と違う')
+        negative('条件の case に文字列以外（1）を置く', cond_case_not_string,
+                 guard='cond-case', message='の case は null か文字列')
+        negative('条件の args の 1 つを数値にする', cond_args_not_strings,
+                 guard='cond-args', message='の args は文字列の配列')
+        negative('条件の kind を値域外へ変える', cond_kind_out_of_range,
+                 guard='cond-kind-args', message='kind が値域外')
+        negative('走った縁順の通り数が宣言と違う', perm_expected_not_matched,
+                 guard='perm-expected', message='件に対して 6 件走った')
+        negative('間引き後に走るのが 1 とおりしかない比較', sampled_runs_single,
+                 guard='perm-runs-min', message='実際に走らせた縁順が 1 とおりしかない')
         negative('要求一覧の args だけ書き換えて id を据え置く', cond_args_tampered,
                  guard='canonical-id', message='id が中身から再計算できない')
         negative('要求一覧に同じ起動内容を 2 件並べる', cond_duplicated,
@@ -1385,7 +1606,7 @@ def main():
         negative('要求一覧に id だけを重複させる', cond_id_duplicated,
                  guard=('dup-id', 'canonical-id'), message='id が重複')
         negative('要求一覧の graph に # を混ぜ id と条件別キーを作り直す',
-                 cond_graph_hash_rekeyed, guard='cond-shape',
+                 cond_graph_hash_rekeyed, guard='cond-graph',
                  message='の graph に `#` が混ざっている')
         negative('要求一覧の fixtures から 1 本消す（条件はそのまま）',
                  fixture_missing_from_spec, guard='fixture-set',
@@ -1393,10 +1614,14 @@ def main():
         negative('v1 の向きカウンタを 1 ずつ入れ替える', dir_rule_counters_rebalanced,
                  guard='dir-rule-counters', message='一致: 期待')
         negative('要求一覧から case を消す', cond_case_missing,
-                 guard=('cond-shape', 'canonical-id', 'dup-condition', 'dup-id'),
+                 guard=('cond-keys', 'canonical-id', 'dup-condition', 'dup-id'),
                  message='の欄が期待と違う')
+        negative('縁 3 本の順列 6 通りに対して 5 件走った', perm_count_mismatch,
+                 guard='perm-count', message='は 3 本の順列 6 通りと違う')
+        negative('終了 0 で JSON でない文字列を書く実行', run_json_non_json_output,
+                 guard='json-parse', message='JSON が読めない')
         negative('要求一覧に値域外の kind を置く', cond_bad_kind,
-                 guard=('cond-shape', 'canonical-id'), message='kind が値域外')
+                 guard=('cond-kind-args', 'canonical-id'), message='kind が値域外')
         negative('期待値の合計を条件別の合計からずらす', expectations_totals_off,
                  guard='cov-shape', message='total が条件別の合計と違う')
         negative('期待値の条件別の内訳を空にする', expectations_empty,
@@ -1418,11 +1643,12 @@ def main():
         negative('縁が 1 本だけのグラフで allperm.py', allperm_one_edge_graph,
                  guard='perm-edges', message='しかないグラフでは縁順を変えても比較に')
         negative('allperm.py に期待縁順の通り数違いを渡す', allperm_wrong_expected_permutations,
-                 guard='perm-count', message='期待した縁順の通り数')
+                 guard='perm-declared', message='走る前に分かる食い違い',
+                 clean=False, fallback='件に対して 720 件走った')
         negative('allperm.py の行から突き合わせる欄が消える', allperm_row_missing_field,
                  guard='proj-fields', message='行に欄が無い', clean=False, fallback='KeyError')
         negative('実グラフの縁を全部抜いて edge-order.py', edge_order_no_edges,
-                 guard='edge-order-groups', message='すべて群が 0 件')
+                 guard='edge-group-empty', message='すべて群が 0 件')
         negative('18 本とも 0 行のレポートで check-dir-rule.py --profile current',
                  dir_rule_all_empty_reports,
                  guard=('dir-rule-counters', 'dir-rule-report'), message='一致: 期待')
@@ -1438,15 +1664,16 @@ def main():
         negative('既知差分の id を別ノードへ動かす（不一致 55 件のまま）',
                  dir_rule_v1_ledger_moved,
                  guard='dir-rule-v1', message='既知差分に無い不一致')
-        negative('byReport を実在しないレポート名 1 本に集め替えた一覧',
-                 dir_rule_report_fake_key,
+        negative('byReport の実在する 2 本の比較件数を入れ替える（合計とキー集合はそのまま）',
+                 dir_rule_report_swapped,
                  guard='dir-rule-report', message='の比較件数（レポート別）')
         negative('向き別の件数に負の値を置く（agree を増やして bad を引く）',
                  dir_rule_negative_counter, guard='cov-shape', message='負の整数')
         negative('要求一覧の fixtures に同じパスを 2 度書く',
                  fixtures_duplicated, guard='dup-fixture', message='fixtures に重複')
         negative('allperm-full.py の順列上限を 1 にする',
-                 allperm_full_cap_one, guard='perm-cap', message='順列上限に 1 を渡している')
+                 allperm_full_cap_one, guard='perm-cap', message='順列上限に 1 を渡している',
+                 clean=False, fallback='実際に走らせた縁順が 1 とおりしかない')
         negative('終了 0 で JSON を書かない実行', run_json_silent,
                  guard='json-missing', message='終了 0 なのに JSON を書いていない',
                  clean=False, fallback='出力先が無い')
@@ -1474,7 +1701,7 @@ def main():
         # 第 57 ラウンド agy P2 の 4 件（実測は `out/review-agy57.log`）。形・入口・標本の実り
         # を直した裁定は `out/astra58.log`
         negative('要求一覧の graph を絶対パスにする（id も揃えた細工）', cond_graph_absolute,
-                 guard=('cond-shape', 'cov-keys'), message='リポジトリ相対ではない')
+                 guard=('cond-graph', 'cov-keys'), message='リポジトリ相対ではない')
         negative('要求一覧の fixtures に文字列でない値を置く', fixtures_non_string,
                  guard='fixture-shape', message='文字列でない要素',
                  clean=False, fallback='fixture が有るのに要求一覧に無い')
@@ -1505,7 +1732,8 @@ def main():
         negative('builder へ重複した fixture 列を渡す（要求一覧は正常）',
                  built_conditions_duplicated, guard='dup-built', message='今回組み上げた起動条件に重複')
         negative('allperm-full.py の順列上限を 0 にする', allperm_full_cap_zero,
-                 guard='perm-cap', message='順列上限に 0 を渡している')
+                 guard='perm-cap', message='順列上限に 0 を渡している',
+                 clean=False, fallback='実際に走らせた縁順が 1 とおりしかない')
         negative('r43-permute.py の入れ替え試行を 1 とおりにする', r43_trial_limit_one,
                  guard='trial-count', message='入れ替えの試行を 1 とおりに指定している',
                  clean=False, fallback='縁順が 1 とおりしかない')
@@ -1516,13 +1744,13 @@ def main():
         negative('既知差分の 1 件を向きが変わらない形へ直す（導出 54 件）',
                  v1_derivation_rows_four, guard='v1-derivation', message='向き の差分が 54 件')
         negative('edge-order.py の子実行が非 0 で終わる', edge_order_child_fails,
-                 guard='child-fail', message='query.mjs 失敗',
+                 guard='edge-child-fail', message='query.mjs 失敗',
                  clean=False, fallback='query.mjs の JSON が読めない')
         negative('edge-order.py が読めない出力を受け取る', edge_order_bad_json,
-                 guard='json-parse', message='JSON が読めない',
+                 guard='edge-json-parse', message='JSON が読めない',
                  clean=False, fallback='出力が --json の形ではない')
         negative('edge-order.py に --json の形でない出力を渡す', edge_order_json_shape,
-                 guard='edge-order-groups', message='出力が --json の形ではない')
+                 guard='edge-out-shape', message='出力が --json の形ではない')
         negative('要求一覧を壊して入力点検を走らせる', input_check_validates_ledger,
                  guard='dup-fixture', message='fixtures に重複')
         negative('指紋台帳に入力の一覧に無い物を 1 件足す', fingerprint_ledger_extra_entry,
@@ -1547,6 +1775,8 @@ def main():
         positive('指紋台帳と入力が揃っている', fingerprint_ledger_clean)
         positive('入力点検の道具が実際に起動して終了 0 で通る', input_check_tool_runs)
         positive('要求一覧を壊した日に 2 本の道具が同じ案内を出す', broken_required_ledger_same_message)
+        positive('静的に読めない見張り番の呼び出し（変数引数・別名）をスキャナが穴として返す',
+                 scanner_reads_only_literals)
         positive('見張り番の名前すべてに単独名指しの負控制が通っている', guard_names_have_singleton_controls)
 
         # 追跡下のファイルへの変更が残っていないか（制御が途中で落ちても戻す）

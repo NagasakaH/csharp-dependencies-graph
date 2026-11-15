@@ -41,19 +41,20 @@ def key(graph, argv, repo):
     p = subprocess.run(['node', str(QUERY), '--graph', graph, '--json', *argv],
                        cwd=str(repo), capture_output=True, text=True)
     # 失敗を「不一致 0 件」に混ぜない（check=True だと Traceback で終わる）
-    if IN.guard('child-fail') and p.returncode != 0:
+    if IN.guard('edge-child-fail') and p.returncode != 0:
         raise SystemExit(f'query.mjs 失敗 (exit {p.returncode}) {" ".join(argv)}: {p.stderr[-500:]}')
     try:
         d = json.loads(p.stdout)
     except ValueError as e:
-        if IN.guard('json-parse'):
+        if IN.guard('edge-json-parse'):
             raise SystemExit(f'query.mjs の JSON が読めない ({" ".join(argv)}。{e}): {p.stdout[:200]}')
         d = {}
     if not isinstance(d, dict) or not isinstance(d.get('groups'), list) or \
             not isinstance(d.get('summary'), dict):
-        # 「比較に使う群出力の契約」も `edge-order-groups` の範囲（Astra 裁定 問 4。
-        # 全起動 0 群の検査と同じ名前所以、README の範囲説明に両方書く）
-        if IN.guard('edge-order-groups'):
+        # 「比較に使う群出力の契約」を見る `edge-out-shape`。第 59 ラウンドまでは下の
+        # 0 件の検査と `edge-order-groups` を分かっていたので、1 箇所だけを無力化すると
+        # 網羅の実測が空振りになった（Astra 第 60 ラウンド 問 2 の裁定で名前を分けた）
+        if IN.guard('edge-out-shape'):
             raise SystemExit(f'query.mjs の出力が --json の形ではない'
                              f'（{" ".join(argv)}: keys={sorted(d)[:5] if isinstance(d, dict) else type(d).__name__}）')
     s = {k: v for k, v in d['summary'].items() if k.startswith('group') or k == 'reached'}
@@ -96,7 +97,7 @@ def main():
             # 見るのは **4 本の合計**。すべて 0 なら 4 とおりの並び順を突き合わせる相手が
             # 無いので合格にしない（Astra 裁定 問 4: 一律に 0 行を違反にはしない）
     # （この見張り番の実装は下の合計判定。群の数え上げだけここで足す）
-    if IN.guard('edge-order-groups') and total_groups == 0:
+    if IN.guard('edge-group-empty') and total_groups == 0:
         raise SystemExit(f'edge-order.py: {len(CMDS)} 本の起動ですべて群が 0 件（{BASE}）。'
                          '並び順を変えた 4 通りを突き合わせる相手が無いので合格にしない。'
                          '空のグラフや起点が無いグラフを渡していないか確かめる')
