@@ -62,10 +62,15 @@ all_perms = list(itertools.permutations(range(len(g['edges']))))
 # 縁が 1 本だと順列は 1 とおりしか無く「1 通り = 完全一致」が空振りになる
 # （allperm.py / allperm-corr.py と同じ決まり。第 55 ラウンド agy 指摘）
 IN.permutation_guards(len(g['edges']), None, None, 'allperm-full.py')
+# 上限を**割り算の前**に調べる（第 57 ラウンド agy P2-1 実測: `cap=0` は
+# `step = len(perms) // cap` で ZeroDivisionError の Traceback になっていた）
+IN.require_sample_cap(cap, 'allperm-full.py')
 perms = all_perms
 if len(perms) > cap:
-    step = len(perms) // cap
-    perms = perms[::step][:cap]
+    # 等間隔 + 原順と完全逆順を必ず含む標本（Astra 裁定 問 5）。`perms[::step][:cap]` は
+    # 先頭付近だけを見て相対順序が入れ替わらない縁の組を残した（実測: 24 通りで cap=2 →
+    # `(0,1,2,3)` と `(2,0,1,3)` だけ。6 ペア中 4 ペアが固定で縁順依存の stub を通した）
+    perms = IN.sample_permutations(all_perms, cap)
 # 間引いたあとの**実際に走る通り数**を見る（第 56 ラウンド Codex P2-2: 上限 1 では
 # 「縁順 1 通り / レポート JSON 1 通り / 判定: JSON 完全一致」で終了 0 になった）
 IN.require_sampled_runs(len(perms), 'allperm-full.py', cap)

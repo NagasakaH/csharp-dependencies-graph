@@ -416,6 +416,171 @@ def require_sampled_runs(n_ran, label, cap=None):
               '順列上限は 2 以上を渡してください')
 
 
+def require_sample_cap(cap, label):
+    """間引きの上限を**割り算の前**に調べる（第 57 ラウンド agy P2-1: `cap=0` は
+    `step = len(perms) // cap` で ZeroDivisionError の Traceback になっていた）"""
+    if guard('perm-cap') and cap < 2:
+        raise SystemExit(f'{label}: 順列上限に {cap} を渡している。比較には最低 2 とおり'
+                         '（原順と、その完全逆順）が要るので 2 以上を渡してください')
+
+
+def sample_permutations(all_perms, cap):
+    """辞書順の**先頭（原順）と末尾（完全逆順）を必ず含む**等間隔標本（Astra 裁定 問 5）
+
+    `perms[::step][:cap]` は先頭付近だけを拾い、相対順序が一度も入れ替わらない縁の組を
+    残した。実測（第 57 ラウンド agy）: 4 縁 24 通りで `cap=2` → `(0,1,2,3)` と `(2,0,1,3)`
+    だけなので 6 ペア中 4 ペアが固定になり、縁順で出力が変わる stub を通した（同じ stub が
+    `cap=24` なら割れ 12 並びで終了 1）。原順と完全逆順の 2 とおりなら**あらゆる縁の組**に
+    ついて両方の順序を試せる。全順列の保証ではないので、間引いた日は走る本数を表示する"""
+    n = len(all_perms)
+    k = min(cap, n)
+    if k >= n:
+        return list(all_perms)
+    if k < 2:
+        return list(all_perms[:1])   # 本数が足りない実行はここで 1 とおり。`require_sampled_runs` が止める
+    return [all_perms[i * (n - 1) // (k - 1)] for i in range(k)]
+
+
+def require_trial_count(n_trials, label):
+    """順列の入れ替えを**何とおり走らせる指定か**を走る前に見る（Astra 裁定 問 1 ①）
+
+    `r43-permute.py` は第 2 引数を `itertools.islice` に渡していた。実測（第 57 ラウンド agy）:
+    `r43-permute.py skill/scripts/report.mjs 1` は「表 1 通り（1 入れ替え）」で終了 0、
+    縁順で壊れる stub に 1 を渡しても終了 0 だった（間引き後の 1 とおり比較と同型）"""
+    if guard('trial-count') and n_trials < 2:
+        raise SystemExit(f'{label}: 入れ替えの試行を {n_trials} とおりに指定している。'
+                         '並び順を変えた実行は最低 2 とおり（原順とその逆順）比べないと'
+                         '何も言わない。試行は 2 以上を渡してください')
+
+
+def baseline_report_names(repo=None):
+    """`check-dir-rule.py` が数えるレポート名の実体（`baseline-v1/*.json`。Astra 裁定 問 2）"""
+    d = pathlib.Path(repo or repo_root()) / 'skill' / 'scripts' / 'tools' / 'battery' / 'baseline-v1'
+    return {p.name for p in d.glob('*.json')}
+
+
+def coverage_key_errors(exp, spec=None, repo=None):
+    """期待値が**どのレポート・どの条件**を数える物かを実体と突き合わせる
+
+    形だけの検査は `byReport = {"": 441}`（空文字キー 1 本）や `byCondition = {"fake": 5033}` を
+    通していた（第 57 ラウンド agy P2-4 の実測）。ここが見るのは**キーの集合**だけで、
+    値の正しさは `coverage` / `dir-rule-report` が実測と突き合わせる（件数の別の正本を
+    ここに作らない。Astra 裁定 問 2）。値が 0 の項目も省かない"""
+    bad = []
+    ids = None
+    if isinstance(spec, dict) and isinstance(spec.get('conditions'), list):
+        ids = {c.get('id') for c in spec['conditions'] if isinstance(c, dict)}
+    for kind in COVERAGE_KINDS:
+        e = exp.get(kind)
+        if not isinstance(e, dict) or not isinstance(e.get('byCondition'), dict) or not ids:
+            continue
+        by = set(e['byCondition'])
+        for miss in sorted(ids - by, key=str)[:4]:
+            bad.append(f'expectations.{kind}.byCondition に条件の id が無い'
+                       f'（要求一覧の条件なのに測らない）: {miss}')
+        for extra_ in sorted(by - ids, key=str)[:4]:
+            bad.append(f'expectations.{kind}.byCondition に要求一覧へ無い id がある'
+                       f'（測らない条件の件数を持っている）: {extra_}')
+    reports = baseline_report_names(repo)
+    dr = exp.get('dirRule')
+    if isinstance(dr, dict) and reports:
+        for prof in ('current', 'v1'):
+            e = dr.get(prof)
+            if not isinstance(e, dict) or not isinstance(e.get('byReport'), dict):
+                continue
+            by = set(e['byReport'])
+            for miss in sorted(reports - by)[:4]:
+                bad.append(f'expectations.dirRule.{prof}.byReport にレポート名が無い'
+                           f'（比較 0 件のレポートでも省かない）: {miss}')
+            for extra_ in sorted(by - reports)[:4]:
+                bad.append(f'expectations.dirRule.{prof}.byReport に baseline-v1 へ無い'
+                           f'レポート名がある: {extra_}')
+    return bad
+
+
+def coverage_shape_errors(exp, spec=None, repo=None):
+    """期待値の**形**（`cov-shape`）と**キーの実体**（`cov-keys`）を分けて検査する
+
+    第 57 ラウンドまで形検査 1 個の中に入っていた。Astra 裁定 問 2 で割ったのは
+    `cov-shape` を消した実行がキー検査まで飛ばす配置を避けるため（独立して消せる）"""
+    bad = []
+    if guard('cov-shape'):
+        bad += _coverage_shape_errors(exp)
+    if guard('cov-keys') and isinstance(exp, dict):
+        bad += coverage_key_errors(exp, spec, repo)
+    return bad
+
+
+def _coverage_shape_errors(exp):
+    """expectations の形を検査する（作り直した一覧が黙って空にならないようにする）"""
+    bad = []
+    if not isinstance(exp, dict):
+        return ['expectations がオブジェクトではない']
+    for kind in COVERAGE_KINDS:
+        e = exp.get(kind)
+        if not isinstance(e, dict):
+            bad.append(f'expectations.{kind} が無い（測った件数を条件別に置く）')
+            continue
+        by = e.get('byCondition')
+        if not isinstance(by, dict) or not by:
+            bad.append(f'expectations.{kind}.byCondition が空（条件別の件数が正本。合計は導出）')
+            continue
+        if any(isinstance(v, bool) or not isinstance(v, int) or v < 0 for v in by.values()):
+            bad.append(f'expectations.{kind}.byCondition に 0 以上の整数でない値がある')
+        if e.get('total') != sum(by.values()):
+            bad.append(f'expectations.{kind}.total が条件別の合計と違う'
+                       f'（記録 {e.get("total")} / 合計 {sum(by.values())}。合計は導出する物）')
+        if e.get('conditions') != len(by):
+            bad.append(f'expectations.{kind}.conditions が件数と違う'
+                       f'（記録 {e.get("conditions")} / 件数 {len(by)}）')
+    d = exp.get('directionless')
+    if not isinstance(d, dict):
+        bad.append('expectations.directionless に rows / sameApi / wiring / siblingEndpoints / '
+                   'primary / none の件数が要る（向き none の数えを裁定のハードコードから離す）')
+    else:
+        # 第 57 ラウンド agy P2-2: `dirRule` に入れた「整数かどうか・0 以上」を here は
+        # 横展開していなかった。実測で `true` / `-1` / `none` 欠落がすべて通っていた
+        for k in ('rows', 'sameApi', 'wiring', 'siblingEndpoints', 'primary', 'none'):
+            v = d.get(k)
+            if isinstance(v, bool) or not isinstance(v, int):
+                bad.append(f'expectations.directionless.{k} が整数ではない（true/false は数にしない）')
+            elif v < 0:
+                bad.append(f'expectations.directionless.{k} が負の整数 {v}（件数は 0 以上）')
+    dr = exp.get('dirRule')
+    if not isinstance(dr, dict):
+        bad.append('expectations.dirRule が無い（`check-dir-rule.py --profile current|v1` が使う）')
+    else:
+        for prof in ('current', 'v1'):
+            e = dr.get(prof)
+            if not isinstance(e, dict):
+                bad.append(f'expectations.dirRule.{prof} が無い')
+                continue
+            for k in ('agree', 'bad', 'loose', 'nopath', 'badDomain'):
+                v = e.get(k)
+                if isinstance(v, bool) or not isinstance(v, int):
+                    bad.append(f'expectations.dirRule.{prof}.{k} が整数ではない（true/false は数にしない）')
+                elif v < 0:
+                    # 第 56 ラウンド agy P2-2: ここは「整数かどうか」だけを見ていた。`agree` を
+                    # 増やして `bad` を引けば合計は同じまま、現実にあり得ない件数で通れた
+                    bad.append(f'expectations.dirRule.{prof}.{k} が負の整数 {v}'
+                               '（同じ行を 2 度数えたり引いた形。件数は 0 以上）')
+            by = e.get('byReport')
+            if not isinstance(by, dict) or not by:
+                bad.append(f'expectations.dirRule.{prof}.byReport が空（レポート別の比較件数が正本）')
+                continue
+            if any(isinstance(v, bool) or not isinstance(v, int) or v < 0 for v in by.values()):
+                bad.append(f'expectations.dirRule.{prof}.byReport に 0 以上の整数でない値がある')
+                continue
+            # 第 56 ラウンド agy P2: 向き別の合計とレポート別の合計は**同じ行を数え直した物**
+            # なので必ず一致する。片方だけいじった一覧（比較件数を減らす細工）をここで落とす
+            s = sum(by.values())
+            d = sum(e.get(k, 0) for k in ('agree', 'bad', 'loose', 'nopath', 'badDomain'))
+            if s != d:
+                bad.append(f'expectations.dirRule.{prof}.byReport の合計 {s} 件が向き別の合計 '
+                           f'{d} 件と違う（同じ行を別々に数えた物。片方だけ変えた一覧は認めない）')
+    return bad
+
+
 def require_comparison_rows(rows, label, what='表示行'):
     """行数 0 を「違反 0」「1 通りに一致」と数えない（第 54 ラウンド双人レビュー agy 指摘 1・2）
 
@@ -524,70 +689,6 @@ def spec_shape_errors(kind, args):
 # 違えば終了 1。件数一致は内容一致の代用にはしないので、不変条件検査と
 # `v1diff.py --verify-known` はそのまま残す
 COVERAGE_KINDS = ('invariantRows', 'parentChild')
-
-
-def coverage_shape_errors(exp):
-    """expectations の形を検査する（作り直した一覧が黙って空にならないようにする）"""
-    bad = []
-    if not guard('cov-shape'):
-        return []
-    if not isinstance(exp, dict):
-        return ['expectations がオブジェクトではない']
-    for kind in COVERAGE_KINDS:
-        e = exp.get(kind)
-        if not isinstance(e, dict):
-            bad.append(f'expectations.{kind} が無い（測った件数を条件別に置く）')
-            continue
-        by = e.get('byCondition')
-        if not isinstance(by, dict) or not by:
-            bad.append(f'expectations.{kind}.byCondition が空（条件別の件数が正本。合計は導出）')
-            continue
-        if any(isinstance(v, bool) or not isinstance(v, int) or v < 0 for v in by.values()):
-            bad.append(f'expectations.{kind}.byCondition に 0 以上の整数でない値がある')
-        if e.get('total') != sum(by.values()):
-            bad.append(f'expectations.{kind}.total が条件別の合計と違う'
-                       f'（記録 {e.get("total")} / 合計 {sum(by.values())}。合計は導出する物）')
-        if e.get('conditions') != len(by):
-            bad.append(f'expectations.{kind}.conditions が件数と違う'
-                       f'（記録 {e.get("conditions")} / 件数 {len(by)}）')
-    d = exp.get('directionless')
-    if not isinstance(d, dict) or any(not isinstance(d.get(k), int) for k in
-                                      ('rows', 'sameApi', 'wiring', 'siblingEndpoints', 'primary')):
-        bad.append('expectations.directionless に rows / sameApi / wiring / siblingEndpoints / '
-                   'primary の件数が要る（向き none の数えを裁定のハードコードから離す）')
-    dr = exp.get('dirRule')
-    if not isinstance(dr, dict):
-        bad.append('expectations.dirRule が無い（`check-dir-rule.py --profile current|v1` が使う）')
-    else:
-        for prof in ('current', 'v1'):
-            e = dr.get(prof)
-            if not isinstance(e, dict):
-                bad.append(f'expectations.dirRule.{prof} が無い')
-                continue
-            for k in ('agree', 'bad', 'loose', 'nopath', 'badDomain'):
-                v = e.get(k)
-                if isinstance(v, bool) or not isinstance(v, int):
-                    bad.append(f'expectations.dirRule.{prof}.{k} が整数ではない（true/false は数にしない）')
-                elif v < 0:
-                    # 第 56 ラウンド agy P2-2: ここは「整数かどうか」だけを見ていた。`agree` を
-                    # 増やして `bad` を引けば合計は同じまま、現実にあり得ない件数で通れた
-                    bad.append(f'expectations.dirRule.{prof}.{k} が負の整数 {v}'
-                               '（同じ行を 2 度数えたり引いた形。件数は 0 以上）')
-            by = e.get('byReport')
-            if not isinstance(by, dict) or not by:
-                bad.append(f'expectations.dirRule.{prof}.byReport が空（レポート別の比較件数が正本）')
-                continue
-            if any(isinstance(v, bool) or not isinstance(v, int) or v < 0 for v in by.values()):
-                bad.append(f'expectations.dirRule.{prof}.byReport に 0 以上の整数でない値がある')
-                continue
-            # 第 56 ラウンド agy P2: 向き別の合計とレポート別の合計は**同じ行を数え直した物**
-            # なので必ず一致する。片方だけいじった一覧（比較件数を減らす細工）をここで落とす
-            s = sum(by.values())
-            d = sum(e.get(k, 0) for k in ('agree', 'bad', 'loose', 'nopath', 'badDomain'))
-            if s != d:
-                bad.append(f'expectations.dirRule.{prof}.byReport の合計 {s} 件が向き別の合計 '
-                           f'{d} 件と違う（同じ行を別々に数えた物。片方だけ変えた一覧は認めない）')
-    return bad
 
 
 def expectations(repo=None):
@@ -835,9 +936,18 @@ def validate_required_spec(spec, repo=None):
     if bad:
         fail('\n'.join(bad))
     fx = spec['fixtures']
-    if not isinstance(fx, list) or not all(isinstance(x, str) for x in fx):
-        bad.append('fixtures は文字列の配列')
+    if not isinstance(fx, list):
+        bad.append('fixtures は配列でなければならない')
         fx = []
+    elif guard('fixture-shape') and not all(isinstance(x, str) for x in fx):
+        # 第 57 ラウンド agy P2-2: この型検査だけ `guard()` を通っていなかった。実測は
+        # 「`dup-fixture` と `fixture-set` を消したうえで `fixtures` に int」→ REJECTED（消せない）。
+        # Astra 裁定 問 1 ③で要素の**型**を `fixture-shape` に分ける（重複は `dup-fixture`、
+        # 実体集合は `fixture-set`）。値を削らずに残すので、見張り番を消した実行は次の
+        # `fixture-set` が「要求一覧に有るのに fixture が無い」で止める
+        kinds = '、'.join(sorted({type(x).__name__ for x in fx if not isinstance(x, str)}))
+        bad.append(f'fixtures に文字列でない要素がある（{kinds}。'
+                   'リポジトリ相対のパス文字列だけを書く）')
     if guard('dup-fixture') and len(fx) != len(set(fx)):
         # 集合にすると重複が消える。「19 本ある」と言い張れて走らない検査が隠れる
         # （第 56 ラウンド agy P2-1: ここだけ `guard()` を通っていなかった）
@@ -866,14 +976,19 @@ def validate_required_spec(spec, repo=None):
             bad.append(f'{where} の欄が期待と違う（有る欄 {sorted(c)} / 必要 {sorted(want_keys)}）')
         cid, graph, kind = c.get('id'), c.get('graph'), c.get('kind')
         args, case = c.get('args') or [], c.get('case')
-        if not isinstance(graph, str) or not graph:
-            bad.append(f'{where} の graph が文字列ではない')
-            continue
-        if '#' in graph:
-            bad.append(f'{where} の graph に `#` が混ざっている（表示は case が持つ。'
-                       f'実際に読むファイルの相対パスだけを書く: {graph}）')
-        if pathlib.PurePosixPath(graph).is_absolute() or graph.startswith('..'):
-            bad.append(f'{where} の graph がリポジトリ相対ではない: {graph}')
+        # `graph` の型・空・`#`・絶対パス・`..` は要求一覧の内容に対する契約なので、
+        # `args` や `kind` と同じ `cond-shape` にまとめる（第 57 ラウンド agy P2-2 の実測で
+        # 「`cond-shape` を消したのに `graph` の `#` で REJECTED」＝消せない穴が出ていた。
+        # Astra 裁定 問 1 ②）。**id も同じ中身から recompute した細工**で孤立を測る
+        if guard('cond-shape'):
+            if not isinstance(graph, str) or not graph:
+                bad.append(f'{where} の graph が文字列ではない')
+                continue
+            if '#' in graph:
+                bad.append(f'{where} の graph に `#` が混ざっている（表示は case が持つ。'
+                           f'実際に読むファイルの相対パスだけを書く: {graph}）')
+            if pathlib.PurePosixPath(graph).is_absolute() or graph.startswith('..'):
+                bad.append(f'{where} の graph がリポジトリ相対ではない: {graph}')
         if case is not None and not isinstance(case, str) and guard('cond-shape'):
             bad.append(f'{where} の case は null か文字列')
         if not isinstance(args, list) or not all(isinstance(a, str) for a in args):
@@ -898,7 +1013,7 @@ def validate_required_spec(spec, repo=None):
                        '別の正準形が同じ 16 桁に衝突した日は一覧を作り直す）')
         seen_key.setdefault(flat, i)
         seen_id.setdefault(cid, i)
-    bad += coverage_shape_errors(spec['expectations'])
+    bad += coverage_shape_errors(spec['expectations'], spec, repo)
     if bad:
         fail('要求一覧（required-checks.json）が壊れている:\n  ' + '\n  '.join(bad[:24]) +
              (f'\n  …ほか {len(bad)} 件' if len(bad) > 24 else '') +

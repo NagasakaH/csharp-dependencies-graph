@@ -42,6 +42,12 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / 'battery'))
 import _inputs as IN
 
 REPO = IN.repo_root()
+# 要求一覧の**中身**を先に点検する（第 57 ラウンド agy P2-3 実測: この道具は `fixtures` を
+# 直読みするだけで `validate_required_spec` を呼ばないので、`fixtures` の重複も
+# `expectations.dirRule.current.bad = -1` も終了 0 で通過していた。Astra 裁定 問 2 の末尾
+# 「入力の所在だけでなく要求一覧の内容も測る入口なら共有検証を呼ぶ」。測定道具 4 本と同じ
+# 入口なので、壊れた一覧は指紋検査より手前で「要求一覧が壊れている」案内に落ちる）
+IN.validate_required_spec(IN.required_spec(REPO), REPO)
 # 追跡下の fixture は `required-checks.json` の一覧が正本（glob で減らさない。第 53 ラウンド
 # 双人レビュー両名 P2: 2 本消しても点検も不変条件検査も終了 0 だった）
 FIXTURES = IN.required_spec()['fixtures']

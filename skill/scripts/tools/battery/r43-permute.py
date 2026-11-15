@@ -19,6 +19,10 @@ BUCKETS = ['external.in', 'external.out', 'entries.in', 'entries.out',
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CASES = [f'r42-calls-{i}.json' for i in (0, 1)]
+# 入れ替えの試行を 1 とおりに指定すると「表 1 通り」で空振りする（第 57 ラウンド agy P2-1
+# 実測: `r43-permute.py skill/scripts/report.mjs 1` は終了 0、縁順で壊れる stub にも 1 / 2 が
+# 通った）。`allperm-full.py` の間引きと同型なので**走る前**に止める（Astra 裁定 問 1 ①）
+IN.require_trial_count(LIMIT, 'r43-permute.py')
 
 
 def rows_of(r):
@@ -39,7 +43,15 @@ for name in CASES:
   shapes = {}
   # 縁が 1 本の条件だと「入れ替えても 1 とおり」で空振りになる（allperm と同じ決まり）
   IN.permutation_guards(len(base['edges']), None, None, f'r43-permute.py {name}')
-  for perm in itertools.islice(itertools.permutations(base['edges']), LIMIT):
+  # 辞書順の先頭から `islice` で打ち切ると、試行が小さいときに先頭付近だけを見る
+  # （Astra 裁定 問 5）。原順と完全逆順を必ず含む標本へ揃える
+  all_perms = list(itertools.permutations(base['edges']))
+  perms = IN.sample_permutations(all_perms, LIMIT)
+  # 実行後にも**このケースで走った異なる順列の本数**を見る。2 ケースの合算でも
+  # `len(shapes)`（出力の種類数）でも数えない（Astra 裁定 問 5）
+  IN.require_sampled_runs(len(perms), f'r43-permute.py {name}',
+                          LIMIT if LIMIT < len(all_perms) else None)
+  for perm in perms:
     g = {'nodes': base['nodes'], 'edges': list(perm)}
     with tempfile.TemporaryDirectory() as td:
       gp, op = os.path.join(td, 'g.json'), os.path.join(td, 'o.json')

@@ -492,8 +492,10 @@ def dir_rule_v1_ledger_moved():
 def dir_rule_report_fake_key():
     """`byReport` を実在しないレポート名 1 本に集め替えた一覧（合計は同じ。agy P2-2 の ①）
 
-    形の検査は 18 本という実体を知らない（それは要求一覧の fixture 側が持つ）。ここで測るのは
-    `check-dir-rule.py` が**レポート別**に実測と突き合わせる一かどうか"""
+    形の検査は 18 本という実体を知らない。ここで測るのは `check-dir-rule.py` が**レポート別**に
+    実測と突き合わせる一かどうか。第 57 ラウンド agy P2-4 の実測でこの形は要求一覧の検査も
+    通っていたので、キー集合その物を見る `cov-keys` を別制御で用意した
+    （`dir_rule_report_unknown_key` / `coverage_condition_unknown_key`）"""
     rel = f'{BATTERY}/required-checks.json'
     p = stash(rel)
     doc = json.loads(p.read_text(encoding='utf-8'))
@@ -678,11 +680,19 @@ def fixture_added():
 
 
 def condition_removed_from_ledger():
-    """要求一覧から条件を 1 件消す（今回走るのは 219 件のまま）"""
+    """要求一覧から条件を 1 件消す（今回走るのは 219 件のまま）
+
+    消した条件の id は期待値の内訳から**一緒に**消し、合計と条件数も作り直す。そうしないと
+    第 58 ラウンドの `cov-keys`（キー集合の実体検査）が先に落ちて、この制御が
+    `condition-set` を測っていない空振りになる（agy P2-4 で増えた見張り番との取り合わせ）"""
     rel = f'{BATTERY}/required-checks.json'
     p = stash(rel)
     doc = json.loads(p.read_text(encoding='utf-8'))
     removed = doc['conditions'].pop(5)
+    for kind in IN.COVERAGE_KINDS:
+        e = doc['expectations'][kind]
+        e['byCondition'].pop(removed['id'], None)
+        e['total'], e['conditions'] = sum(e['byCondition'].values()), len(e['byCondition'])
     p.write_text(json.dumps(doc, ensure_ascii=False, indent=1) + '\n', encoding='utf-8')
     try:
         try:
@@ -694,6 +704,392 @@ def condition_removed_from_ledger():
                    + str(removed.get('case')))
     finally:
         restore()
+
+
+# ------------------------------------------------------------ 第 58 ラウンド agy P2 の制御 --
+def cond_graph_absolute():
+    """`graph` を絶対パスにする（`cond-shape` だけを測る。第 57 ラウンド agy P2-2 の ①）
+
+    `graph` の `#`・絶対パス・`..` を見る検査は `guard()` を通っておらず、`cond-shape` を
+    消しても消せなかった（実測「`cond-shape` を消したのに REJECTED」。Astra 裁定 問 1 ②で
+    `cond-shape` へまとめる）。id を据え置く細工だと `canonical-id` が先に落ちるので、
+    **id も同じ中身から作り直した**一覧を渡す（第 56 ラウンド Codex P2-1 と同じ孤立の作り方）。
+    id を作り直すので期待値のキー集合を見る `cov-keys` が別の手前で落ちる。それも一緒に消して
+    単独に測る（第 58 ラウンド実測: `cond-shape` だけ消すと `cov-keys` が割れた）"""
+    spec = spec_copy()
+    c = spec['conditions'][3]
+    c['graph'] = '/' + c['graph']
+    c['id'] = IN.condition_id(IN.condition_key(c.get('case'), c['graph'], c['kind'], c['args']))
+    IN.validate_required_spec(spec, REPO)
+
+
+def fixtures_non_string():
+    """`fixtures` の 1 本を文字列でない値にする（`fixture-shape` だけを測る。agy P2-2 の ②）
+
+    実測（第 57 ラウンド agy）は `dup-fixture` と `fixture-set` を消しても int 混入が通らなかった。
+    Astra 裁定 問 1 ③で要素の**型**を `fixture-shape` に分ける。見張り番を消した実行は
+    値がそのまま集合比較へ入るので `fixture-set` が別の手前で止める（`fallback` で宣言）"""
+    spec = spec_copy()
+    spec['fixtures'][0] = 1
+    IN.validate_required_spec(spec, REPO)
+
+
+def dir_rule_report_unknown_key():
+    """`byReport` のキーを 1 本だけ実在しない名前に差し替える（件数も合計もそのまま）
+
+    第 57 ラウンド agy P2-4 の実測で `{"": 441}`、実在 17 本 + 余剰 1 本、1 本への全件寄せが
+    すべて通っていた。`cov-keys` はキー集合を `baseline-v1/*.json` の 18 本と突き合わせる
+    （Astra 裁定 問 2: ここが見るのは**どのレポートを数えるか**。件数の正しさは
+    `dir-rule-report` が実測と比べる）"""
+    spec = spec_copy()
+    by = spec['expectations']['dirRule']['current']['byReport']
+    victim = sorted(by)[0]
+    by[victim + '.ghost'] = by.pop(victim)
+    IN.validate_required_spec(spec, REPO)
+
+
+def coverage_condition_unknown_key():
+    """`byCondition` の id を 1 件だけ要求一覧に無い値へ差し替える（件数も合計もそのまま）
+
+    `byCondition = {"fake": 5033}` が通っていた穴の別形（agy P2-4）。要求一覧の条件 id と
+    キー集合を突き合わせる `cov-keys` が止める"""
+    spec = spec_copy()
+    by = spec['expectations']['invariantRows']['byCondition']
+    ghost = '0' * 16
+    if ghost in by or ghost in {c['id'] for c in spec['conditions']}:
+        raise NotDetected('化け id が実在してしまう（この制御の前提が変わった）')
+    by[ghost] = by.pop(sorted(by)[0])
+    IN.validate_required_spec(spec, REPO)
+
+
+def directionless_bool_counter():
+    """向き none の数えに `true` を置く（`dirRule` に入れた整数検査の横展開漏れ。agy P2-2）
+
+    `dirRule` の 5 欄は第 56 ラウンドで「整数かどうか + 0 以上」を見たが、`directionless` は
+    「整数かどうか」だけだった。実測で `rows = true` / `none = -1` / `none` 欠落が通った"""
+    spec = spec_copy()
+    spec['expectations']['directionless']['rows'] = True
+    IN.validate_required_spec(spec, REPO)
+
+
+def directionless_negative_none():
+    """`expectations.directionless.none` に負の値を置く（同じ穴の別形）"""
+    spec = spec_copy()
+    spec['expectations']['directionless']['none'] = -1
+    IN.validate_required_spec(spec, REPO)
+
+
+def directionless_missing_none():
+    """`expectations.directionless` から `none` を消す（`count-none.py` が読む欄。agy P2-2）"""
+    spec = spec_copy()
+    del spec['expectations']['directionless']['none']
+    IN.validate_required_spec(spec, REPO)
+
+
+def report_dir_empty_direct():
+    """レポート 0 件のディレクトリを `report_paths` へ直接渡す（`path-empty` だけを測る）
+
+    README は「1/18 のディレクトリ」を `path-empty` と `path-count` 両方の制御と書いていたが、
+    その実行は `path-count` が先に落ちていた（第 57 ラウンド agy P2-2: 表に載っているのに
+    走っていない）。道具側から単独の制御にできないので関数へ直接渡す（Astra 裁定 問 3）"""
+    d = TMP / 'empty-reports'
+    d.mkdir(exist_ok=True)
+    IN.report_paths(d, expect=None, what='制御')
+    return f'0 件でも通った（0 件で合格にしない見張り番が居ない）: {d}'
+
+
+def report_dir_wrong_count_direct():
+    """1 本だけのディレクトリに 18 件を期待して渡す（`path-count` だけを測る。同上）"""
+    d = TMP / 'one-report'
+    if d.exists():
+        shutil.rmtree(d)
+    d.mkdir()
+    shutil.copy(HERE / 'baseline-v1' / 'demo-api.json', d / 'demo-api.json')
+    IN.report_paths(d, expect=18, what='制御')
+    return f'1 本で 18 件期待を通った: {d}'
+
+
+def run_json_child_fails_with_output():
+    """正しい JSON を書いて**非 0 で終わる**実行（`child-fail` だけを測る。Astra 裁定 問 3）
+
+    以前 README は `child-fail` に「終了 0 で JSON を書かない」制御を載せていたが、それは
+    `json-missing` の制御で消すと `json-missing` が落ちる空振りだった（第 57 ラウンド agy
+    P2-2）。出力を先に書かせておくと、`child-fail` を消した実行は JSON がそのまま読めて
+    **通る**（第 58 ラウンド実測。だから `clean=True` のままで測れる）"""
+    bad = TMP / 'fail-with-output.mjs'
+    bad.write_text("""
+import fs from 'node:fs';
+const argv = process.argv.slice(2);
+fs.writeFileSync(argv[argv.indexOf('--json') + 1], JSON.stringify({
+  summary: {rows: 1},
+  external: {in: [{id: 'x', bucket: 'external', direction: 'in', hops: 1}], out: []},
+  entries: {in: [], out: []}, artifacts: {in: [], out: []},
+  sameApi: [], siblingEndpoints: [], wiring: [],
+}));
+process.exit(3);
+""", encoding='utf-8')
+    IN.run_json(str(bad), [], tmp_out('fail'), REPO, label='制御')
+
+
+def run_json_empty_output():
+    """終了 0 で**空のファイル**を書く実行（`json-empty` だけを測る）
+
+    消した実行は空ファイルの `json.loads` で `json-parse` に拾われる（`fallback` で宣言）"""
+    bad = TMP / 'empty-file.mjs'
+    bad.write_text("""
+import fs from 'node:fs';
+const argv = process.argv.slice(2);
+fs.writeFileSync(argv[argv.indexOf('--json') + 1], '');
+""", encoding='utf-8')
+    IN.run_json(str(bad), [], tmp_out('empty'), REPO, label='制御')
+
+
+def projection_bucket_missing():
+    """6 欄の形が崩れた JSON を `projection_rows` へ直接渡す（`proj-buckets` だけを測る）
+
+    第 57 ラウンド agy P2-2: README は「欄が消える」を `proj-buckets` と `proj-fields` 両方の
+    制御として載せていたが、欄が消える実行は `proj-fields` が落としていた。9 欄の形その物が
+    崩れた JSON は道具の手前で `report-shape` が止まる（その内側の見張り番なので、関数へ直接
+    渡して単独に測る）。消した実行は `doc[b][side]` で KeyError になる（`fallback` で宣言）"""
+    doc = json.loads((HERE / 'baseline-v1' / 'demo-api.json').read_text(encoding='utf-8'))
+    if not doc['external']['out']:
+        raise NotDetected('基準の 18 本で `external.out` が空（この制御の前提が変わった）')
+    del doc['external']['out']
+    IN.projection_rows(doc, '制御', ('id', 'bucket', 'direction', 'hops', 'switches'))
+
+
+def built_conditions_duplicated():
+    """組み上げる起動条件が重複する（要求一覧は**壊さない**で builder へ渡す列だけを重複させる）
+
+    第 57 ラウンド agy P2-2: `dup-built` に載せていた制御は実在しなかった。要求一覧の
+    `fixtures` を重複させる制御（`dup-fixture`）では一覧の形検査が先に落ちる。Astra 裁定 問 3
+    の作り方で、追跡下の一覧は正当なまま builder だけへ重複した列を渡す"""
+    fx = IN.required_fixtures(REPO)
+    conds = IN.launch_conditions(REPO, fixtures=list(fx) + [fx[0]])
+    return f'重複を数えずに {len(conds)} 組みが返った（要求一覧との比較の前に止める）'
+
+
+def allperm_full_cap_zero():
+    """`allperm-full.py` の順列上限に 0 を渡す（割り算の前で止まる。agy P2-1）
+
+    実測（第 57 ラウンド agy）は `step = len(perms) // cap` で ZeroDivisionError の Traceback。
+    `require_sample_cap` が `require_sampled_runs` より前で止める"""
+    return py('allperm-full.py', str(REPO / 'skill/scripts/report.mjs'),
+              str(REPO / BATTERY / 'min-2.json'), '0')
+
+
+def r43_trial_limit_one():
+    """`r43-permute.py` の入れ替え試行を 1 とおりにする（agy P2-1: 実測で終了 0）
+
+    「表 1 通り（1 入れ替え）」で通っていた（`allperm-full.py` の間引き後の 1 とおり比較と同型、
+    第 56 ラウンド Codex P2-2）。`trial-count` が走る前に止め、消した実行は
+    `perm-cap`（実際に走った本数）が別の手前で止める"""
+    return py('r43-permute.py', str(REPO / 'skill/scripts/report.mjs'), '1')
+
+
+def none_expectations_off_by_one():
+    """`expectations.directionless.none` を 1 増やして `count-none.py` を走らせる
+
+    README は `none-expectations` の制御を「実グラフの縁を全部抜く」と書いていたが、その実行は
+    `edge-order.py` の制御だった（第 57 ラウンド agy P2-2: 表に載っているのに走っていない）"""
+    rel = f'{BATTERY}/required-checks.json'
+    p = stash(rel)
+    doc = json.loads(p.read_text(encoding='utf-8'))
+    doc['expectations']['directionless']['none'] += 1
+    p.write_text(json.dumps(doc, ensure_ascii=False, indent=1) + '\n', encoding='utf-8')
+    try:
+        return py('count-none.py', 'out/audit-current')
+    finally:
+        restore()
+
+
+def none_counters_moved():
+    """レポート 1 本の `summary.rows` を 1 増やす（欄の実測とサマリが食い違う日）
+
+    `none-expectations` は期待値との比較で、こちらは見張り番が違う（`none-counters`）。
+    欄の実測から数えた行数は変わらないので期待値側は一致したまま、カウンタだけ割れる"""
+    src = TMP / 'audit-bumped'
+    if src.exists():
+        shutil.rmtree(src)
+    src.mkdir()
+    for q in sorted((REPO / 'out/audit-current').glob('*.json')):
+        shutil.copy(q, src / q.name)
+    victim = src / 'demo-api.json'
+    doc = json.loads(victim.read_text(encoding='utf-8'))
+    doc['summary']['rows'] += 1
+    victim.write_text(json.dumps(doc, ensure_ascii=False), encoding='utf-8')
+    return py('count-none.py', str(src))
+
+
+def v1_derivation_rows_four():
+    """既知差分の 1 件を「向きが変わらない」形へ直す（導出が 55 件でなくなる。agy P2-2）
+
+    README は `v1-derivation` を「`dir-rule-v1` の制御が同時に落とす」と書いていたが、それは
+    `v1-derivation` を単独で測っていない（Astra 裁定 問 3）。導出関数へ 54 件になる一覧を
+    直接渡して止まることを確かめ、見張り番を消した実行は 54 件で**通る**"""
+    rel = f'{BATTERY}/known-v1-diffs.json'
+    p = stash(rel)
+    led = json.loads(p.read_text(encoding='utf-8'))
+    rows = [d for d in led['diffs'] if d.get('kind') == 'row'
+            and len(d.get('old') or []) >= 2 and len(d.get('new') or []) >= 2
+            and d['old'][1] != d['new'][1]]
+    if len(rows) != 55:
+        raise NotDetected(f'既知差分の「向きが変わる行差分」が {len(rows)} 件'
+                          '（この制御は 55 件の前提で組む。台帳の作り直しは人の判断）')
+    rows[0]['new'][1] = rows[0]['old'][1]
+    p.write_text(json.dumps(led, ensure_ascii=False, indent=1) + '\n', encoding='utf-8')
+    try:
+        n = len(IN.expected_direction_diffs(REPO))
+        return f'向き の差分を {n} 件と導いても通った（55 件のはず）'
+    finally:
+        restore()
+
+
+LEDGER = 'skill/scripts/tools/battery/input-fingerprints.json'
+
+
+def _any_scope_input():
+    """中身の指紋で `mode='any'` と読んでいる入力（json か bytes のどちらかで読める物）を 1 本返す"""
+    for rel, mode, _what in IN.content_scope(REPO):
+        if mode == 'any':
+            return rel
+    raise NotDetected('`mode=any` の入力が無い（この制御の前提が変わった）')
+
+
+def fingerprint_ledger_extra_entry():
+    """指紋台帳に入力の一覧に無い物を 1 件足す（`fp-ledger-extra` だけを測る。第 57 ラウンド agy P2-2）
+
+    README は台帳の余剰を読む見張り番に制御を載せていなかった。消した実行は台帳の条目を
+    無視するだけなので他は割れない（入力の側は変わっていない）"""
+    p = stash(LEDGER)
+    data = json.loads(p.read_text(encoding='utf-8'))
+    ghost = 'skill/tests/fixtures/ImpactFacts/ghost.graph.json'
+    if ghost in data[IN.CONTENTS]:
+        raise NotDetected('化けの入力が台帳に実在してしまう（この制御の前提が変わった）')
+    data[IN.CONTENTS][ghost] = {'mode': 'json', 'sha': '0' * 64, 'bytes': 0}
+    p.write_text(json.dumps(data, ensure_ascii=False), encoding='utf-8')
+    bad = IN.require_fingerprints(REPO)
+    restore()
+    return (0 if not bad else 1), '\n'.join(bad)
+
+
+def fingerprint_mode_moved():
+    """台帳の**読み方**だけを 1 件書き換える（`fp-mode` だけを測る。第 57 ラウンド agy P2-2）
+
+    `fp-sha` → `fp-bytes` → `fp-mode` は elif で繋がっている。中身を変えないと最後の 1 つは
+    働かないので、sha と bytes はそのまま `mode` の値だけを変える。読み方の実体は入力の
+    並び（`CONTENT_SCOPES`）から決まるので、台帳の記録がずれた日だけを拾う"""
+    victim = _any_scope_input()
+    p = stash(LEDGER)
+    data = json.loads(p.read_text(encoding='utf-8'))
+    if data[IN.CONTENTS][victim].get('mode') != 'json':
+        raise NotDetected(f'{victim} の台帳の読み方が json でない（この制御の前提が変わった）')
+    data[IN.CONTENTS][victim]['mode'] = 'bytes'
+    p.write_text(json.dumps(data, ensure_ascii=False), encoding='utf-8')
+    bad = IN.require_fingerprints(REPO)
+    restore()
+    return (0 if not bad else 1), '\n'.join(bad)
+
+
+def fingerprint_type_unknown():
+    """台帳の読み方に json でも bytes でもない値を置く（`fp-type` だけを測る。同上）
+
+    `mode='any'` の入力は json か bytes のどちらかで読めるはずで、それ以外を記録している日は
+    指紋の型が不明（比較の意味が無い）。`fp-mode` の elif の後ろに有るので、`fp-type` だけを
+    消した実行は `fp-mode` が別の手前で止める（`fallback` で宣言する）"""
+    victim = _any_scope_input()
+    p = stash(LEDGER)
+    data = json.loads(p.read_text(encoding='utf-8'))
+    data[IN.CONTENTS][victim]['mode'] = 'text'
+    p.write_text(json.dumps(data, ensure_ascii=False), encoding='utf-8')
+    bad = IN.require_fingerprints(REPO)
+    restore()
+    return (0 if not bad else 1), '\n'.join(bad)
+
+
+def fingerprint_structural_nodes_moved():
+    """out/ 入力の構造指紋（ノード数）を台帳側だけ 1 ずらす（`fp-structural` だけを測る。同上）
+
+    `check_fingerprints` は `out/wt-head` など固定入力のノード・縁・id・関係の数を台帳と
+    比べる。実測では `fp-structural` と `fp-type` を落とす制御が走っていなかった
+    （README に載っていた制御は `fp-sha` / `fp-bytes` 側を落としていた）"""
+    p = stash(LEDGER)
+    data = json.loads(p.read_text(encoding='utf-8'))
+    victim = sorted(data['inputs'])[0]
+    data['inputs'][victim]['nodes'] += 1
+    p.write_text(json.dumps(data, ensure_ascii=False), encoding='utf-8')
+    bad = IN.check_fingerprints(REPO)
+    restore()
+    return (0 if not bad else 1), '\n'.join(bad)
+
+
+def input_check_validates_ledger():
+    """要求一覧を壊して**入力点検**を走らせる（入口が揃ったか。第 57 ラウンド agy P2-3）
+
+    実測: `fixtures` を重複させても `check-battery-inputs.py` は「バッテリーの入力 79 件
+    （fixture 20 本ふくむ）」と数えて**終了 0** だった（`validate_required_spec` を呼ばずに
+    `fixtures` を直読みしていた。私が第 57 ラウンドの検証 1 周目で踏んだ穴その物）。
+    入力点検も測定道具と同じ入口を通るようになった"""
+    rel = f'{BATTERY}/required-checks.json'
+    p = stash(rel)
+    doc = json.loads(p.read_text(encoding='utf-8'))
+    doc['fixtures'].append(doc['fixtures'][0])
+    p.write_text(json.dumps(doc, ensure_ascii=False, indent=1) + '\n', encoding='utf-8')
+    try:
+        return py('check-battery-inputs.py')
+    finally:
+        restore()
+
+
+def _edge_order_module():
+    """`edge-order.py` を import する（本体は `main()` へ移したので import では走らない）
+
+    Astra 裁定 問 4: 追加した判定が実際に働くことは**この呼び出し経路**で見る。
+    `IN.run_json` の制御だけでは別経路の証拠にしかならない"""
+    import importlib.util
+    sp = importlib.util.spec_from_file_location('edge_order_under_test', HERE / 'edge-order.py')
+    mod = importlib.util.module_from_spec(sp)
+    sp.loader.exec_module(mod)
+    return mod
+
+
+def edge_order_child_fails():
+    """`edge-order.py` の子実行が非 0 で終わる（`child-fail` を query.mjs 経路で測る）
+
+    消した実行は stdout が空なので `json-parse` が別の手前で止める（`fallback` で宣言）"""
+    stub = node_stub("""
+// query.mjs が落ちた日の再現（--json は標準出力なので出力は空のまま終わる）
+process.stderr.write('query.mjs が落ちた\\n');
+process.exit(4);
+""", 'query-fail.mjs')
+    mod = _edge_order_module()
+    mod.QUERY = stub
+    return mod.key(str(REPO / 'out/demo/graph.json'), ['--from', 'a'], REPO)
+
+
+def edge_order_bad_json():
+    """`edge-order.py` が読めない出力を受け取る（`json-parse` を query.mjs 経路で測る）
+
+    消した実行は `d = {}` になって形検査 `edge-order-groups` が別の手前で止める"""
+    stub = node_stub("""
+process.stdout.write('{ "groups": [');
+""", 'query-broken.mjs')
+    mod = _edge_order_module()
+    mod.QUERY = stub
+    return mod.key(str(REPO / 'out/demo/graph.json'), ['--from', 'a'], REPO)
+
+
+def edge_order_json_shape():
+    """`--json` の形をしていない出力（`groups` が配列でない）を弾く（`edge-order-groups`）
+
+    第 57 ラウンド agy P2-2 で名前を付けた 3 判定のうち**形**の判定を単独で測る。
+    消した実行は鍵の文字列を返して通る（比較する相手が無い実行になる）"""
+    stub = node_stub("""
+process.stdout.write(JSON.stringify({groups: 3, summary: {reached: 0}}));
+""", 'query-shape.mjs')
+    mod = _edge_order_module()
+    mod.QUERY = stub
+    return mod.key(str(REPO / 'out/demo/graph.json'), ['--from', 'a'], REPO)
 
 
 # -------------------------------------------------------------------------- 正控制 --
@@ -746,6 +1142,75 @@ def input_check_tool_runs():
         failed.append(f'check-battery-inputs.py が終了 {rc} で通らない: {out[:200]}')
 
 
+def _call_guard_names(text):
+    """検査器側が見張り番に付けた名前を集める（`guard` の呼び形。説明文に呼びの生文字列を
+    置くと自分の集合に混ざるので書かない）
+    """
+    found = set()
+    marker = "guard" + "(" + "'"   # マーカーは組み立てて、自分の走査対象に入らないようにする
+    i = 0
+    while True:
+        j = text.find(marker, i)
+        if j < 0:
+            return found
+        i = j + len(marker)
+        end = text.find("'", i)
+        if end < 0:
+            return found
+        found.add(text[i:end])
+
+
+def _off_guard_names(text):
+    """制御が消す見張り番（`guard` に書く 1 個または組の名前）を集める。案内文の引用符を
+    誤って数えないように、組は最初の `,` で切る
+    """
+    found = set()
+    marker = "guard" + "="   # 同上
+    i = 0
+    while True:
+        j = text.find(marker, i)
+        if j < 0:
+            return found
+        i = j + len(marker)
+        grp = text[i:]
+        if grp.startswith('('):
+            cut = grp.find(')')
+        else:
+            cut = grp.find(',')
+        if cut >= 0:
+            grp = grp[:cut]
+        k = 0
+        while True:
+            a = grp.find("'", k)
+            if a < 0:
+                break
+            b = grp.find("'", a + 1)
+            if b < 0:
+                break
+            found.add(grp[a + 1:b])
+            k = b + 1
+
+
+def guard_names_all_covered():
+    """`guard` で名前を付けた合否判定を、**個別負控制が 1 本ずつ名指している**
+
+    README の「見張り番すべてに個別負控制が有る」という文を毎回機械に数えさせる（第 57
+    ラウンド agy P2-2 は「表に載った個別負控制が 13 名前ぶん実在しなかった」なので、同じ
+    嘘を次に書けないようにここで止める）
+    """
+    tree = set()
+    for path in (REPO / 'skill' / 'scripts' / 'tools').rglob('*.py'):
+        tree |= _call_guard_names(path.read_text(encoding='utf-8'))
+    own = _off_guard_names(pathlib.Path(__file__).read_text(encoding='utf-8'))
+    missing = sorted(tree - own)
+    unknown = sorted(own - tree)
+    if missing:
+        failed.append(f'見張り番 {len(missing)} 個を名指した個別負控制が無い: {missing[:6]}')
+    if unknown:
+        failed.append(f'制御が消す見張り番が実在しない（名前のスペル違い）: {unknown[:6]}')
+    print(f'  見張り番 {len(tree)} 個すべてに個別負控制が名指しされている')
+
+
 def main():
     print(f'# 検査の検査（一時作業: {TMP}）')
     baseline = git_touches()
@@ -768,7 +1233,7 @@ def main():
         negative('期待値の合計を条件別の合計からずらす', expectations_totals_off,
                  guard='cov-shape', message='total が条件別の合計と違う')
         negative('期待値の条件別の内訳を空にする', expectations_empty,
-                 guard='cov-shape', message='byCondition が空')
+                 guard=('cov-shape', 'cov-keys'), message='byCondition が空')
         negative('走査した行数を 1 件ずらす', coverage_one_off,
                  guard='coverage', message='が期待値と違う')
         negative('突き合わせた親子数を件数の違う 2 件で入れ替える', coverage_swapped,
@@ -814,7 +1279,7 @@ def main():
         negative('要求一覧の fixtures に同じパスを 2 度書く',
                  fixtures_duplicated, guard='dup-fixture', message='fixtures に重複')
         negative('allperm-full.py の順列上限を 1 にする',
-                 allperm_full_cap_one, guard='perm-cap', message='縁順が 1 とおりしかない')
+                 allperm_full_cap_one, guard='perm-cap', message='順列上限に 1 を渡している')
         negative('終了 0 で JSON を書かない実行', run_json_silent,
                  guard='json-missing', message='終了 0 なのに JSON を書いていない',
                  clean=False, fallback='出力先が無い')
@@ -839,6 +1304,69 @@ def main():
                  guard=('fixture-set', 'condition-set'), message='fixture が有るのに要求一覧に無い')
         negative('要求一覧から条件を 1 件消す', condition_removed_from_ledger,
                  guard='condition-set', message='起動条件が要求一覧')
+        # 第 57 ラウンド agy P2 の 4 件（実測は `out/review-agy57.log`）。形・入口・標本の実り
+        # を直した裁定は `out/astra58.log`
+        negative('要求一覧の graph を絶対パスにする（id も揃えた細工）', cond_graph_absolute,
+                 guard=('cond-shape', 'cov-keys'), message='リポジトリ相対ではない')
+        negative('要求一覧の fixtures に文字列でない値を置く', fixtures_non_string,
+                 guard='fixture-shape', message='文字列でない要素',
+                 clean=False, fallback='要求一覧に有るのに fixture が無い')
+        negative('byReport のキーを 1 本だけ実在しない名前に差し替える',
+                 dir_rule_report_unknown_key, guard='cov-keys',
+                 message='baseline-v1 へ無いレポート名がある')
+        negative('byCondition の id を 1 件だけ要求一覧に無い値へ差し替える',
+                 coverage_condition_unknown_key, guard='cov-keys',
+                 message='要求一覧へ無い id がある')
+        negative('向き none の数えに true を置く', directionless_bool_counter,
+                 guard='cov-shape', message='が整数ではない')
+        negative('向き none の数えに負の値を置く', directionless_negative_none,
+                 guard='cov-shape', message='が負の整数')
+        negative('expectations.directionless から none を消す', directionless_missing_none,
+                 guard='cov-shape', message='が整数ではない')
+        negative('レポート 0 件のディレクトリを report_paths へ直接渡す',
+                 report_dir_empty_direct, guard='path-empty', message='が 0 件')
+        negative('1 本のディレクトリに 18 件を期待して渡す',
+                 report_dir_wrong_count_direct, guard='path-count', message='（18 件のはず）')
+        negative('正しい JSON を書いて非 0 で終わる実行', run_json_child_fails_with_output,
+                 guard='child-fail', message='report.mjs 失敗')
+        negative('終了 0 で空のファイルを書く実行', run_json_empty_output,
+                 guard='json-empty', message='JSON が空',
+                 clean=False, fallback='JSON が読めない')
+        negative('external.out が無い JSON を projection_rows へ渡す',
+                 projection_bucket_missing, guard='proj-buckets', message='突き合わせる 6 欄',
+                 clean=False, fallback='KeyError')
+        negative('builder へ重複した fixture 列を渡す（要求一覧は正常）',
+                 built_conditions_duplicated, guard='dup-built', message='今回組み上げた起動条件に重複')
+        negative('allperm-full.py の順列上限を 0 にする', allperm_full_cap_zero,
+                 guard='perm-cap', message='順列上限に 0 を渡している')
+        negative('r43-permute.py の入れ替え試行を 1 とおりにする', r43_trial_limit_one,
+                 guard='trial-count', message='入れ替えの試行を 1 とおりに指定している',
+                 clean=False, fallback='縁順が 1 とおりしかない')
+        negative('expectations.directionless.none を 1 増やして count-none.py',
+                 none_expectations_off_by_one, guard='none-expectations', message='期待値と**不一致**')
+        negative('1 本の summary.rows を 1 増やして count-none.py',
+                 none_counters_moved, guard='none-counters', message='サマリカウンタが割れているので不合格')
+        negative('既知差分の 1 件を向きが変わらない形へ直す（導出 54 件）',
+                 v1_derivation_rows_four, guard='v1-derivation', message='向き の差分が 54 件')
+        negative('edge-order.py の子実行が非 0 で終わる', edge_order_child_fails,
+                 guard='child-fail', message='query.mjs 失敗',
+                 clean=False, fallback='query.mjs の JSON が読めない')
+        negative('edge-order.py が読めない出力を受け取る', edge_order_bad_json,
+                 guard='json-parse', message='JSON が読めない',
+                 clean=False, fallback='出力が --json の形ではない')
+        negative('edge-order.py に --json の形でない出力を渡す', edge_order_json_shape,
+                 guard='edge-order-groups', message='出力が --json の形ではない')
+        negative('要求一覧を壊して入力点検を走らせる', input_check_validates_ledger,
+                 guard='dup-fixture', message='fixtures に重複')
+        negative('指紋台帳に入力の一覧に無い物を 1 件足す', fingerprint_ledger_extra_entry,
+                 guard='fp-ledger-extra', message='指紋台帳に有るが入力の一覧に無い')
+        negative('指紋台帳の読み方だけを 1 件書き換える', fingerprint_mode_moved,
+                 guard='fp-mode', message='の読み方が基準と違う')
+        negative('指紋台帳の読み方に json でも bytes でもない値を置く', fingerprint_type_unknown,
+                 guard='fp-type', message='指紋の型が台帳で不明',
+                 clean=False, fallback='の読み方が基準と違う')
+        negative('固定入力の構造指紋（ノード数）を 1 ずらす', fingerprint_structural_nodes_moved,
+                 guard='fp-structural', message='の nodes が基準と違う')
 
         positive('正当な 0 行レポート 4 本は形として通る', legit_empty_reports)
         positive('期待値の合計が条件別の合計と導出で一致', coverage_current_matches)
@@ -846,6 +1374,8 @@ def main():
         positive('追跡下の一覧が自分の形を検査して通る', ledger_self_valid)
         positive('指紋台帳と入力が揃っている', fingerprint_ledger_clean)
         positive('入力点検の道具が実際に起動して終了 0 で通る', input_check_tool_runs)
+        positive('見張り番の名前すべてに個別負控制が名指しされている',
+                guard_names_all_covered)
 
         # 追跡下のファイルへの変更が残っていないか（制御が途中で落ちても戻す）
         left = git_touches()
