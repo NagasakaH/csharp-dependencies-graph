@@ -4670,8 +4670,22 @@ MD_COUNT_RE = re.compile(r'（[^（）]*?([0-9]+) 項目')
 # （双人レビュー Codex 第 76 ラウンド P2: 山括弧を実在しないファイル名と読んで誤検出し、
 # タイトル付きを見逃して壊れたリンクを素通しした）
 MD_LINK_RE = re.compile(r'\[[^\]]*\]\(\s*(?:<([^>]*)>|([^)\s]+))(?:\s+[^)]*)?\)')
-MD_REF_RE = re.compile(r'\[[^\]]+\]\[[^\]]*\]')      # 参照リンク。この一覧対象では使わない
-MD_FENCE_RE = re.compile(r'^\s*(?:```|~~~)')          # フェンス。中身は記法の検査から見ない
+REF_MARK = ']['                                       # 参照リンクの印。この一覧対象では書かない
+
+
+
+def _fence_kind(line):
+    """フェンス行なら `(文字, 長さ)`、違えば None（行内のコードと取り違えない）
+
+    開きと同じ文字で、**同じ長さ以上**の列だけが閉じです。`` ``` `` フェンスの中の `~~~` を閉じと読む、
+    行頭の `` ```x``` `` をフェンス開始と読むと、フェンスの内外が入れ替わって誤拒否と素通しが出ます
+    （双人レビュー Codex 第 78 ラウンド P2-2）。info string に同じ文字が有る行は行内のコードです
+    """
+    m = re.match(r'^\s{0,3}(`{3,}|~{3,})(.*)$', line)
+    if not m or m.group(1)[0] in m.group(2):
+        return None
+    return (m.group(1)[0], len(m.group(1)))
+
 
 
 def _strip_code(line):
@@ -4689,9 +4703,11 @@ def _strip_code(line):
                 j += 1
             run = j - i
             k = line.find('`' * run, j)
-            while k != -1 and k + run < len(line) and line[k + run] == '`':
+            while k != -1 and (line[k + run:k + run + 1] == '`' or line[k - 1:k] == '`'):
                 k = line.find('`' * run, k + 1)      # より長い列の一部なら閉じ列ではない
             if k == -1:
+                # **閉じていないバッククォートで後続の本文を隠さない**（壊れたリンクの素通しが起きた）
+                out.append(line[i:])
                 break
             out.append(' ' * (k + run - i))
             i = k + run
@@ -4740,18 +4756,24 @@ def doc_pointers_resolve():
        山括弧とタイトル付きを読む。**空の宛先**と**リポジトリの外へ出る `..`** は落ちる
     4. `[説明]` と `(宛先)` が改行で割れた形を落とす（Markdown がリンクとして解釈しない。agy 第 75
        ラウンド P2-2 で `docs/review-usage.md` のリンクが実体へ付かなかった）
-    5. **参照リンク `[説明][定義]` を使わない**（定義の一覧まで追わないと実在が確かめられない）
+    5. コードの外に `][` を書かない = **参照リンク `[説明][定義]` を使わない**（定義の一覧まで追わないと
+       実在が確かめられない。ラベルのネストとエスケープを解釈しない為、印の `][` その物を禁じる）
     6. 記法の検査（3 〜 5）はフェンスの中とコード部分を見ない。ただしコードの外で `](` が読めない時は
        **「この検査が読めない書き方」として落とす**（角括弧のネストなどを黙って通さない）
     """
     項目, 案内 = {}, []
     for rel in _text_docs(('.md',)) + ['README.md']:
         lines = REPO.joinpath(rel).read_text(encoding='utf-8').splitlines()
-        フェンス = False
+        フェンス = None
         for n, line in enumerate(lines, 1):
-            if MD_FENCE_RE.match(line):
-                フェンス = not フェンス
-                continue
+            枠 = _fence_kind(line)
+            if 枠 is not None:
+                if フェンス is None:
+                    フェンス = 枠
+                elif 枠[0] == フェンス[0] and 枠[1] >= フェンス[1]:
+                    フェンス = None
+            if フェンス is not None:
+                continue                      # フェンスの中は記法の検査から見ない
             for path in MD_PATH_RE.findall(line):
                 案内.append((rel, n, path.split('#')[0]))
             got = MD_COUNT_RE.findall(line)
@@ -4765,8 +4787,11 @@ def doc_pointers_resolve():
             plain = _strip_code(line)
             if フェンス:
                 continue
-            if MD_REF_RE.search(plain):
-                failed.append(f'{rel}:{n}: 参照リンクの形がある（この一覧対象では行内リンクで書く）')
+            if REF_MARK in plain:
+                # 角括弧のラベルを完全に解釈しない限り `[a\\]b][1]` の様な迂回を塞げないので、
+                # コードの外に `][` を書かない規則にする（読めない書き方を黙って通さない方針と同じ）
+                failed.append(f'{rel}:{n}: コードの外に `{REF_MARK}` がある'
+                              '（参照リンク `[説明][定義]` は使わない。行内リンクで書く）')
             if plain.count('](') > len(MD_LINK_RE.findall(plain)):
                 failed.append(f'{rel}:{n}: この検査が読めないリンクの書き方がある'
                               '（角括弧のネストなど。1 個 = `[文字列](宛先)` の行内リンクで書く）')
