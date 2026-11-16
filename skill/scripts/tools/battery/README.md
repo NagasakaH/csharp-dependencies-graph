@@ -542,7 +542,7 @@ bash skill/scripts/tools/paired-gate.sh <新しいタグ>      # 5 組交互・�
 `python3 skill/scripts/probe-guard-pollution.py`（不一致 0 で終了 0）。2 つとも**見張り番の走査対象**
 （`skill/scripts/tools/**/*.py`）の外に置いてある。走査は新しい `import` に台帳の登録を要求する為、
 見本を台帳の内側に入れると台帳を動かさないと追加できない。規則の弱体化ではなく、置き場所の決め事は
-`docs/maintenance.md` §見本スクリプトの置き場所 に書いた。
+`docs/maintenance.md` §見本スクリプト（probe）の置き場所 に書いた。
 
 ### 第 76 〜 80 ラウンドの履歴（この区域で 3 ラウンド連続 REQUEST_CHANGES を受けた）
 

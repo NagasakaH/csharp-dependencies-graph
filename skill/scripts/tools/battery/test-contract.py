@@ -48,9 +48,15 @@ REPO = IN.repo_root()
 HERE = IN.HERE
 BATTERY = 'skill/scripts/tools/battery'
 TMP = pathlib.Path(tempfile.mkdtemp(prefix='r55-contract-'))
-# 触った追跡下のファイルは**読み直した bytes を戻す**（`git checkout` は人が意図して
-# 直した物を消すので使わない）
-ORIGINALS = {}
+# 制御が細工を書き込む先は**使い捨ての写し**の中だけ（`stash` / `restore`）。細工を伴う制御は
+# `shadow=True` で**写しの内の別プロセス**へ走らせる（Astra 第 22 ラウンド 問 3 の裁定）
+ORIG_REPO = REPO       # 実ツリー。写しを作った相手として常にこの値で測る
+SHADOW = None          # 使い捨ての repo の写し（制御が細工を書く場所）
+SHADOWED = {}          # 制御名 -> 写しの内のプロセスへ渡す呼び出し（測り返しが同じ道を通る為）
+IN_SHADOW = 'CGD_CONTROL_IN_SHADOW'   # 写しの内のプロセスで走っている印
+REAL_REPO = 'CGD_CONTROL_REAL_REPO'   # 写しの内でも**実ツリー**を測る為の合図
+REAL = pathlib.Path(os.environ.get(REAL_REPO) or REPO)   # 測り返しが見るのは実ツリーの方
+MARKER = '@@制御の写し@@ '            # 子の結果を受け取る行の接頭辞（子の出力から取り出す）
 failed = []
 ran = {'negative': 0, 'positive': 0, 'singleton': {}}
 
@@ -61,7 +67,8 @@ def script_path(script):
     第 55 ラウンド Codex P2: `check-battery-inputs.py` は `skill/scripts/tools/` に有るのに
     `battery/` から呼んでいた。python は終了 2（can't open file）を返し、`negative()` はそれを
     「検出できた」と数えた。中身の指紋検査が働かない日でも制御が通っていた"""
-    for d in (HERE, HERE.parent):
+    # 制御が細工中の区間は、子プロセスも同じ写しを読む（実ツリーの道具を読むと細工が見えない）
+    for d in (REPO / BATTERY, REPO / 'skill/scripts/tools', HERE, HERE.parent):
         q = d / script
         if q.exists():
             return q
@@ -109,17 +116,145 @@ process.exit(0);
 """, 'silent.mjs')
 
 
+def shadow_root():
+    """制御が細工を書き込む**使い捨ての repo の写し**を作る（Astra 第 22 ラウンド 問 3 の裁定）
+
+    追跡下のファイル（実測 3.2 MB / 181 本）をコピーし、`out/` とビルド済みアナライザと `.git` は
+    実物への link にする（`out/` は gitignore 済みの生成物で、制御はここを読むだけ。見張り番の
+    対応表・要求一覧・既知差分・指紋台帳と fixture は写しの中に入る）
+    """
+    global SHADOW
+    if SHADOW is not None:
+        return SHADOW
+    root = TMP / 'shadow'
+    got = subprocess.run(['git', 'ls-files', '-z'], cwd=str(ORIG_REPO),
+                         capture_output=True, text=True)
+    if got.returncode != 0:
+        raise NotDetected(f'写しへコピーする追跡下の一覧が取れない: {got.stderr[:120]}')
+    for rel in got.stdout.split('\0'):
+        if not rel:
+            continue
+        src = ORIG_REPO / rel
+        if not src.exists():
+            continue
+        dst = root / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        dst.write_bytes(src.read_bytes())
+    # `out/` は gitignore 済みの生成物だが、制御が読む入力が入っている（`out/demo/graph.json` など）。
+    # **link ではなくコピー**する。link にすると `.resolve()` が実ツリーのパスを返して、根からの
+    # 相対パスを見る箇所（`launch_conditions` の起動条件の key）が壊れる（第 84 ラウンド実測。
+    # Astra 第 22 ラウンド 問 3 の反例「一時ファイルへ逃がすと本来の配置の検証が通らなくなる」）
+    if shutil.disk_usage(str(TMP.parent)).free < 512 * 1024 * 1024:
+        raise NotDetected('写しを作る空き領域が足りない（out/ のコピーが必要）')
+    for rel in _shadow_extra_paths():
+        src, dst = REAL / rel, root / rel
+        if src.is_dir():
+            shutil.copytree(src, dst, dirs_exist_ok=True)
+        elif src.is_file():
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            dst.write_bytes(src.read_bytes())
+    for rel in ('.git', 'skill/analyzer/bin'):
+        # `skill/analyzer` の配下のソースは追跡下なので写しの中に実ディレクトリとして有る。link を
+        # 足すなら gitignore 済みの `bin`（ビルド済みアナライザ。入力点検が要求する）の方へ置く
+        src, dst = REAL / rel, root / rel
+        if src.exists() and not dst.exists():
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            dst.symlink_to(src)
+    SHADOW = root
+    return root
+
+
+def _shadow_extra_paths():
+    """gitignore 済みで、制御が実際に読む物を写しへ引き継ぐ相対パスの一覧
+
+    手書きの一覧にすると、制御が新しい入力を参照した日に写しの中へ入らず、**写しの中でだけ失敗する**
+    制御が生まれる。なので 2 つの所から集める: (1) battery と tools のソースに書いた `out/...` の
+    リテラル、(2) 入力指紋の台帳に載った `out/...` のパス（第 84 ラウンド実測: `check-battery-inputs.py`
+    が要求する `out/wt-head/skill/scripts/report.mjs` が写しに無く、縁を空にする制御が空振りした）
+    """
+    paths = set()
+    for f in list(HERE.glob('*.py')) + list(HERE.parent.glob('*.py')):
+        paths |= {'out/' + x for x in
+                  re.findall(r"['\"]out/([A-Za-z0-9_../-]+)", f.read_text(encoding='utf-8'))}
+    text = (REAL / 'skill/scripts/tools/battery/input-fingerprints.json').read_text(encoding='utf-8')
+    paths |= set(re.findall(r'"out/[A-Za-z0-9_.\/-]+"', text))
+    paths = {p.strip('"') for p in paths}
+    return sorted(paths, key=lambda p: (p.count('/'), p))   # 親を先に置いても子で上書きしない順
+
+
+def in_shadow(fn):
+    """制御を**使い捨ての写しの内の別プロセス**で走らせて、同じ形の結果へ戻す
+
+    細工した台帳・要求一覧・指紋台帳・fixture を読むのは、写しの中の `_inputs` と道具の方になる
+    （`_inputs` は自分の `__file__` から `HERE` と要求一覧の場所を決めるので、実ツリーの物を読んだ
+    第 84 ラウンド実測が有る）。見張り番の箱の公開名を足すと対応表への登録（=人の承認）が必要に
+    なるので、箱へ書き込む作りは選ばなかった。子の終了は `SystemExit` として投げ直し、負控制が
+    「対象の診断が出て止まった」と数える道は変えない"""
+    if os.environ.get(IN_SHADOW) == '1':
+        return fn()                       # 写しの内では控制その物として走る
+    root = shadow_root()
+    env = IN.guard_env()
+    env[IN_SHADOW] = '1'
+    env[REAL_REPO] = str(REAL)
+    got = subprocess.run([sys.executable, str(root / BATTERY / 'test-contract.py'),
+                          '--only', fn.__name__], cwd=str(root), capture_output=True,
+                         text=True, env=env)
+    line = next((x for x in (got.stdout + got.stderr).splitlines() if x.startswith(MARKER)), None)
+    if line is None:
+        raise RuntimeError(f'写しの内の制御が結果を出さずに終えた（終了 {got.returncode}）: '
+                           f'{fn.__name__}\n{(got.stdout + got.stderr)[-400:]}')
+    res = json.loads(line[len(MARKER):])
+    kind = res.get('kind')
+    if kind == 'tuple':
+        return (res['a'], res['b'])
+    if kind == 'none':
+        return None
+    if kind == 'false':
+        return False
+    if kind == 'other':
+        return res['b']             # 文字列や数など、tuple 以外の真偽値（見張り番を消した実行で出る）
+    if kind == 'not_detected':
+        raise NotDetected(res['msg'])
+    if kind == 'exit':
+        raise SystemExit(res['msg'])
+    raise RuntimeError(f'写しの内の制御が故障した: {fn.__name__} {res.get("type")} {res.get("msg")}')
+
+
+def _shadow_call(name, fn):
+    """`shadow=True` の制御を `SHADOWED` へ登録しながら写し実行へ包む"""
+    def run():
+        return in_shadow(fn)
+    run.__name__ = fn.__name__
+    SHADOWED[name] = run
+    return run
+
+
 def stash(rel):
-    """追跡下のファイルを改変する前に元 bytes を控える（最後に戻す）"""
-    p = REPO / rel
-    ORIGINALS.setdefault(rel, p.read_bytes())
+    """細工するファイルの**写し**を置いて、そのパスを返す（実ツリーは最初から書かない）
+
+    第 83 ラウンドまでは元 bytes を控えて `finally` で書き戻す作りだった。元 bytes はメモリにしか
+    無いので、制御の途中でプロセスが殺されると細工が実ツリーに残り、次回の通常実行が人が承認した
+    台帳の差を誤って報告した（双人レビュー agy 第 82 / 83 ラウンド）。細工の置き先その物を実ツリーの
+    外へ移したので、戻す operation が無い（殺されても残骸が出ない）
+    """
+    src = REAL / rel          # 元は必ず**実ツリー**から読む（写しの中も同じ。細工の乗った写しを
+                              # 元にして細工を重ねない）
+    if not src.exists():
+        raise NotDetected(f'制御が細工しようとしたファイルが実ツリーに無い: {rel}')
+    # 写しの内のプロセスでは、自分の根こそが使い捨ての場なのでそこに置く（そこに置かないと、
+    # 自分の `__file__` から台帳を読む `_inputs` が細工を見ない。第 84 ラウンド実測）
+    p = (REPO if os.environ.get(IN_SHADOW) == '1' else shadow_root()) / rel
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_bytes(src.read_bytes())
     return p
 
 
 def restore():
-    for rel, data in ORIGINALS.items():
-        (REPO / rel).write_bytes(data)
-    ORIGINALS.clear()
+    """使い捨ての写しを捨てて、実ツリーを読む作りへ戻す（実ツリーは元から触っていない）"""
+    global SHADOW
+    if SHADOW is not None:
+        shutil.rmtree(SHADOW, ignore_errors=True)
+        SHADOW = None      # 次の制御が新しい写しを作る（捨てた場所を覚えたら空の根を指す）
 
 
 TOUCHED = ['skill']  # 残骸は未追跡も含めて見える場所なら広く見る（`out` は gitignore 済み）
@@ -324,7 +459,7 @@ def _run_negative(name, fn, names, message, clean, fallback, out, state=None):
     return tier, not base
 
 
-def negative(name, fn, guards=None, message=None, clean=True, fallback=None):
+def negative(name, fn, guards=None, message=None, clean=True, fallback=None, shadow=False):
     """失敗しなければならない制御。**その見張り番が落ちたこと**まで確かめる
 
     実行の実装は `_run_negative()`（実行だけの共通器）に置いた。ここでは本数を数え、失敗を `failed`
@@ -337,11 +472,14 @@ def negative(name, fn, guards=None, message=None, clean=True, fallback=None):
     書く（第 56 ラウンド agy P2-3）
     """
     ran['negative'] += 1
+    if shadow:
+        fn = _shadow_call(name, fn)
     names = (guards,) if isinstance(guards, str) else tuple(guards or ())
     out = []
     try:
         tier, base_empty = _run_negative(name, fn, names, message, clean, fallback, out)
     finally:
+        restore()        # 制御が途中で落ちても写しを捨てて実ツリーへ戻る
         # 実行器が積んだ失敗は、登録の段で何が起きても失敗記録へ残す
         failed.extend(out)
     if tier and len(names) == 1 and base_empty:
@@ -351,7 +489,7 @@ def negative(name, fn, guards=None, message=None, clean=True, fallback=None):
         ran['singleton'].setdefault(names[0], []).append((name, tier))
 
 
-def positive(name, fn):
+def positive(name, fn, shadow=False):
     """正控制（第 61 ラウンド Astra 問 1 の裁定 (a)。戻り値も失敗に数える）
 
     契約:
@@ -368,6 +506,8 @@ def positive(name, fn):
     その控制の失敗、負の非 0 終了は対象の診断の検出成功）、共用すると「制御が故障した」と
     「控制が失敗を返した」の区別が潰れる（Astra 問 1）"""
     ran['positive'] += 1
+    if shadow:
+        fn = _shadow_call(name, fn)
     try:
         res = fn()
     except (NotDetected, SystemExit) as e:
@@ -376,6 +516,8 @@ def positive(name, fn):
     except Exception as e:  # noqa: BLE001 - 正控制は例外も失敗
         failed.append(f'{name}: 通らなければならないのに例外: {type(e).__name__}: {e}')
         return
+    finally:
+        restore()        # 正控制も同じ。細工の置き先は制御の区間だけ
     if res:
         failed.append(f'{name}: 正控制が失敗を返した（正常時は `None` を返す契約）: {str(res)[:200]}')
 
@@ -982,6 +1124,8 @@ def fixture_renamed_same_length():
 
 def fixture_added():
     """fixture を 1 本増やす（要求一覧に無い入力はある、という日）"""
+    # 台帳の細工と同じ作りで、増やす 1 本も**使い捨ての写し**の中へ置く（Astra 第 22 ラウンド 問 3）
+    stash(FIXTURE)
     victim = TMP / 'contract-extra.graph.json'
     src = REPO / 'skill/tests/fixtures/ImpactFacts/arrow-priority.graph.json'
     shutil.copy(src, victim)
@@ -1487,26 +1631,52 @@ def relative_paths_from_both_cwds():
 
 
 def ledger_controls_leave_ledger_untouched():
-    """台帳を細工する控制が、実ツリーの台帳の bytes を変えないこと（Astra 第 22 ラウンド 問 3）
+    """制御の細工が使い捨ての写しの中だけへ通り、実ツリーの台帳が動かないこと
 
-    第 82 ラウンドまで台帳の細工は実ツリーを一時書き換えしていた（元 bytes はメモリにしか無く、
-    プロセスが殺されると細工が残り、次回の通常実行が「所属が変わった」と誤って落ちる）。隔離した
-    という主張を**今の実体へ測り返す**為の正控制。4 つの細工を走らせた前後で台帳 3 部の bytes が
-    不変であることを確かめる。細工が 1 つでも検出しなくなったら（前提が変わったら）それも失敗にする
+    Astra 第 22 ラウンド 問 3 の裁定（**台帳を書き換える負控制は通常運用として許容しない**）を
+    今の実体へ測り返す正控制。見るのは 3 つで、1 件目は作りの形その物を見る。
+
+    1. `stash()` が返すパスが**実ツリーの下に無い**（細工の書き先。書き戻しの有無ではなく置き場所を測る）
+    2. 台帳を細工する控制を走らせた前後で、台帳 4 部と fixture の **bytes と `st_mtime_ns` が不変**
+       （bytes だけだと「書いて戻す」作りへ退行しても素通りする。双人レビュー agy 第 83 ラウンド
+       P2-1 の実測。更新時刻も見るので書き戻しは捕まる）
+    3. 細工が 1 つでも検出をやめたら（制御の前提が変わったら）それも失敗にする
     """
     rels = [f'{BATTERY}/required-checks.json', f'{BATTERY}/known-v1-diffs.json',
-            IN.GUARD_LEDGER_FILE]
-    before = {rel: (REPO / rel).read_bytes() for rel in rels}
+            IN.GUARD_LEDGER_FILE, 'skill/scripts/tools/battery/input-fingerprints.json',
+            FIXTURE]
+    before = {rel: (REAL / rel).read_bytes() for rel in rels}
+    mtimes = {rel: (REAL / rel).stat().st_mtime_ns for rel in rels}
+    p = stash(f'{BATTERY}/guard-owners.json')
+    inside = str(p.resolve()).startswith(str(REAL.resolve()) + os.sep)
+    restore()
+    if inside:
+        failed.append(f'stash() が実ツリーの下を返した（細工が実ツリーへ書かれる作りへ退行した）: {p}')
+    # メモリ上の台帳だけを細工する 4 本は実ツリーに触らないのでその場で走らせる。ディスクへ
+    # 細工を書く 4 本は登録と同じ道（写しの内のプロセス）で走らせる
     for fn in (ledger_name_missing, ledger_owner_moved, ledger_file_missing,
                ledger_exemption_unscanned):
-        if not fn():
-            failed.append(f'{fn.__name__} が検出しない（台帳の細工の前提が変わった）')
+        runs = [fn]
+        for fn in (condition_removed_from_ledger, v1_derivation_rows_four,
+                   fingerprint_entry_removed, fixture_edges_emptied):
+            runs.append(_shadow_call(fn.__name__, fn))
+    for run in runs:
+        try:
+            if not run():
+                failed.append(f'{run.__name__} が検出しない（細工の前提が変わった）')
+        except SystemExit:
+            pass                      # 対象の診断が出て止まった = 検出できた
+        except NotDetected as e:
+            failed.append(f'{run.__name__}: 制御の前提が崩れた: {e}')
+        restore()
     for rel in rels:
-        now = (REPO / rel).read_bytes()
+        now = (REAL / rel).read_bytes()
         if now != before[rel]:
-            failed.append(f'{rel}: 控制の前後で bytes が変わった（{len(before[rel])} → '
-                          f'{len(now)}。台帳の実ツリー書き換えが戻っていない。'
-                          f'`git checkout -- {rel}` で戻す）')
+            failed.append(f'{rel}: 制御の前後で実ツリーの bytes が変わった（{len(before[rel])} → '
+                          f'{len(now)}。`git checkout -- {rel}` で人が戻す）')
+        elif (REAL / rel).stat().st_mtime_ns != mtimes[rel]:
+            failed.append(f'{rel}: bytes は同じなのに更新時刻が変わった（書いて戻す作りへ退行した。'
+                          '細工は使い捨ての写しの中へ置く）')
 
 
 def ledger_self_valid():
@@ -5447,41 +5617,41 @@ def main():
         negative('条件の args を null にする', cond_args_is_null,
                  guards='cond-args', message='の args は文字列の配列')
         negative('既知差分の old を空辞書にする', known_old_is_dict,
-                 message='の old が配列ではない')
+                 message='の old が配列ではない', shadow=True)
         negative('既知差分の old に文字列を入れる', known_old_is_string,
-                 message='の old が配列ではない')
+                 message='の old が配列ではない', shadow=True)
         negative('既知差分の old を null にする', known_old_is_null,
-                 message='の old が配列ではない')
+                 message='の old が配列ではない', shadow=True)
         negative('既知差分の old を 1 要素に切る', known_old_too_short,
-                 message='が 5 欄ではない')
+                 message='が 5 欄ではない', shadow=True)
         negative('既知差分の old の欄を数値にする', known_old_field_not_str,
-                 message='欄・向きが文字列ではない')
+                 message='欄・向きが文字列ではない', shadow=True)
         negative('既知差分の old の後ろの欄を null にする', known_old_tail_not_str,
-                 message='階層・縁数・縁に文字列でも数値でもない欄がある')
+                 message='階層・縁数・縁に文字列でも数値でもない欄がある', shadow=True)
         negative('既知差分から old の欄を消す', known_old_key_missing,
-                 message='に old が無い')
+                 message='に old が無い', shadow=True)
         negative('既知差分の diffs を辞書にする', known_diffs_not_list,
-                 message='diffs が配列ではない')
+                 message='diffs が配列ではない', shadow=True)
         negative('既知差分のトップレベルを配列にする', known_doc_is_list,
-                 message='トップレベルが辞書ではない')
+                 message='トップレベルが辞書ではない', shadow=True)
         negative('既知差分を JSON として読めない形にする', known_json_broken,
-                 message='を JSON として読み取れない')
+                 message='を JSON として読み取れない', shadow=True)
         negative('既知差分の形が壊れた日は件数の診断より先に止まる', known_shape_stops_before_count,
-                 message=IN.KNOWN_HEADER)
+                 message=IN.KNOWN_HEADER, shadow=True)
         negative('既知差分の kind を値域外へ変える', known_kind_unknown,
-                 message='kind が未知')
+                 message='kind が未知', shadow=True)
         negative('既知差分から kind を消す', known_kind_missing,
-                 message='に kind が無い')
+                 message='に kind が無い', shadow=True)
         negative('既知差分の cond を空白だけにする', known_cond_blank,
-                 message='cond が空')
+                 message='cond が空', shadow=True)
         negative('既知差分の cond を数値にする', known_cond_not_str,
-                 message='cond が文字列ではない')
+                 message='cond が文字列ではない', shadow=True)
         negative('既知差分の id を数値にする', known_id_not_str,
-                 message='id が文字列ではない')
+                 message='id が文字列ではない', shadow=True)
         negative('既知差分の summary 行の old を負数にする', known_summary_old_negative,
-                 message='old が 0 以上の整数ではない')
+                 message='old が 0 以上の整数ではない', shadow=True)
         negative('既知差分の summary 行の new を真偽値にする', known_summary_new_bool,
-                 message='new が 0 以上の整数ではない')
+                 message='new が 0 以上の整数ではない', shadow=True)
         negative('条件の kind を値域外へ変える', cond_kind_out_of_range,
                  guards='cond-kind-args', message='kind が値域外')
         negative('走った縁順の通り数が宣言と違う', perm_expected_not_matched,
@@ -5505,7 +5675,7 @@ def main():
                  fixture_missing_from_spec, guards='fixture-set',
                  message='fixture が有るのに要求一覧に無い')
         negative('v1 の向きカウンタを 1 ずつ入れ替える', dir_rule_counters_rebalanced,
-                 guards='dir-rule-counters', message='一致: 期待')
+                 guards='dir-rule-counters', message='一致: 期待', shadow=True)
         negative('要求一覧から case を消す', cond_case_missing,
                  guards=('cond-keys', 'canonical-id', 'dup-condition', 'dup-id'),
                  message='の欄が期待と違う')
@@ -5547,7 +5717,7 @@ def main():
                  guards=('dir-rule-counters', 'dir-rule-report'), message='一致: 期待')
         negative('向き別の合計は同じまま byReport の按分だけ入れ替えた一覧',
                  dir_rule_wrong_reports,
-                 guards='dir-rule-report', message='の比較件数（レポート別）')
+                 guards='dir-rule-report', message='の比較件数（レポート別）', shadow=True)
         negative('18 本そろえたうえで 1 本だけ行を消す（v1 プロファイル）',
                  dir_rule_broken_rows,
                  guards=('dir-rule-counters', 'dir-rule-report', 'dir-rule-v1'),
@@ -5556,10 +5726,10 @@ def main():
         # v1 の**内容**照合を単独で測るため、件数を動かさずに不一致の中身だけずらす
         negative('既知差分の id を別ノードへ動かす（不一致 55 件のまま）',
                  dir_rule_v1_ledger_moved,
-                 guards='dir-rule-v1', message='既知差分に無い不一致')
+                 guards='dir-rule-v1', message='既知差分に無い不一致', shadow=True)
         negative('byReport の実在する 2 本の比較件数を入れ替える（合計とキー集合はそのまま）',
                  dir_rule_report_swapped,
-                 guards='dir-rule-report', message='の比較件数（レポート別）')
+                 guards='dir-rule-report', message='の比較件数（レポート別）', shadow=True)
         negative('向き別の件数に負の値を置く（agree を増やして bad を引く）',
                  dir_rule_negative_counter, guards='cov-shape', message='負の整数')
         negative('要求一覧の fixtures に同じパスを 2 度書く',
@@ -5582,15 +5752,15 @@ def main():
         negative('battery/ から渡した根からなら実在する相対パスを補わない', bad_relative_path,
                  guards='path-cwd-only', message='ディレクトリが無い')
         negative('指紋台帳の登録を 1 件消す', fingerprint_entry_removed,
-                 guards='fp-unregistered', message='が指紋台帳に未登録')
+                 guards='fp-unregistered', message='が指紋台帳に未登録', shadow=True)
         negative('fixture の縁を全部空にする', fixture_edges_emptied,
-                 guards=('fp-sha', 'fp-bytes'), message='中身が基準と違う')
+                 guards=('fp-sha', 'fp-bytes'), message='中身が基準と違う', shadow=True)
         negative('fixture のノード id を同じ長さで書き換える', fixture_renamed_same_length,
-                 guards='fp-sha', message='中身が基準と違う')
+                 guards='fp-sha', message='中身が基準と違う', shadow=True)
         negative('fixture を 1 本増やす', fixture_added,
-                 guards=('fixture-set', 'condition-set'), message='fixture が有るのに要求一覧に無い')
+                 guards=('fixture-set', 'condition-set'), message='fixture が有るのに要求一覧に無い', shadow=True)
         negative('要求一覧から条件を 1 件消す', condition_removed_from_ledger,
-                 guards='condition-set', message='起動条件が要求一覧')
+                 guards='condition-set', message='起動条件が要求一覧', shadow=True)
         # 第 57 ラウンド agy P2 の 4 件（実測は `out/review-agy57.log`）。形・入口・標本の実り
         # を直した裁定は `out/astra58.log`
         negative('要求一覧の graph を絶対パスにする（id も揃えた細工）', cond_graph_absolute,
@@ -5631,11 +5801,11 @@ def main():
                  guards='trial-count', message='入れ替えの試行を 1 とおりに指定している',
                  clean=False, fallback='縁順が 1 とおりしかない')
         negative('expectations.directionless.none を 1 増やして count-none.py',
-                 none_expectations_off_by_one, guards='none-expectations', message='期待値と**不一致**')
+                 none_expectations_off_by_one, guards='none-expectations', message='期待値と**不一致**', shadow=True)
         negative('1 本の summary.rows を 1 増やして count-none.py',
                  none_counters_moved, guards='none-counters', message='サマリカウンタが割れているので不合格')
         negative('既知差分の 1 件を向きが変わらない形へ直す（導出 54 件）',
-                 v1_derivation_rows_four, guards='v1-derivation', message='向き の差分が 54 件')
+                 v1_derivation_rows_four, guards='v1-derivation', message='向き の差分が 54 件', shadow=True)
         negative('edge-order.py の子実行が非 0 で終わる', edge_order_child_fails,
                  guards='edge-child-fail', message='query.mjs 失敗',
                  clean=False, fallback='query.mjs の JSON が読めない')
@@ -5645,21 +5815,21 @@ def main():
         negative('edge-order.py に --json の形でない出力を渡す', edge_order_json_shape,
                  guards='edge-out-shape', message='出力が --json の形ではない')
         negative('要求一覧を壊して入力点検を走らせる', input_check_validates_ledger,
-                 guards='dup-fixture', message='fixtures に重複')
+                 guards='dup-fixture', message='fixtures に重複', shadow=True)
         negative('指紋台帳に入力の一覧に無い物を 1 件足す', fingerprint_ledger_extra_entry,
-                 guards='fp-ledger-extra', message='指紋台帳に有るが入力の一覧に無い')
+                 guards='fp-ledger-extra', message='指紋台帳に有るが入力の一覧に無い', shadow=True)
         negative('指紋台帳のバイト数だけを 1 件書き換える', fingerprint_bytes_moved,
-                 guards='fp-bytes', message='のバイト数が基準と違う')
+                 guards='fp-bytes', message='のバイト数が基準と違う', shadow=True)
         negative('要求一覧を壊して起動条件を組み立てる', launch_conditions_broken_ledger,
                  guards='fixture-shape', message='fixtures に文字列でない要素がある',
-                 clean=False, fallback='fixture が有るのに要求一覧に無い')
+                 clean=False, fallback='fixture が有るのに要求一覧に無い', shadow=True)
         negative('指紋台帳の読み方だけを 1 件書き換える', fingerprint_mode_moved,
-                 guards='fp-mode', message='の読み方が基準と違う')
+                 guards='fp-mode', message='の読み方が基準と違う', shadow=True)
         negative('指紋台帳の読み方に json でも bytes でもない値を置く', fingerprint_type_unknown,
                  guards='fp-type', message='指紋の型が台帳で不明',
-                 clean=False, fallback='の読み方が基準と違う')
+                 clean=False, fallback='の読み方が基準と違う', shadow=True)
         negative('固定入力の構造指紋（ノード数）を 1 ずらす', fingerprint_structural_nodes_moved,
-                 guards='fp-structural', message='の nodes が基準と違う')
+                 guards='fp-structural', message='の nodes が基準と違う', shadow=True)
 
         # 第 65 ラウンド Astra 問 1〜問 4 の裁定で増えた判定の単独名指し（`out/astra65.log`）
         negative('豁免のサブモジュール登録を走査が見逃す', import_granted_hole,
@@ -5735,10 +5905,10 @@ def main():
         positive('リポジトリ根と battery/ の両方から同じ相対パス', relative_paths_from_both_cwds)
         positive('追跡下の一覧が自分の形を検査して通る', ledger_self_valid)
         positive('台帳を細工する控制が実ツリーの台帳の bytes を変えない',
-                 ledger_controls_leave_ledger_untouched)
+                 ledger_controls_leave_ledger_untouched, shadow=True)
         positive('指紋台帳と入力が揃っている', fingerprint_ledger_clean)
         positive('入力点検の道具が実際に起動して終了 0 で通る', input_check_tool_runs)
-        positive('要求一覧を壊した日に 2 本の道具が同じ案内を出す', broken_required_ledger_same_message)
+        positive('要求一覧を壊した日に 2 本の道具が同じ案内を出す', broken_required_ledger_same_message, shadow=True)
         positive('許可していない見張り番の読み方（別名・import・getattr・ラッパ・再束縛）を穴として出す',
                  scanner_reads_only_allowed_syntax)
         positive('正控制・負控制の実行契約を偽控制で確かめる', runner_contract_holds)
@@ -5771,7 +5941,82 @@ def main():
     print('期待した失敗はすべて検出し、通るべき物は通った（検査が実際に働いている）')
 
 
+ONLY_CONTROLS = {   # 細工をする制御の静的な一覧（`--only` が名前で引く。辞書の外に置くと走査が穴にしない）
+    'dir_rule_wrong_reports': dir_rule_wrong_reports,
+    'dir_rule_v1_ledger_moved': dir_rule_v1_ledger_moved,
+    'dir_rule_counters_rebalanced': dir_rule_counters_rebalanced,
+    'dir_rule_report_swapped': dir_rule_report_swapped,
+    'fingerprint_entry_removed': fingerprint_entry_removed,
+    'fixture_edges_emptied': fixture_edges_emptied,
+    'fixture_renamed_same_length': fixture_renamed_same_length,
+    'fixture_added': fixture_added,
+    'condition_removed_from_ledger': condition_removed_from_ledger,
+    'none_expectations_off_by_one': none_expectations_off_by_one,
+    'v1_derivation_rows_four': v1_derivation_rows_four,
+    'fingerprint_ledger_extra_entry': fingerprint_ledger_extra_entry,
+    'fingerprint_bytes_moved': fingerprint_bytes_moved,
+    'launch_conditions_broken_ledger': launch_conditions_broken_ledger,
+    'fingerprint_mode_moved': fingerprint_mode_moved,
+    'fingerprint_type_unknown': fingerprint_type_unknown,
+    'fingerprint_structural_nodes_moved': fingerprint_structural_nodes_moved,
+    'input_check_validates_ledger': input_check_validates_ledger,
+    'ledger_controls_leave_ledger_untouched': ledger_controls_leave_ledger_untouched,
+    'broken_required_ledger_same_message': broken_required_ledger_same_message,
+    '_known_diffs_break': _known_diffs_break,
+    'known_old_is_dict': known_old_is_dict,
+    'known_old_is_string': known_old_is_string,
+    'known_old_is_null': known_old_is_null,
+    'known_old_too_short': known_old_too_short,
+    'known_old_field_not_str': known_old_field_not_str,
+    'known_old_tail_not_str': known_old_tail_not_str,
+    'known_old_key_missing': known_old_key_missing,
+    'known_kind_unknown': known_kind_unknown,
+    'known_kind_missing': known_kind_missing,
+    'known_cond_blank': known_cond_blank,
+    'known_cond_not_str': known_cond_not_str,
+    'known_id_not_str': known_id_not_str,
+    'known_summary_old_negative': known_summary_old_negative,
+    'known_summary_new_bool': known_summary_new_bool,
+    'known_diffs_not_list': known_diffs_not_list,
+    'known_doc_is_list': known_doc_is_list,
+    'known_json_broken': known_json_broken,
+    'known_shape_stops_before_count': known_shape_stops_before_count,
+}
+
+
+def _run_only(name):
+    """`--only <制御名>`: 使い捨ての写しの中のプロセスで 1 つだけ走らせ、結果を行で返す
+
+    このプロセスが読む台帳・要求一覧・指紋台帳・fixture は `__file__` から決まる（=写しの中）。
+    実ツリーへ戻る道はない。`in_shadow` がこの行を受け取って元の戻り値の形へ戻す
+    """
+    fn = ONLY_CONTROLS.get(name)
+    if fn is None:
+        out = {'kind': 'error', 'type': 'NotControl', 'msg': f'制御名が無い: {name}'}
+    else:
+        try:
+            res = fn()
+            if isinstance(res, tuple):
+                out = {'kind': 'tuple', 'a': res[0], 'b': res[1]}
+            elif res is None:
+                out = {'kind': 'none'}
+            elif res is False:
+                out = {'kind': 'false'}
+            else:
+                out = {'kind': 'other', 'b': str(res)}
+        except NotDetected as e:
+            out = {'kind': 'not_detected', 'msg': str(e)[:400]}
+        except SystemExit as e:
+            out = {'kind': 'exit', 'msg': str(e)[:400]}
+        except Exception as e:  # noqa: BLE001 - 親へ形を伝えて投げ直す
+            out = {'kind': 'error', 'type': type(e).__name__, 'msg': str(e)[:400]}
+    print(MARKER + json.dumps(out, ensure_ascii=False, default=str))
+
+
 if __name__ == '__main__':
+    if len(sys.argv) > 2 and sys.argv[1] == '--only':
+        _run_only(sys.argv[2])
+        raise SystemExit(0)
     # 終了時にも残骸を掃除する（`fixture を 1 本増やす` は本物のディレクトリに書く）
     try:
         main()
