@@ -241,7 +241,7 @@ Astra 問 2 で「実行系の制御（JSON を書かない、JSON が壊れて�
 - `count-none.py`: `none-counters` / `none-expectations`
 - `edge-order.py`: `edge-child-fail` / `edge-group-empty` / `edge-json-parse` / `edge-out-shape`
 - `test-contract.py`: `own-names` / `own-tools` / `own-files` / `md-fence-form` / `import-binds-guard` / `import-unregistered` / `exempt-scan-parity` / `import-granted` / `import-star` / `guard-unbound` / `exempt-use-form` / `in-public-name` / `in-public-table` / `md-marker-form` / `exempt-map-expand` / `exempt-loader-attrs` / `in-public-write` / `import-relative` / `import-dynamic-module` / `guard-caller-file` / `guard-caller-form` / `guard-callers-scope`（第 63 ラウンド Astra 問 4 の対応表の照合と第 64 ラウンド 問 1〜3 の import 一覧・文書の書き方の検査。形の検査は `_inputs.py` が読む）
-- `emit-guard-owners.py`（対応表の候補の書き出し。自動更新はしない。差分が有る日は終了 3、運用中の台帳その物への書き出しは拒否する）: `emit-candidate-valid` / `emit-candidate-valid` / `emit-diff` / `emit-target` / `emit-caller-approval`
+- `emit-guard-owners.py`（対応表の候補の書き出し。自動更新はしない。差分が有る日は終了 3、運用中の台帳その物への書き出しは拒否する）: `emit-candidate-valid` / `emit-diff` / `emit-target` / `emit-caller-approval`
 <!-- /見張り番の道具別一覧 -->
 この内訳は毎回
 `test-contract.py` の正控制が機械に数える — ツリーを AST で読んで `guard('名前')` を付けた
@@ -266,7 +266,7 @@ Astra 裁定 問 1・問 4 の台帳 **`guard-owners.json`**（見張り番の�
 走査を「禁止する import を足す側」から **`_ALLOWED_IMPORTS` の許可一覧へ**切り替え（Astra 問 1 裁定
 (c)）、豁免台帳は `importlib.util` の 2 件のみ（人が登録）。裸の `compile`・`sys._getframe()`・
 `object.__subclasses__()`・`sys.__loader__`・`ctypes`・`code` が穴 0 で素通りしていた実測を潰し
-（`out/tmp-r63/repro-2.log` が 6 缺陷 0 件）、豁免つきの走査を主にして豁免あり・なしの**呼び出し候補
+（`out/tmp-r63/repro-2.log` が 6 欠陥 0 件）、豁免つきの走査を主にして豁免あり・なしの**呼び出し候補
 一致**を照合する前にした（Astra 問 2 裁定 (iii)。正当な豁免を登録した日に網羅の検査が止まる細工を
 `out/tmp-r63/contract-3.log` で実測）。第 65 ラウンド実測: **負控制 118 件・正控制 15 件**、
 見張り番 **70 名 = 呼び出し 70 箇所**、単独名指し 70 / 70（成功だけの控制 57 名・診断消失確認だけ
@@ -414,6 +414,18 @@ Codex P2-3 / Astra 問 3 の裁定 2）。差分に `boxNames` と `exemptions` 
 偽の失敗を出していた — キーをまたいで探す形へ改めたので、細工が 0 本になるのは網羅の記録が 1 件も
 無い日だけになった（`out/tmp-r69/probeH6.py`）
 
+第 72 ラウンドの双人レビュー（Codex P2 1 件 / agy P2 4 件）で根本が出た。階級を読む `_singleton_tiers()`
+と名前組を読む `_negative_guard_groups()` が**別々に AST を歩いていた**ので、同じ `negative(...)` でも
+読み取れる形が違った（タプルの `guards`、`name=` のキーワード、`**kwargs` の展開、位置引数の `clean`
+が式の日）。3 ラウンド続けて「片方だけ直った」が出た訳なので、読み取りを `_negative_calls()` の
+**1 本**へ寄せて両者をそこから導出した。静的に読めない引数は黙って読み流さず、**単独名指しとして網羅へ
+登録される控制**に限り `_negative_unreadable()` が失敗にする（`guards` を書かない控制と、契約走査が組む
+動的な偽名は網羅へ入らないので対象外）。細工の検出は本番の記録との**差分**で見る形にした（別のキーの
+既存違反が先頭に返るだけで「細工を検出した」と通っていた）。階級を反転させる細工は登録済みの記録だけ
+から選ぶ（未登録の記録を選ぶと階級の検査自体が働かず、差分が 0 件になった）。実測: 139 本の呼び出しから
+名前組 119 / 単独名指し 109 を導き、読めない物は 0。汚れた記録を混ぜても 3 形すべてが差分 1 件を出す
+事は `out/tmp-r69/probeH7.py` で測る
+
 **スイッチにしない判定は 4 種類だけ**（Astra 裁定 問 1: 「消すと後で壊れる」という理由だけでは、
 入力契約の判定を例外へ移さない）。①**引数が足りない**（調べるグラフも `report.mjs` も渡されて
 いない）②**引数を整数として構文解析できない**（順列上限や試行回数に文字列を渡す）
@@ -421,7 +433,7 @@ Codex P2-3 / Astra 問 3 の裁定 2）。差分に `boxNames` と `exemptions` 
 しない）④**要求一覧の形が壊れていて起動条件を組み立てられない**（`IN.launch_conditions()` は
 要求一覧を**読む前に** `validate_required_spec()` を通し、`fail_required_spec()` が同じ見出しと
 復旧手順を出して終了 1）。④は見張り番を消して組み立てを続けると後段が traceback になるという
-構造上の前提なので、やはり名前を付けない。だから 52 個の網羅の話とは別枠で、**正控制**
+構造上の前提なので、やはり名前を付けない。だからその時の網羅の数の話とは別枠で、**正控制**
 `broken_required_ledger_same_message` が 2 本の道具（`check-invariants46.py` と
 `self-consistency.py`）の同じ案内を毎回検査する。いずれも**検査を始める操作その物が成立しない**
 ので、名前を付けずに不良として終わらせる。逆に 0・負数・絶対パス・型違い・`#` 混ざり・配列要素の型違いは**入力契約**なので

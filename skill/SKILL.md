@@ -247,7 +247,7 @@ node $SKILL/scripts/report.mjs --graph out/graph/graph.json --api "POST /orders"
   関係が無い」意味で「そのノードに他の有向関係が無い」意味ではない。`none` の行は `tier` を保ったまま
   中立欄（定義上の関連 / 同じ API / 兄弟）で受け、Markdown の 向き 列は「—」、件数は
   `summary.directionless` / `summary.directionlessPrimary` に出す。**方向別の一覧で黙って行を消さない**。
-  詳細は `docs/review-usage.md`「縁の向き」の項
+  詳細は `docs/review-usage.md` の「向き（JSON の `direction`」の説明
 - **段数欄は「表示経路の段数」**: 起点 0 段、表示経路の関係 1 本を 1 段。表の値と行の経路表示を
   一致させる。**最短とは限らない**（見出しの近くに常時表示する）。「本命」も「最短」を意味しない。
   経路全体の整合性を保つため、より長い代表経路を表示する場合があります。この段数は影響の強さや

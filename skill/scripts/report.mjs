@@ -607,7 +607,7 @@ const addWalkCandidate = (id, rec, cur) => {
 // 閉包の出発点として**根になったノード**（起点そのものではないが、起点の定義グループなので
 // 経路の先頭として出してよい）。
 
-// 根拠経路の祖先 lookup。合并前の一時的な記録（`found` / `wiringMap`）も祖先として見る。
+// 根拠経路の祖先 lookup。マージ前の一時的な記録（`found` / `wiringMap`）も祖先として見る。
 // そこを見落とすと 1 回の閉包の中で互いを指す 2 件の記録ができて `via` が循環した
 // （実測: 注釈なし fixture の `POST /orders` で lambda_function.orders_api ⇄
 // api_gateway_integration.post_order、実プロジェクトで 9 行中 5 行）

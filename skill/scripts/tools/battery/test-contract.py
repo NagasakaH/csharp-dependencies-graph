@@ -2864,77 +2864,119 @@ def _guard_call_names(path):
     return names
 
 
-def _negative_guard_groups(path):
-    """`negative(...)` に**書いてある** `guards=` の名前組を AST で集める
+def _negative_calls(path):
+    """`negative(...)` の呼び出しを**1 本**で読み、`(説明, 名前組, 階級, 読めない理由)` で返す
 
-    ここは「書かれている名前」を見る（検査器に無い名前を制御に書いた日を探すため）。実際に
-    網羅したかは、実行後に通った制御だけを数える"""
+    階級と登録の判定は、以前 `_singleton_tiers()` と `_negative_guard_groups()` の 2 本が別々に AST を
+    読んでいた（双人レビュー Codex 第 70 / 71 ラウンドと agy 第 72 ラウンドで「片方だけ直った」ズレが
+    4 ラウンド続いた）。ここを唯一の読み取りにして、`guards` の位置引数・キーワード・タプル、`name=`
+    のキーワード、`clean` / `fallback` の位置とキーワードを 1 か所で解釈する。
+
+    静的に読めない引数（`guards` の位置とキーワードの両記、`**kwargs` の展開、`clean` に定数以外の式、
+    名前の文字列定数でない書き方）は**黙って読み落とさず** 4 番目に理由を返す。`_negative_unreadable()`
+    がそれを失敗にするので、読めない控制が階級の検査を素通りする事が起きない
+    """
     out = []
     for node in ast.walk(ast.parse(path.read_text(encoding='utf-8'))):
         if not (isinstance(node, ast.Call) and getattr(node.func, 'id', '') == 'negative'):
             continue
+        why = []
+        label = _const_str(node.args[0]) if node.args else None
+        for kw in node.keywords:
+            if kw.arg == 'name':
+                label = _const_str(kw.value)
+        # guards: 位置 2 番目かキーワード。単独名指しは 1 要素のタプルに揃える
+        gnode = node.args[2] if len(node.args) >= 3 else None
+        names = None
         for kw in node.keywords:
             if kw.arg != 'guards':
                 continue
-            one = _const_str(kw.value)
+            if gnode is not None:
+                why.append('guards を位置引数とキーワードの両方に書いた')
+            gnode = kw.value
+        if gnode is not None:
+            one = _const_str(gnode)
             if one:
-                out.append((one,))
-            elif isinstance(kw.value, (ast.Tuple, ast.List)):
-                names = [_const_str(e) for e in kw.value.elts]
-                if names and all(names):
-                    out.append(tuple(names))
+                names = (one,)
+            elif isinstance(gnode, (ast.Tuple, ast.List)):
+                got = [_const_str(e) for e in gnode.elts]
+                if not gnode.elts:
+                    names = ()            # `guards=()` は見張り番を名指さない控制（契約走査に有る）
+                elif all(got):
+                    names = tuple(got)
+                else:
+                    dyn = True            # 要素に式が混ざる（偽名を組む契約走査）。単独登録しない
+            else:
+                dyn = True                # `guards=FAKE` の様な動的な名前。単独登録しない
+        # clean: 位置 4 番目かキーワード。階級は実行器と同じくこの値だけで決まる
+        cnode = node.args[4] if len(node.args) >= 5 else None
+        clean, dyn = True, False
+        for kw in node.keywords:
+            if kw.arg != 'clean':
+                continue
+            if cnode is not None:
+                why.append('clean を位置引数とキーワードの両方に書いた')
+            cnode = kw.value
+        has_fb = len(node.args) >= 6 or any(kw.arg == 'fallback' for kw in node.keywords)
+        if any(kw.arg is None for kw in node.keywords):
+            dyn = True                    # `**kwargs` の展開。単独名指しの時のみ失敗にする
+        if cnode is None:
+            pass
+        elif isinstance(cnode, ast.Constant):
+            clean = bool(cnode.value)
+        else:
+            why.append('clean に定数でなく式を渡している（階級が静的に決まらない）')
+            dyn = True
+        # 静的に読めない事を失敗にするのは、**単独名指しとして登録される控制**だけにする
+        # （`guards` を書かない控制と、`guards=FAKE` のように動的に組む控制（契約走査の偽名）は
+        #  網羅へ登録されない為、読めなくても階級の検査を素通りしない）
+        if names and len(names) == 1:
+            if not label:
+                why.append('単独名指しの控制の説明が文字列定数でない（網羅の登録と照合できない）')
+            if dyn:
+                why.append('単独名指しの控制が静的に読めない引数を持つ（階級が実行時とズレる）')
+            if not clean and not has_fb:
+                why.append('clean=False は fallback に「OFF 後も残る別の診断の文面」を書く')
+        if why:
+            out.append((label, names, None, ' / '.join(sorted(set(why)))))
+        else:
+            out.append((label, names, 'clean' if clean else 'fallback', None))
     return out
+
+
+def _negative_unreadable(path):
+    """静的に読めない `negative(...)` の呼び出しを `説明: 理由` で返す（制御が失敗にする）"""
+    return [f'{c[0]!r}: {c[3]}' for c in _negative_calls(path) if c[3]]
+
+
+def _negative_guard_groups(path):
+    """`negative(...)` に**書いてある** `guards=` の名前組を集める（`_negative_calls()` から作る）
+
+    ここは「書かれている名前」を見る（検査器に無い名前を制御に書いた日を探すため）。実際に
+    網羅したかは、実行後に通った制御だけを数える
+    """
+    return [c[1] for c in _negative_calls(path) if c[1]]
 
 
 def _singleton_controls(path):
     """`negative(...)` に**書いてある単独名指しの控制**を `(説明, 名前)` で集める
 
     第 60 ラウンド Astra 問 3 の裁定は「登録した控制はすべて実行・成功を必須とし、片方の成功で
-    他方の失敗や未実行を埋め合わせない」。ここでは**登録**を見て、実行後に通った記録と突き合わせる。
-    読み取りは `_singleton_tiers()` と**同じ 1 本**に寄せる（2 本だと `guards` を位置引数で書く形式で
-    階級だけ見て制御を見ない、というズレ方が起きる。双人レビュー Codex 第 70 ラウンドの注記）
+    他方の失敗や未実行を埋め合わせない」。ここでは**登録**を見て、実行後に通った記録と突き合わせる
     """
     return sorted(_singleton_tiers(path))
 
 
 def _singleton_tiers(path):
-    """`negative(...)` の**宣言**が取り得る階級の集合を `(控制名, 見張り番名)` で返す
+    """単独名指しの控制が取り得る階級を `(控制名, 見張り番名)` で返す（`_negative_calls()` から作る）
 
-    実行器は階級を `clean` の値だけで一つに決める（`clean=True` なら `clean`、`clean=False` なら
-    `fallback`。`clean=False` は `fallback=` の文面を見た時だけ通る）。よって普通の控制は 1 つの
-    階級しか取り得ず、逆の階級の記録は反則である。双人レビュー Codex 第 70 ラウンド P2-1:
-    `fallback=` が有るだけで両階級を許しており、`clean=False` の控制の `clean` の記録を通していた。
-    `clean=` に定数でなく式を渡した控制は位置・キーワードどちらの形でも両方を許す（式の評価は
-    ここではしないので、正常な記録を誤って落とさない方を取る。双人レビュー Codex 第 71 ラウンド
-    P2-1: 位置引数だけその読み分けを忘れていた）
+    階級は実行器 `_run_negative()` と同じく `clean` の値だけで決まる（`clean=True` → `clean`、
+    `clean=False` → `fallback`）。よって取り得る階級は常に 1 つで、逆の階級の記録は反則である。
+    静的に読めない控制はここに出ない（`_negative_unreadable()` 側で失敗になる為、階級の検査を
+    素通りできない。双人レビュー agy 第 72 ラウンド P2-1・P2-2）
     """
-    out = {}
-    for node in ast.walk(ast.parse(path.read_text(encoding='utf-8'))):
-        if not (isinstance(node, ast.Call) and getattr(node.func, 'id', '') == 'negative'):
-            continue
-        label = _const_str(node.args[0]) if node.args else None
-        gname = None
-        mode = 'clean'
-        for k, arg in enumerate(node.args):    # (説明, 制御, guards, message, clean, fallback)
-            if k == 2:
-                gname = _const_str(arg)
-            elif k == 4:
-                if not isinstance(arg, ast.Constant):
-                    mode = 'both'
-                else:
-                    mode = 'clean' if arg.value else 'fallback'
-        for kw in node.keywords:
-            if kw.arg == 'guards':
-                gname = _const_str(kw.value)
-            elif kw.arg == 'clean':
-                if not isinstance(kw.value, ast.Constant):
-                    mode = 'both'
-                else:
-                    mode = 'clean' if kw.value.value else 'fallback'
-        if not (label and gname):
-            continue
-        out[(label, gname)] = {'clean', 'fallback'} if mode == 'both' else {mode}
-    return out
+    return {(c[0], c[1][0]): {c[2]} for c in _negative_calls(path)
+            if c[3] is None and c[0] and c[1] and len(c[1]) == 1}
 
 
 def _guard_scan_files():
@@ -3741,6 +3783,10 @@ def guard_names_have_singleton_controls():
                       f'（通った控制だけを網羅に数える規則では黙って減る）: {never[:4]}')
     # 網羅の記録が**登録済みの控制からしか生まれていない**事の検査（Astra 第 70 ラウンド 問 3）。
     # キー集合の完全一致だけでは、実在の見張り番の名前へ余計な記録が混入した事を読めない
+    unread = _negative_unreadable(pathlib.Path(__file__))
+    if unread:
+        failed.append('`negative(...)` の呼び出しが静的に読めない（階級と登録の判定が黙って狂う）: '
+                      + ' / '.join(unread[:4]))
     registered = {(lbl, n) for lbl, n in _singleton_controls(pathlib.Path(__file__))}
     for e in singleton_record_errors(passed, registered, _singleton_tiers(pathlib.Path(__file__))):
         failed.append(f'網羅の記録が登録済みの控制と対応しない: {e}')
@@ -3879,7 +3925,7 @@ def _record_pollutions(tiers):
 
     細工は「実在の見張り番のキーに、実在の控制名と実在の階級を乗せる」までが本物なので、キー集合の
     一致だけでは読めない（双人レビュー Codex P2-1・P2-2）。階級を反転させる細工は**キーをまたいで**
-    宣言が単一の階級しか許さない控制を探す（先頭のキーだけ見て両階級を許す控制しか無い日は、作れる
+    登録済みかつ宣言が単一の階級しか許さない控制を探す（先頭のキーだけ見て両階級を許す控制しか無い日は、作れる
     細工があるのに自己検査が偽の失敗を出していた。双人レビュー Codex 第 71 ラウンド P2-2）
     """
     out = []
@@ -3894,6 +3940,8 @@ def _record_pollutions(tiers):
                 '同じ記録が 2 件並んでも網羅の検査が黙っている'))
     for n in sorted(ran['singleton']):
         for lbl, tier in ran['singleton'][n]:
+            if (lbl, n) not in tiers:
+                continue                  # 未登録の記録は階級の検査自体が働かない（選んでも無意味）
             other = 'clean' if tier == 'fallback' else 'fallback'
             if other in tiers.get((lbl, n), set()):
                 continue                  # 宣言が両階級を許す控制では反則にならない
@@ -3978,11 +4026,16 @@ def _runner_self_check():
         forms = _record_pollutions(tiers)
         if not forms:
             bad.append('網羅の記録が 1 件も無く、混入の細工を 1 つも測れない')
+        # 本番の記録自体が既に違反している時、細工の検出がそれに 隠れない様に差分で見る
+        # （双人レビュー agy 第 72 ラウンド P2-3: 別のキーの既存違反を先頭に返すだけ通っていた）
+        base_errs = set(singleton_record_errors(
+            {k: list(v) for k, v in ran['singleton'].items()}, registered, tiers))
         for label, forge, why in forms:
             copy = {k: list(v) for k, v in ran['singleton'].items()}
             forge(copy)
-            if not singleton_record_errors(copy, registered, tiers):
-                bad.append(f'{label}: {why}')
+            got = set(singleton_record_errors(copy, registered, tiers))
+            if not got - base_errs:
+                bad.append(f'{label}: {why}（細工を足す前と同じ診断しか出ない）')
         作れなかった = {'実在のキーへの未登録の混入', '同じ記録の二重計上',
                     '登録と逆の階級'} - {f[0] for f in forms}
         if 作れなかった:
