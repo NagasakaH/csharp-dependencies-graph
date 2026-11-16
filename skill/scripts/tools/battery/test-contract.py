@@ -2904,6 +2904,35 @@ def _singleton_controls(path):
     return out
 
 
+def _singleton_tiers(path):
+    """`negative(...)` の**宣言**が許す階級の集合を `(控制名, 見張り番名)` で返す
+
+    階級 `fallback` は控制が `fallback=` を書いていない限り取り得ない（実行器は `fallback=` の
+    案内に頼って通った時だけそう数える）。第 70 ラウンド双人レビュー Codex P2-1: 実在の控制名と
+    実在の階級の組なら何でも通っていた為、**登録と逆の階級**の記録を拒否できなかった
+    """
+    out = {}
+    for node in ast.walk(ast.parse(path.read_text(encoding='utf-8'))):
+        if not (isinstance(node, ast.Call) and getattr(node.func, 'id', '') == 'negative'):
+            continue
+        label = _const_str(node.args[0]) if node.args else None
+        gname = None
+        has_fb = False
+        for i, arg in enumerate(node.args):          # (説明, 制御, guards, message, clean, fallback)
+            if i == 2:
+                gname = _const_str(arg)
+            if i == 5:
+                has_fb = True
+        for kw in node.keywords:
+            if kw.arg == 'guards':
+                gname = _const_str(kw.value)
+            if kw.arg == 'fallback':
+                has_fb = True
+        if label and gname:
+            out[(label, gname)] = {'clean', 'fallback'} if has_fb else {'clean'}
+    return out
+
+
 def _guard_scan_files():
     """見張り番の走査が読む .py の集合（対応表の `scannedFiles` と**同じ 1 本**で数える）"""
     return sorted((REPO / 'skill' / 'scripts' / 'tools').rglob('*.py'))
@@ -3709,7 +3738,7 @@ def guard_names_have_singleton_controls():
     # 網羅の記録が**登録済みの控制からしか生まれていない**事の検査（Astra 第 70 ラウンド 問 3）。
     # キー集合の完全一致だけでは、実在の見張り番の名前へ余計な記録が混入した事を読めない
     registered = {(lbl, n) for lbl, n in _singleton_controls(pathlib.Path(__file__))}
-    for e in singleton_record_errors(passed, registered):
+    for e in singleton_record_errors(passed, registered, _singleton_tiers(pathlib.Path(__file__))):
         failed.append(f'網羅の記録が登録済みの控制と対応しない: {e}')
     both = tree & set(passed)
     tiers = {n: {tier for _lbl, tier in recs} for n, recs in passed.items()}
@@ -3723,12 +3752,13 @@ def guard_names_have_singleton_controls():
           '後勝ちで潰さない')
 
 
-def singleton_record_errors(passed, registered):
+def singleton_record_errors(passed, registered, tiers=None):
     """網羅の記録が**登録済みの控制からしか生まれていない**かの検査（Astra 第 70 ラウンド 問 3）
 
     キー集合の完全一致だけでは、実在の見張り番の名前へ余計な記録が混入した事を読めない。ここでは
     記録 1 件ずつが登録（控制名・見張り番名・階級）と対応する事、同じ記録が二重に並んでいない事を
-    見る。自己検査の記録が網羅へ入る経路は `_run_negative()` に無いが、将来そこへ手を入れた日を
+    見る。`tiers`（`_singleton_tiers()`）を渡した日は、控制の宣言が許さない階級も落とす。自己検査の記録が
+    網羅へ入る経路は `_run_negative()` に無いが、将来そこへ手を入れた日を
     この検査が落とす
     """
     errs = []
@@ -3740,6 +3770,9 @@ def singleton_record_errors(passed, registered):
                 continue
             if rec[1] not in ('clean', 'fallback'):
                 errs.append(f'{n}: 網羅の記録の階級「{rec[1]}」が未知（clean / fallback のどちらか）')
+            if tiers is not None and (rec[0], n) in tiers and rec[1] not in tiers[(rec[0], n)]:
+                errs.append(f'{n}: 控制「{rec[0]}」の記録の階級「{rec[1]}」が宣言と逆'
+                            f'（この控制が取り得るのは {sorted(tiers[(rec[0], n)])}）')
             if (rec[0], n) not in registered:
                 errs.append(f'{n}: 控制「{rec[0]}」は見張り番 {n} を名指す登録が無いのに網羅へ載った'
                             '（実行器の自己検査や未登録の控制が混入した）')
@@ -3837,6 +3870,30 @@ def _shrinking_control(mark):
     return _f
 
 
+def _record_pollutions(victim, tiers):
+    """本番の網羅記録にありそうな**混入の形**を `(ラベル, 細工, 案内)` で返す
+
+    細工は「実在の見張り番のキーに、実在の控制名と実在の階級を乗せる」までが本物なので、キー集合の
+    一致だけでは読めない（双人レビュー Codex P2-1・P2-2）。階級を反転させる形は、その控制の宣言が
+    `clean` だけの時だけ反則になるので、宣言が `clean` だけと読める制御を選んで細工する
+    """
+    out = [('実在のキーへの未登録の混入',
+            lambda c: c[victim].append(('実行器の自己検査', 'clean')),
+            '実在の見張り番のキーへ登録の無い記録を足しても網羅の検査が黙っている')]
+    if ran['singleton'].get(victim):
+        out.append(('同じ記録の二重計上',
+                    lambda c: c[victim].append(list(c[victim])[0]),
+                    '同じ記録が 2 件並んでも網羅の検査が黙っている'))
+        for lbl, tier in ran['singleton'][victim]:
+            if tiers.get((lbl, victim)) == {'clean'}:
+                out.append(('登録と逆の階級',
+                            lambda c, lbl=lbl: c[victim].__setitem__(
+                                [r[0] for r in c[victim]].index(lbl), (lbl, 'fallback')),
+                            '宣言が `clean` だけの控制へ `fallback` の記録を足しても網羅の検査が黙っている'))
+                break
+    return out
+
+
 def _runner_self_check():
     """実行器自身の自己検査（Astra 第 70 ラウンド 問 2 (エ)。網羅とは別建てで数えない）
 
@@ -3847,7 +3904,7 @@ def _runner_self_check():
     mark = '自己検査の対象の見張り番'
     bad = []
     n_failed = len(failed)
-    keys = sorted(ran['singleton'])
+    snapshot = {k: list(v) for k, v in ran['singleton'].items()}
 
     def _one(label, fn, gname, state, expect_sub, expect_raise=False):
         out = []
@@ -3900,17 +3957,23 @@ def _runner_self_check():
     # 本番の箱を通す正常系（3 回実行して失敗が無い事）
     _one('本番の箱での正常な 3 回実行', None, 'self-check-g', None, None)
 
-    # 網羅の記録へ実在の見張り番の名前に偽の記録を足した場合を検出できるか（問 3）
+    # 網羅の記録の検査が 3 形の混入を落とす事（Astra 第 70 ラウンド 問 3 と双人レビュー Codex P2）
+    # 本番の記録のコピーで測るので、網羅その物は壊さない
     if ran['singleton']:
+        registered = {(lbl, n) for lbl, n in _singleton_controls(pathlib.Path(__file__))}
+        tiers = _singleton_tiers(pathlib.Path(__file__))
         victim = sorted(ran['singleton'])[0]
-        copy = {k: list(v) for k, v in ran['singleton'].items()}
-        copy[victim].append(('実行器の自己検査', 'clean'))
-        if not singleton_record_errors(copy, set()):
-            bad.append('実在の見張り番のキーへ偽の記録を足しても網羅の検査が黙っている')
+        for label, forge, why in _record_pollutions(victim, tiers):
+            copy = {k: list(v) for k, v in ran['singleton'].items()}
+            forge(copy)
+            if not singleton_record_errors(copy, registered, tiers):
+                bad.append(f'{label}: {why}')
     if len(failed) != n_failed:
         bad.append(f'自己検査が本番の失敗記録へ手を出した（{n_failed} 件 → {len(failed)} 件）')
-    if sorted(ran['singleton']) != keys:
-        bad.append('自己検査が網羅の名前集合を変えた（共通実行器は網羅へ登録しない契約）')
+    if ran['singleton'] != snapshot:
+        違い = {k: (snapshot.get(k), ran['singleton'].get(k)) for k in sorted(
+            set(snapshot) | set(ran['singleton'])) if snapshot.get(k) != ran['singleton'].get(k)}
+        bad.append(f'自己検査が網羅の記録その物を変えた（共通実行器は網羅へ登録しない契約）: {違い}')
     return ' / '.join(bad) if bad else None
 
 
