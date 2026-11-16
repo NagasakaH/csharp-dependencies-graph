@@ -100,7 +100,7 @@ def target_errors(live, dest):
     return []
 
 
-def candidate(root, keep_exemptions):
+def candidate(root, keep_exemptions, approved_callers):
     """台帳の候補を作る。箱の公開名の表は**作ったばかりの候補**で検証する
 
     Astra 第 67 ラウンド 問 3 の裁定: 新しい `IN.<公開名>` を足した日は旧表ですでに穴が出る為、
@@ -118,9 +118,13 @@ def candidate(root, keep_exemptions):
     box = {n: sorted(kinds - {'write'})[0] for n, kinds in used.items() if kinds - {'write'}}
     # 台帳の豁免を渡して走査する（豁免つきの走査が主。Astra 第 64 ラウンド 問 2 裁定 (iii)）
     exempt_by_file = tc._exempt_index_of({'exemptions': list(keep_exemptions)}) or None
-    # 無効化の区間を作れるファイルの一覧も今の走査から作る（Astra 第 68 ラウンド 問 1 の B案:
-    # 無効化を呼べる場所を台帳で絞る。旧台帳の表ではなく今の実測で検証する）
-    callers = tc._guard_switch_callers()
+    # 無効化の区間を作れるファイルの一覧は**承認済みの台帳から引き継ぐ**（Astra 第 68 ラウンド
+    # 問 1 実装条件 3「候補生成は承認済みの許可一覧を引き継ぎ、実測との差を表示する。新しい
+    # 呼び出し元を観測しただけで許可へ追加しない」。Codex 第 68 ラウンド P2-2 の実測: 観測した
+    # 呼び出し元をそのまま候補の権限表に載せていた為、未承認のファイルが候補だけで許可されて
+    # いた）。走査にも承認済みの一覧を渡すので、未承認のファイルが区間を作った日は候補作り自体が
+    # 拒否される（豁免と同じ運用。新しいファイルを認める日は人が台帳へ 1 行足し、候補は一致を確かめる）
+    callers = list(approved_callers)
     names, direct, counts, holes, _calls = tc._guard_names_by_file(exempt_by_file, box, callers)
     errs = candidate_refusals(used, holes)
     if errs:
@@ -173,6 +177,27 @@ def diff_lines(old, new):
     return out
 
 
+def tc_observed_callers():
+    """今の走査で観測した区間の呼び出し元（**表示専用**。候補の権限表には絶対に載せない）
+
+    Astra 第 68 ラウンド 問 1 実装条件 3「新しい呼び出し元を観測しただけで許可へ追加しない」
+    （Codex 第 68 ラウンド P2-2）"""
+    return set(tc._guard_switch_callers())
+
+
+def approval_gap(observed, approved):
+    """観測した区間の呼び出し元に未承認が有るか（`emit-caller-approval`）
+
+    Astra 第 69 ラウンド 問 3-2 の裁定: 候補生成は承認済み `A` を引き継ぎ、観測 `O` との差は
+    **案内として出して権限表へ取り込まない**。差が有る日は検証失敗（終了 1）。「観測したから許可」
+    を道具の側でやると、区間を作れる場所が人のレビューなしに増える（Codex 第 68 ラウンド P2-2）"""
+    if not IN.guard('emit-caller-approval'):
+        return []
+    return [f'観測されたが未承認の区間の呼び出し元: {x}'
+            '（認めるなら人が台帳 `guardCallers` へ 1 行足す。候補は自動で足さない）'
+            for x in sorted(set(observed) - set(approved))]
+
+
 def main():
     root = IN.repo_root()
     path = root / IN.GUARD_LEDGER_FILE
@@ -182,7 +207,24 @@ def main():
         bad = IN.guard_ledger_shape_errors(old)
         if bad:
             IN.fail_guard_ledger(bad)
-    new = candidate(root, old.get('exemptions') or [])
+    # 初めての作成（台帳が無い日）は承認済みの一覧が空なので、観測した呼び出し元を候補に載せる。
+    # その候補を人がレビューして台帳にする（2 回目以降は下の引き継ぎが効く）
+    observed = sorted(tc_observed_callers())
+    approved = list(old.get('guardCallers') or observed)
+    new = candidate(root, old.get('exemptions') or [], approved)
+    gap = approval_gap(observed, approved)
+    if gap:
+        # Astra 第 69 ラウンド 問 3-2 の裁定: 未承認の観測 `O − A` は**表示した上で終了 1**
+        # （承認済み一覧 `A` で走査すると穴になるので「有効な候補の差分」とは違う。終了 0 =
+        # 一致 / 3 = 検証済みの候補に差分有り / 1 = 検証失敗）
+        IN.fail('観測されたが未承認の区間の呼び出し元が有る: ' + ', '.join(gap[:6]) +
+                f'{" …ほか " + str(len(gap) - 6) + " 件" if len(gap) > 6 else ""}'
+                '\n  見張り番を消す区間を作れるのは台帳 `guardCallers` に承認済みのファイルだけ。'
+                '認めるなら人が台帳へ 1 行足してから候補を作り直す（候補は観測を自動で許可にしない。'
+                'Astra 第 69 ラウンド 問 3-2）')
+    for x in sorted(set(approved) - set(observed)):
+        print(f'# 承認済みだが今の走査で観測されない区間の呼び出し元: {x}'
+              '（使われなくなった登録。走査側が穴として出す）')
     bad = IN.guard_ledger_shape_errors(new)
     if bad:
         IN.fail_guard_ledger(['作ろうとした候補自体が壊れている'] + bad)

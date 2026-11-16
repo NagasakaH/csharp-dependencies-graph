@@ -220,11 +220,11 @@ Astra 問 2 で「実行系の制御（JSON を書かない、JSON が壊れて�
 | `in-public-write` | 見張り番の箱 `IN` の公開名を**書き換え・削除**する（`IN.GUARD_OFF = frozenset()`・`del IN.CONST`・`IN.CONST \|=`・`IN.CONST.x = 1` の様な属性と添字の連鎖の受け手。用途が `call` でも `const` でも穴で、表の 6 マスの黒側。`local[IN.CONST] = 1` のように**別の物**の受け手の中で読むのは通り、`IN.CONST[...] = 1` は穴。Astra 第 67 ラウンド 問 2 の表） | 代入・複合代入・削除・属性への書き換えの 4 形を `_guard_scan` へ渡す（見張り番を消すと 4 形とも素通りすること、通る形の正控制と対で測る） |
 | `import-relative` | `from .x import y` の様な**相対 import** を許可一覧・豁免・`_inputs` の特別扱いより先に穴にする（豁免も許可一覧も**完全修飾モジュール名**で持つので、所属パッケージが静的に決まらない名前とは照合できない。`level` を捨てて絶対名として照合すると `from .importlib.util import spec_from_file_location` が標準の `importlib.util` の豁免で穴 0 件だった。Codex 第 66 ラウンド P1-1 / Astra 第 67 ラウンド 問 1 の裁定 (ア)） | 許可一覧に有る綴りをそのまま相対で import した 1 行を走査へ渡す（見張り番を消すと許可一覧の `os` として通るので単独で名指せる） |
 | `import-dynamic-module` | `exec` / `compile` / `types` / `builtins` の様な**動的機構のモジュールを根だけ import する**（登録末端を使うファイルでも `import importlib` は `importlib.exec` 経由で見張り番を殺せる。根だけの束縛は豁免でも通さず、案内から「豁免台帳へ登録すれば可」を撤回した。Astra 第 67 ラウンド 問 1） | 登録末端を使うファイルに `import importlib` を足した 1 行を走査へ渡す（末端までの経路の `import importlib.util` は通ることも同じ控制で見る） |
-| `guard-caller-file` / `guard-caller-form` / `guard-callers-shape` | 見張り番を消す区間（`IN.guard_off(...)` と `IN.guards_on()`）を**作れる場所と形**（呼べるのは台帳 `guardCallers` に登録した制御ファイルだけ。無登録のファイルの区間と、登録されているのに区間を作っていないファイルが `guard-caller-file`。`with` の管理以外の位置での呼び出しが `guard-caller-form`（区間を作らずに無効化だけ残す形）。台帳の `guardCallers` が空でない正準相対パスの列かどうかを `guard-callers-shape`。Astra 第 68 ラウンド 問 1 の B案: 第 67 ラウンドまでの「無効化は環境変数に限定」を改め、区間を認める代わりに呼び出し元を台帳で絞った） | 区間の呼び出しを `_guard_scan` へ渡す 3 控制（無登録のファイル / 区間を作らない登録ファイル / `with` の管理ではない位置）と、`guardCallers` を空の列と欠損にした台帳を `guard_ledger_shape_errors()` へ渡す控制 |
-| `emit-candidate-valid` / `emit-diff` / `emit-target` | 対応表の候補を出す道具 `emit-guard-owners.py` 自身の 3 検査。候補を出してよい形か（箱の公開名を書き換えに使う・1 名が 2 用途を持つ・候補の表を渡した走査に穴が残る、のいずれかを拒否する。`emit-candidate-valid`。Astra 第 67 ラウンド 問 3 の裁定 1 は候補の表での検証を認めたが、書き換えを許可用途へ塗り替える事は認めない）、今の台帳との差分を `boxNames` と `exemptions` まで**全て**表示するか（`emit-diff`。第 66 ラウンドは `owners` と `scannedFiles` しか比較せず「差分無し」と報告していた）、`--emit` が運用中の台帳その物への書き出しを拒否するか（`emit-target`。同じ裁定 4） | 3 種の拒否を `candidate_refusals()` へ渡す / 公開名の追加・削除・用途の変わり目と豁免の差し替えを `diff_lines()` へ渡す / 運用中の台帳を別表記で指した書き先を `target_errors()` へ渡す |
+| `guard-caller-file` / `guard-caller-form` / `guard-callers-shape` / `guard-callers-scope` | 見張り番を消す区間（`IN.guard_off(...)` と `IN.guards_on()`）を**作れる場所と形**（呼べるのは台帳 `guardCallers` に登録した制御ファイルだけ。無登録のファイルの区間と、登録されているのに区間を作っていないファイルが `guard-caller-file`。`with` の管理以外の位置での呼び出しが `guard-caller-form`（区間を作らずに無効化だけ残す形）。台帳の `guardCallers` が空でない正準相対パスの列かどうか（重複・途中の `.` / `..`・`.py` でない綴りを弾く）を `guard-callers-shape`。登録したファイルが走査対象に実在することを `guard-callers-scope`（agy 第 68 ラウンド P1-1・Codex 第 68 ラウンド P2-1 の実測: 架空の登録は形の検査もファイル別の照合も通った。第 69 ラウンドで分けた）。Astra 第 68 ラウンド 問 1 の B案: 第 67 ラウンドまでの「無効化は環境変数に限定」を改め、区間を認める代わりに呼び出し元を台帳で絞った） | 区間の呼び出しを `_guard_scan` へ渡す 3 控制（無登録のファイル / 区間を作らない登録ファイル / `with` の管理ではない位置）と、`guardCallers` を空の列・重複・途中の `.` を交ぜた綴りにした台帳を `guard_ledger_shape_errors()` へ渡す控制と、実在しないファイルの登録を `_guard_caller_ghost_holes()` へ渡す控制 |
+| `emit-candidate-valid` / `emit-diff` / `emit-target` / `emit-caller-approval` | 対応表の候補を出す道具 `emit-guard-owners.py` 自身の 4 検査。候補を出してよい形か（箱の公開名を書き換えに使う・1 名が 2 用途を持つ・候補の表を渡した走査に穴が残る、のいずれかを拒否する。`emit-candidate-valid`。Astra 第 67 ラウンド 問 3 の裁定 1 は候補の表での検証を認めたが、書き換えを許可用途へ塗り替える事は認めない）、今の台帳との差分を `boxNames` と `exemptions` まで**全て**表示するか（`emit-diff`。第 66 ラウンドは `owners` と `scannedFiles` しか比較せず「差分無し」と報告していた）、`--emit` が運用中の台帳その物への書き出しを拒否するか（`emit-target`。同じ裁定 4）、観測した区間の呼び出し元が承認済みの `guardCallers` に在るか（`emit-caller-approval`。Astra 第 69 ラウンド 問 3-2: 未承認の観測は表示した上で終了 1。観測を自動で許可へ載せない） | 3 種の拒否を `candidate_refusals()` へ渡す / 公開名の追加・削除・用途の変わり目と豁免の差し替えを `diff_lines()` へ渡す / 運用中の台帳を別表記で指した書き先を `target_errors()` へ渡す |
 <!-- /見張り番の名前一覧 -->
 
-**全 83 名に、その名前だけを無効化する負控制が有る。うち 70 名は無効化すると実行が成功し、
+**全 85 名に、その名前だけを無効化する負控制が有る。うち 72 名は無効化すると実行が成功し、
 残る 13 名は対象の案内が消えたうえで宣言済みの別の診断で拒否される**（`clean=False` +
 `fallback`）。複数名を同時に無効化する制御はこの網羅数に含めない。
 **1 名前 = 呼び出し 1 箇所**も同じ正控制が数える（呼び出し回数を AST で数え、2 箇所以上の名前を
@@ -240,8 +240,8 @@ Astra 問 2 で「実行系の制御（JSON を書かない、JSON が壊れて�
 - `check-dir-rule.py`: `dir-rule-counters` / `dir-rule-report` / `dir-rule-v1`
 - `count-none.py`: `none-counters` / `none-expectations`
 - `edge-order.py`: `edge-child-fail` / `edge-group-empty` / `edge-json-parse` / `edge-out-shape`
-- `test-contract.py`: `own-names` / `own-tools` / `own-files` / `md-fence-form` / `import-binds-guard` / `import-unregistered` / `exempt-scan-parity` / `import-granted` / `import-star` / `guard-unbound` / `exempt-use-form` / `in-public-name` / `in-public-table` / `md-marker-form` / `exempt-map-expand` / `exempt-loader-attrs` / `in-public-write` / `import-relative` / `import-dynamic-module` / `guard-caller-file` / `guard-caller-form`（第 63 ラウンド Astra 問 4 の対応表の照合と第 64 ラウンド 問 1〜3 の import 一覧・文書の書き方の検査。形の検査は `_inputs.py` が読む）
-- `emit-guard-owners.py`（対応表の候補の書き出し。自動更新はしない。差分が有る日は終了 3、運用中の台帳その物への書き出しは拒否する）: `emit-candidate-valid` / `emit-diff` / `emit-target`
+- `test-contract.py`: `own-names` / `own-tools` / `own-files` / `md-fence-form` / `import-binds-guard` / `import-unregistered` / `exempt-scan-parity` / `import-granted` / `import-star` / `guard-unbound` / `exempt-use-form` / `in-public-name` / `in-public-table` / `md-marker-form` / `exempt-map-expand` / `exempt-loader-attrs` / `in-public-write` / `import-relative` / `import-dynamic-module` / `guard-caller-file` / `guard-caller-form` / `guard-callers-scope`（第 63 ラウンド Astra 問 4 の対応表の照合と第 64 ラウンド 問 1〜3 の import 一覧・文書の書き方の検査。形の検査は `_inputs.py` が読む）
+- `emit-guard-owners.py`（対応表の候補の書き出し。自動更新はしない。差分が有る日は終了 3、運用中の台帳その物への書き出しは拒否する）: `emit-candidate-valid` / `emit-candidate-valid` / `emit-diff` / `emit-target` / `emit-caller-approval`
 <!-- /見張り番の道具別一覧 -->
 この内訳は毎回
 `test-contract.py` の正控制が機械に数える — ツリーを AST で読んで `guard('名前')` を付けた
@@ -346,6 +346,21 @@ Codex P2-3 / Astra 問 3 の裁定 2）。差分に `boxNames` と `exemptions` 
 変わった実測。Codex P2-2 / agy P1-1 / Astra 問 2。許可した読み取り位置に無い現れ方は `unsupported`
 として穴）、(3) `in-public-name` を消した日に名前側の規則だけ消えるよう、診断の側でスイッチを 1 個ずつ
 読んだ（agy P1-2）。
+
+第 69 ラウンド実測: **負控制 137 件・正控制 20 件**、見張り番 **85 名 = 呼び出し 85 箇所**、
+単独名指し 85 / 85（成功だけの控制 72 名・診断消失確認だけ 13 名）（`out/tmp-r69/contract-7.log`）。
+全測定は実施 122 項目 NG 0（`out/tmp-r69/verify-1.log`）。同じラウンドで (1) 台帳 `guardCallers` の
+権限を**人が承認した物に絞った**（形の検査で重複・途中の `.` / `..` / 空の区間・終端の `/`・`.py`
+でない綴りを拒否し、読み込み時に正準化しない。実走査対象に実在することを新名前 `guard-callers-scope`
+で検査し、候補生成は承認済みを一覧へ引き継いで観測との差は案内だけ出す。未承認の観測は
+`emit-caller-approval` が表示した上で終了 1。Codex P2-1 / P2-2・agy P1-1・Astra 問 3-2。決 94）、
+(2) 呼び出しの受け手を**コンテナリテラルを通った経路で断つ**形にした（Astra 問 3-1 の (c)。
+`([IN.X] * 2)[0]()`・`(((…) * 2) * 2)[0]()`・`((… if p else []) * 2)[0].clear()`・`(IN.X,)[0]()`・
+`(f'{[IN.X]}').lower()` を拒否し、`(IN.HERE / 'x').read_text()`・`('%s' % IN.X).lower()`・
+`local[IN.X]()`・`f([IN.X])` を許可する 22 形を対で控制に固定。agy P1-2）。**残る穴として決 94 に
+書いたのは単項演算だけを経た受け手**（`(+IN.X)()`）で、Astra は「直接オペランドの演算一般は
+必ず別の値になるとは説明しない」として演算の受け手の全面禁止 (b) を却下した。独自の `__pos__` /
+`__add__` が自分自身を返す型が現れた日は人が許可を増やす
 
 **スイッチにしない判定は 4 種類だけ**（Astra 裁定 問 1: 「消すと後で壊れる」という理由だけでは、
 入力契約の判定を例外へ移さない）。①**引数が足りない**（調べるグラフも `report.mjs` も渡されて

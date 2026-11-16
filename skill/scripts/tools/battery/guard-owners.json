@@ -146,6 +146,9 @@
   "edge-out-shape": [
    "edge-order.py"
   ],
+  "emit-caller-approval": [
+   "emit-guard-owners.py"
+  ],
   "emit-candidate-valid": [
    "emit-guard-owners.py"
   ],
@@ -207,6 +210,9 @@
    "test-contract.py"
   ],
   "guard-caller-form": [
+   "test-contract.py"
+  ],
+  "guard-callers-scope": [
    "test-contract.py"
   ],
   "guard-callers-shape": [

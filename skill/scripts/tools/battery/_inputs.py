@@ -1622,6 +1622,12 @@ def guard_ledger_shape_errors(doc):
                         '（`IN.guard_off(...)` / `IN.guards_on()` を呼べる制御ファイルの'
                         '正準相対パス。Astra 第 68 ラウンド 問 1 の B案）')
         else:
+            dup = sorted({x for x in callers if isinstance(x, str) and callers.count(x) > 1})
+            if dup:
+                # agy 第 68 ラウンド P1-1 の実測: 重複を弾かない為、同じファイルを 2 回載せた台帳が
+                # 形の検査も候補生成も終了 0 で通った（「1 ファイル 1 登録」が崩れる）
+                errs.append(f'台帳の guardCallers に重複したファイルが有る: {dup[:4]}'
+                            '（1 ファイル 1 登録。agy 第 68 ラウンド P1-1）')
             for x in callers:
                 if not isinstance(x, str) or not x:
                     errs.append(f'台帳の guardCallers に空でない文字列でない物が有る: {x!r}')
@@ -1630,6 +1636,16 @@ def guard_ledger_shape_errors(doc):
                     errs.append(f'台帳の guardCallers「{x[:40]}」がリポジトリからの正準相対パスで'
                                 'ない（先頭が `/` や `..`・区切りの `\\`・前後の空白は不可。'
                                 '走査側の `origin` と同じ形で持つ）')
+                    continue
+                # 途中の `.` / `..` / 空の区間も正準形ではない（agy 第 68 ラウンド P1-1: 'a/./b.py' と
+                # 'a/b.py' が別物として並び、同じファイルへの登録が 2 本通る）。走査側は文字列一致で
+                # 照合する為、直した方が消える側の登録もここで落とす
+                segs = x.split('/')
+                if (x.endswith('/') or '' in segs or '.' in segs or '..' in segs
+                        or not x.endswith('.py')):
+                    errs.append(f'台帳の guardCallers「{x[:40]}」が正準相対パスでない'
+                                '（途中に `.` / `..` / 空の区間を終端の `/` は使えない。'
+                                '.py で終わる実在の道具のパス。走査側の `origin` と同じ形）')
     return errs
 
 

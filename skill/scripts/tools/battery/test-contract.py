@@ -196,6 +196,12 @@ def negative(name, fn, guards=None, message=None, clean=True, fallback=None):
     対象を消したのに `message` が残る実行は `clean=False` でも失敗にする（問 2 の契約）"""
     ran['negative'] += 1
     names = (guards,) if isinstance(guards, str) else tuple(guards or ())
+    # Codex 第 68 ラウンド P1-1 の実測: 無効化集合の保存を**制御の素の実行の後**で撮ると、素の
+    # 実行が漏らした無効化を復元元として受け入れて成功した（`before=[]` → `after=['unrelated']`
+    # なのに失敗 0 件）。保存は制御の開始時（素の実行より前）で撮る
+    # （Astra 第 68 ラウンド 問 1 実装条件 4「各制御の開始時、無効化区間内、終了直後に集合全体を
+    # 確認する。不一致は復旧処理の前に失敗として記録する。後で正常化されても、その失敗を消さない」）
+    start = set(IN.GUARD_OFF)
     try:
         det, text = _run_control(fn)
     except NotDetected as e:
@@ -203,6 +209,11 @@ def negative(name, fn, guards=None, message=None, clean=True, fallback=None):
         return
     except Exception as e:  # noqa: BLE001 - agy P2-1: 制御自身の壊れ方を黙らせない
         failed.append(f'{name}: 制御が壊れている（{type(e).__name__}: {e}）')
+        return
+    if set(IN.GUARD_OFF) != start:
+        failed.append(f'{name}: 制御の素の実行が見張り番の無効化を漏らした'
+                      f'（開始時 {sorted(start)} → 実行後 {sorted(set(IN.GUARD_OFF))[:6]}。'
+                      '区間は抜けたら元に戻る事が約束。Codex 第 68 ラウンド P1-1）')
         return
     if not det:
         failed.append(f'{name}: 落ちずに通った（期待は終了 1）。{text[:160]}')
@@ -216,28 +227,32 @@ def negative(name, fn, guards=None, message=None, clean=True, fallback=None):
     # Astra 第 68 ラウンド 問 1 の B案: 無効化は区間にする（抜けたら必ず前の集合へ戻る）。
     # 開始時・区間中・復元後の**無効化集合全体**を比較して、1 名だけ戻して合格することを防ぐ
     prev_env = os.environ.get('CGD_GUARD_OFF')
-    before = set(IN.GUARD_OFF)
-    leaked = None
+    before = start
+    # 不一致は**復旧処理の前に記録**し、後から状態が正常化されても失敗を消さない。`finally` で
+    # `return` すると制御の故障が黙って消える（Python も警告する）ので、ここでは覚えておくだけにし、
+    # 合否の判定と `return` は区間の上でする
+    state_bad = []
     try:
         with IN.guard_off(*names):
-            os.environ['CGD_GUARD_OFF'] = ','.join(names)
+            os.environ['CGD_GUARD_OFF'] = ','.join(sorted(set(names) | before))
             mid = set(IN.GUARD_OFF)
+            # 部分集合判定をやめる: 対象外の名前まで消えた故障を拒否する（Codex 第 68 ラウンド P1-1）
+            if mid != before | set(names):
+                state_bad.append(
+                    f'{name}: 区間中の無効化集合が一致しない（期待 {sorted(before | set(names))} '
+                    f'→ 実際 {sorted(mid)[:6]}。Astra 第 68 ラウンド 問 1 の実装条件 4）')
             try:
                 det2, text2 = _run_control(fn, tolerant=True)
             finally:
                 _env_restore(prev_env)
     finally:
-        # `finally` で return すると制御の故障が黙って消える（Python も警告する）。ここは
-        # 残ったかどうかを覚えておくだけにし、判定は区間の上でする
         if set(IN.GUARD_OFF) != before:
-            leaked = sorted(set(IN.GUARD_OFF) ^ before)[:6]
-    if leaked is not None:
-        failed.append(f'{name}: 区間を抜けた後に見張り番の無効化が残った'
-                      f'（{leaked}。抜けたら元に戻る事が区間の約束。Astra 第 68 ラウンド 問 1 の B案）')
-        return
-    if not (before | set(names)) <= mid:
-        failed.append(f'{name}: 区間中の無効化集合が足りない（{sorted(names)} を消した筈が '
-                      f'{sorted(mid)[:6]}。Astra 第 68 ラウンド 問 1 の実装条件 4）')
+            state_bad.append(
+                f'{name}: 区間を抜けた後に見張り番の無効化が残った'
+                f'（{sorted(set(IN.GUARD_OFF) ^ before)[:6]}。抜けたら元に戻る事が区間の約束。'
+                'Astra 第 68 ラウンド 問 1 の B案）')
+    failed.extend(state_bad)
+    if state_bad:
         return
     if text2.startswith('NotDetected:'):
         # Astra 第 59 ラウンド 追加穴 1 の実測: 見張り番を消した側で制御が準備に失敗すると
@@ -2359,8 +2374,14 @@ def _box_role(node, par):
 # ない。実ツリーの `(IN.HERE / 'input-fingerprints.json').read_text(...)` が誤検出になった実測）。
 # 条件式・論理式・コンテナは値その物になり得るので残す（`(IN.CONST if p else q).clear()` と
 # `[IN.CONST][0]()` は禁止）
-_BOX_CALL_FOLLOW = {k: v for k, v in _BOX_FOLLOW.items()
+# 呼び出しの受け手まで追跡を続ける位置の**厳密版**（演算・単項演算・書式化は新しい値を作るので
+# そこで受け手の追跡をやめる。`(IN.HERE / 'x').read_text()` が素通しになる側の表）
+_BOX_CALL_STRICT = {k: v for k, v in _BOX_FOLLOW.items()
                     if k not in ('BinOp', 'UnaryOp', 'JoinedStr', 'FormattedValue')}
+# Astra 第 69 ラウンド 問 3-1 (c) の裁定: **コンテナリテラルを一度でも通った経路**は、後続の
+# 演算・条件式・属性・添字で追跡を打ち切らない（`([IN.CONST] * 2)[0]()` が素通しになった
+# agy 第 68 ラウンド P1-2 の実測。直下の子だけを見る (a) は演算を 1 段重ねるだけで破れる）
+_BOX_CONTAINERS = (ast.List, ast.Tuple, ast.Set, ast.Dict, ast.Starred)
 
 
 def _box_follow(name, field, table=None):
@@ -2413,20 +2434,29 @@ def _box_write_targets(tree):
 
 
 def _box_is_call_receiver(node, parents):
-    """箱の公開名その物（条件式・論理式・コンテナを経てそこに至る値も含む）が呼び出しの受け手か
+    """箱の公開名から上って呼び出しの受け手へ至るか。至り方を `call-chain` / `make` で返す
 
     出現から**上って**決める。`IN.CONST()` は直接の受け手、`IN.CONST.clear()` と
     `(IN.CONST if p else q).clear()` と `[IN.CONST][0]()` は受け手へ至る連鎖（禁止）。
-    `(IN.HERE / 'x').read_text()` は演算が新しい値を作るので受け手ではない（許可）"""
-    cur = node
+    `(IN.HERE / 'x').read_text()` は演算が新しい値を作るので受け手ではない（許可）。
+    Astra 第 69 ラウンド 問 3-1 (c) の裁定で、**経路上にコンテナリテラルを 1 つでも通った場合は
+    演算・書式化を挟んでも**受け手への連鎖として拒否する（`([IN.CONST] * 2)[0]()` と
+    `(f'{[IN.CONST]}').lower()`）。他の物の添字 `Subscript.slice` と関数の引数から受け手側へは
+    飛び移らない（`local[IN.CONST]()` と `f([IN.CONST])` は読み取りのままで止まる）"""
+    cur, through = node, False
     while True:
+        if isinstance(cur, _BOX_CONTAINERS):
+            through = True
         par = parents.get(id(cur))
         if par is None:
             return False
         if isinstance(par, ast.Call) and par.func is cur:
             return True
         kind, field = _box_role(cur, par)
-        if not _box_follow(kind, field, _BOX_CALL_FOLLOW):
+        # 厳密版は演算・書式化で追跡をやめる（`(IN.HERE / 'x').read_text()` の受け手は演算の
+        # 結果で別の値。下の `_box_form` が `('Call', 'func')` を読み取りに分類する）。コンテナを
+        # 通った後だけ完全版を使い、`([IN.CONST] * 2)[0]()` を受け手への連鎖として拒否する
+        if not _box_follow(kind, field, _BOX_FOLLOW if through else _BOX_CALL_STRICT):
             return False
         cur = par
 
@@ -3232,6 +3262,22 @@ def _guard_switch_callers():
     return sorted(out)
 
 
+def _guard_caller_ghost_holes(callers, scan_files):
+    """台帳 `guardCallers` の登録が走査対象に実在するか（`guard-callers-scope`）
+
+    Codex 第 68 ラウンド P2-1・agy 第 68 ラウンド P1-1 の実測: `missing.py` のような架空の登録・
+    走査しない `.mjs` の登録は、台帳の形の検査もファイル別の照合も通る（ファイル別の照合は走査中の
+    ファイルについてだけ走る為、存在しない登録はどこからも見られない）。「走査対象に在るか」は
+    走査側しか知らない（`_inputs.py` の形の検査はファイルを見ない）"""
+    if not IN.guard('guard-callers-scope'):
+        return []
+    seen = set(scan_files)
+    return [f'台帳 `guardCallers` に登録した「{x}」が走査対象の道具に無い'
+            '（区間を作れるファイルの登録は走査対象の実在する .py と一致する事。架空の登録は'
+            '人が消すまで残り続ける。Codex 第 68 ラウンド P2-1・agy 第 68 ラウンド P1-1）'
+            for x in callers if x not in seen]
+
+
 def _guard_names_by_file(exempt_by_file=None, box=None, callers=None):
     """見張り番の名前をツリーから走査して `(全体名, ファイル別の直接呼び出し, 呼び出し回数, 穴)` を返す
 
@@ -3254,7 +3300,8 @@ def _guard_names_by_file(exempt_by_file=None, box=None, callers=None):
     if callers is None:
         callers = list(doc.get('guardCallers') or [])
     names, direct, counts, holes, calls = set(), {}, {}, [], []
-    for path in _guard_scan_files():
+    scan_files = _guard_scan_files()
+    for path in scan_files:
         got, got_holes, got_counts, got_calls = _guard_scan(
             path.read_text(encoding='utf-8'), path,
             (exempt_by_file or {}).get(path.relative_to(REPO).as_posix()), box, callers)
@@ -3268,6 +3315,8 @@ def _guard_names_by_file(exempt_by_file=None, box=None, callers=None):
             direct.setdefault(path.name, set()).update(got)
         for k, v in got_counts.items():
             counts[k] = counts.get(k, 0) + v
+    holes += _guard_caller_ghost_holes(callers, [p.relative_to(REPO).as_posix()
+                                                for p in scan_files])
     return names, direct, counts, holes, calls
 
 
@@ -4401,6 +4450,17 @@ def candidate_refusal_blind():
     return (len(errs), errs[0]) if len(errs) == 3 else False
 
 
+def emit_caller_approval_blind():
+    """候補の道具が観測した区間の呼び出し元をそのまま許可に載せるか（`emit-caller-approval`）
+
+    Codex 第 68 ラウンド P2-2 の実測: 走査で観測した呼び出し元を候補の `guardCallers` へそのまま
+    載せていた為、未承認のファイルが候補だけで区間を作れるようになっていた。Astra 第 69 ラウンド
+    問 3-2 の裁定で候補は承認済みを引き継ぎ、未承認の観測は終了 1 で拒否する"""
+    gap = _emit_tool().approval_gap(['skill/scripts/tools/battery/new-control.py'],
+                                    ['skill/scripts/tools/battery/test-contract.py'])
+    return (len(gap), gap[0]) if gap else False
+
+
 def emit_target_blind():
     """`--emit` が運用中の台帳その物への書き出しを拒否するか（`emit-target`。Astra 問 3 の裁定 4）
 
@@ -4460,13 +4520,24 @@ def guard_callers_file_hole():
 
 
 def guard_callers_unused_hole():
-    """区間を作っていないファイルが台帳にRegistered されたまま通るか（`guard-caller-file`）
+    """区間を作っていないファイルが台帳に登録されたまま通るか（`guard-caller-file`）
 
     Astra 第 68 ラウンド 問 1 の実装条件 2: 登録は使われている物だけ。使われない登録は次の見直し
     まで残り、後に別の一が同じファイルを無断で区間に使える足場になる"""
     src = f'{_SCAN_HEAD}x = 1\n'
     _n, holes, _c, _cl = _guard_scan(src, '<制御>', None, {'guard_off': 'call'}, ['<制御>'])
     bad = [h for h in holes if '見張り番を消す区間を作っていない' in h]
+    return (len(bad), bad[0]) if bad else False
+
+
+def guard_callers_ghost_hole():
+    """実在しないファイルの登録が通るか（`guard-caller-file`）
+
+    Codex 第 68 ラウンド P2-1 の実測をそのまま細工にする。台帳の形の検査はファイルを見ないので
+    ここで名指すのは走査側。「走査対象 24 ファイルに在るか」だけを見る安い入力にする
+    （`guard-caller-file` は「登録に無いファイルが区間を作る」別の検査責務。1 名前 1 箇所）"""
+    bad = _guard_caller_ghost_holes(['skill/scripts/tools/battery/missing.py'],
+                                    ['skill/scripts/tools/battery/test-contract.py'])
     return (len(bad), bad[0]) if bad else False
 
 
@@ -4495,6 +4566,21 @@ def guard_callers_shape_hole():
     thin2 = {k: v for k, v in doc.items() if k != 'guardCallers'}
     if not [x for x in IN.guard_ledger_shape_errors(thin2) if 'guardCallers' in x]:
         return False
+    # agy 第 68 ラウンド P1-1 の実測: 重複と途中の `.` を交ぜた綴りが素通りしていた。同じ形の
+    # 検査なので同じ名前で名指す（1 ファイル 1 登録が崩れると「同じファイルの 2 本」が並ぶ）
+    bad2 = []
+    for label, val in (
+            ('重複', list(doc['guardCallers']) + list(doc['guardCallers'])),
+            ('途中の `.`', ['skill/scripts/./tools/battery/test-contract.py']),
+            ('終端の `/`', ['skill/scripts/tools/battery/']),
+            ('.py でない', ['skill/viewer/template.html'])):
+        thin3 = dict(doc)
+        thin3['guardCallers'] = val
+        if not [x for x in IN.guard_ledger_shape_errors(thin3) if 'guardCallers' in x]:
+            bad2.append(label)
+    if bad2:
+        return (len(bad2), f'台帳の guardCallers の形 {bad2[:4]} を弾かない'
+                           '（agy 第 68 ラウンド P1-1）')
     return (1, bad[0])
 
 
@@ -4505,11 +4591,47 @@ def public_call_via_condition():
     ._str = ...` を読み取りに降格させて実値を変えられた（実測 `conditional_holes=0` /
     `HERE_after=/tmp/r67-review`）。Astra 第 68 ラウンド 問 2 は既定拒否（条件式・論理式・
     コンテナは値その物になり得るので追跡を続ける）。条件形とコンテナ形の 2 形を並べる"""
+    # Astra 第 69 ラウンド 問 3-1 (c) の反例 1: 直下の子だけを見る判定への退行を、演算を 2 段
+    # 重ねた形と条件式+演算の混成で見る（`([IN.CONST] * 2)[0]()` は agy 第 68 ラウンド P1-2 の実測）
     src = (f'{_SCAN_HEAD}(IN.CONST if True else None).clear()\n'
-           '[IN.CONST][0]()\n')
+           '[IN.CONST][0]()\n'
+           '([IN.CONST] * 2)[0]()\n'
+           '((([IN.CONST] * 2) * 2)[0])()\n'
+           '(([IN.CONST] if p else []) * 2)[0].clear()\n'
+           "(f'{[IN.CONST]}').lower()\n")
     _n, holes, _c, _cl = _guard_scan(src, '<制御>', None, {'CONST': 'const'})
     bad = [h for h in holes if '呼び出しへ至る連鎖' in h]
+    # 見張り番を消した再実行では 0 件でなければならない（0 件を「期待と違う」で失敗にすると、
+    # 控制自身が消したはずの診断を要求して別の所で落ちる。Astra 第 68 ラウンド 問 3 条件 3）
+    if bad and len(bad) != 6:
+        return (len(bad), f'コンテナを経由した呼び出しの受け手が {len(bad)} 件しか出ない'
+                          '（6 形を期待。Astra 第 69 ラウンド 問 3-1 (c)・'
+                          'agy 第 68 ラウンド P1-2） / ' + bad[0][:60])
     return (len(bad), bad[0]) if bad else False
+
+
+def container_paths_read_side_clean():
+    """コンテナ・演算の許可側が誤検出にならないか（Astra 第 69 ラウンド 問 3-1 の反例 2）
+
+    拒否だけを増やす実装は「式全体にコンテナが有ったら何でも拒否」へ退化しやすい。Astra の裁定は
+    他の物の添字と関数の引数を明示的に許可するので、対で固定する。`(IN.HERE / 'x').read_text()` と
+    `('%s' % IN.CONST).lower()` は演算が新しい値を作る側の既存の許可（第 68 ラウンド 問 2 の表）
+    （`(+IN.CONTENTS)()` のような単項演算の受け手は (c) ではコンテナ経路ではないので読み取りに
+    数える。独自の `__pos__` が自分自身を返さない限り箱その物ではない。Astra 第 69 ラウンド
+    問 3-1 の「直接オペランドの演算一般では説明しない」の範囲。agy 第 68 ラウンド P1-2 の期待と
+    は違う為、README と決め 94 に残る穴として書く）"""
+    src = _SCAN_HEAD + chr(10).join([
+        "(IN.HERE / 'x').read_text()",
+        "('%s' % IN.CONST).lower()",
+        'local[IN.CONST]()',
+        'f([IN.CONST])',
+        'x = [IN.CONST]',
+        "d = {'a': IN.CONST}",
+    ]) + chr(10)
+    _n, holes, _c, _cl = _guard_scan(src, '<制御>', None, {'CONST': 'const', 'HERE': 'const'})
+    if holes:
+        return f'許可すべき形で穴が出た: {holes[0][:120]}'
+    return None
 
 
 def public_write_via_expression():
@@ -4959,10 +5081,14 @@ def main():
                  guards='emit-candidate-valid', message='書き換え・削除に使っている')
         negative('候補の道具が運用中の台帳へ直接書ける', emit_target_blind,
                  guards='emit-target', message='直接書いてはいけない')
+        negative('候補の道具が観測した呼び出し元を自動で許可に載せる', emit_caller_approval_blind,
+                 guards='emit-caller-approval', message='観測されたが未承認の区間の呼び出し元')
         negative('台帳に無いファイルが見張り番を消す区間を作る', guard_callers_file_hole,
                  guards='guard-caller-file', message='guardCallers` に無いファイル')
         negative('区間を作らないファイルが台帳の呼び出し元に残る', guard_callers_unused_hole,
                  guards='guard-caller-file', message='見張り番を消す区間を作っていない')
+        negative('台帳の呼び出し元に実在しないファイルが載る', guard_callers_ghost_hole,
+                 guards='guard-callers-scope', message='走査対象の道具に無い')
         negative('`with` の管理以外で見張り番を消す区間を作る', guard_caller_form_hole,
                  guards='guard-caller-form', message='`with` の管理ではない位置')
         negative('台帳の guardCallers の形を検査しない', guard_callers_shape_hole,
@@ -4979,6 +5105,7 @@ def main():
                  public_use_forms_clean)
         positive('新しい値を作る式の中の読み取りは穴ではない（既定拒否の白名前の側）',
                  public_new_value_reads_clean)
+        positive('コンテナ・演算の許可側が誤検出にならない', container_paths_read_side_clean)
         positive('候補は自分の箱の表で走査できる（旧台帳に縛られない）',
                  candidate_uses_own_box_table)
         positive('`--emit` の相対パスを打った場所から解決する',
