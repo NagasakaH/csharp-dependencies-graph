@@ -338,6 +338,22 @@ def validate_report(doc, label):
     return doc
 
 
+def guard_env(extra=None):
+    """子プロセスへ渡す環境変数の表。**今の区間の無効化集合**から毎回作る
+
+    Astra 第 69 ラウンド 問 1 の実装条件 5: 親の `os.environ` を切り替える方式は、切り替えを
+    忘れた時と区間を抜ける前に子を起こした時に、子へ間違った集合を渡す。親の状態を変えずに
+    **起動する子の分だけ**ここで作る（`extra` は制御が足す変数。既定は今の環境を写すだけ）"""
+    env = dict(os.environ)
+    if GUARD_OFF:
+        env['CGD_GUARD_OFF'] = ','.join(sorted(GUARD_OFF))
+    else:
+        env.pop('CGD_GUARD_OFF', None)
+    if extra:
+        env.update(extra)
+    return env
+
+
 def run_json(script, args, out, repo=None, label='', expect_report=True):
     """report.mjs を走らせて `--json` のファイルを読む。失敗・空・別の形は即座に終了 1
 
@@ -349,7 +365,7 @@ def run_json(script, args, out, repo=None, label='', expect_report=True):
         fail(f'{label}: 出力先がもう有る（{out}）。実行ごとに新しい名前を使う'
              '（一時ディレクトリは実行のたびに作り直している）')
     cmd = ['node', str(script)] + [str(a) for a in args] + ['--json', str(out)]
-    p = subprocess.run(cmd, cwd=str(repo), capture_output=True, text=True)
+    p = subprocess.run(cmd, cwd=str(repo), capture_output=True, text=True, env=guard_env())
     if guard('child-fail') and p.returncode != 0:
         # 第 56 ラウンド agy P2-4: `via-cycle.py` は子失敗時に標準出力の末尾も出していた。
         # `run_json` 寄せでそれが消えたので、here にまとめて出す（道具ごとに戻さない）

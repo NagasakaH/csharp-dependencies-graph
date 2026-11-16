@@ -72,7 +72,7 @@ def script_path(script):
 def py(script, *args, cwd=None):
     """道具を走らせて `(終了コード, 出力)` を返す（`| tail` で測ると `tail` の値になる）"""
     p = subprocess.run([sys.executable, str(script_path(script)), *[str(a) for a in args]],
-                       cwd=str(cwd or REPO), capture_output=True, text=True)
+                       cwd=str(cwd or REPO), capture_output=True, text=True, env=IN.guard_env())
     out = p.stdout + p.stderr
     if "can't open file" in out:
         raise NotDetected(f'道具を起動できなかった（制御が壊れている）: {script}\n{out[:200]}')
@@ -157,6 +157,11 @@ def _run_control(fn, tolerant=False):
         if not tolerant:
             raise
         return True, f'{type(e).__name__}: {e}'
+    if hasattr(res, '__next__') or hasattr(res, '__await__'):
+        # Astra 第 69 ラウンド 問 1 の実装条件 6: 制御は区間の内で**同期的に**終わる。遅延実行を
+        # 返すと本体が区間を抜けた後へ走り、無効化集合の観測（6 箇所）が総ずれする
+        raise NotDetected('制御が同期的に終わらない（ジェネレータ・コルーチンを返した。'
+                          '本体を区間の内で終わらせる。Astra 第 69 ラウンド 問 1）')
     if isinstance(res, tuple) and res and isinstance(res[0], int):
         return (res[0] != 0), str(res[1])
     if res is True:
@@ -182,38 +187,62 @@ def negative(name, fn, guards=None, message=None, clean=True, fallback=None):
 
     第 55 ラウンド agy P1 の実測で、負控制の 3 件は「別の一の見張り番が先に落ちる」だけで
     合格していた（対象の見張り番を無効化しても制御がまだ落ちる＝その見張り番を測っていない
-    空振り）。だからここで 2 度走らせる:
+    空振り）。だからここで **3 度**走らせる:
 
-    1. **素の実行**: 落ちて、`message`（対象の見張り番の案内）が含まれること
-    2. **`guard` を消した実行**: `message` が出ないこと。`clean`（既定）なら**通ること**も
-       要求する（他の見張り番に遮われている間は、その制御は対象を測っていない）
+    1. **素の実行（ON）**: 落ちて、`message`（対象の見張り番の案内）が含まれること
+    2. **`guards` だけ消した区間の中の実行**: `message` が出ないこと。`clean`（既定）なら
+       **通ること**も要求する（他の見張り番に遮われている間は、その制御は対象を測っていない）
+    3. **区間を抜けた後の同じ実行（復元後の ON）**: 実行 1 と同じ拒否が出ること（戻った後も
+       計れる事が実測の根拠。Astra 第 68 ラウンド 問 3 (a) の「2 回に減らす」案は第 69 ラウンド
+       問 1 で「区間を抜けた後の観測が実測されなくなる」として取りやめ）
 
+    見張り番の無効化は**区間**（`with IN.guard_off('名前'):`）で、抜けたら前の集合へ戻る事が
+    約束（Astra 第 68 ラウンド 問 1 の B案・決 92）。Astra 第 69 ラウンド 問 1 の実装条件で
+    観測点を 6 つに増やし、**開始時に保存した集合 `B` だけを復元基準**に、**集合全体の完全一致**で
+    見る（部分集合の判定は、対象外の名前まで消えた故障を通す。Codex 第 68 ラウンド P1-1）。
+    子プロセスへは `os.environ` を切り替えず `IN.guard_env()` で作った `env` を渡す（問 1 条件 5）。
     `clean=False` は「見張り番を消すと対象の診断は消えるが、実行は別の診断で拒否される」制御が
-    使える（重複検査のように複数の見張り番が同じ細工を拾う場合を含む。Astra 第 59 ラウンド
-    問 2: 「実行系の制御だけ」という但し書きは重複検査を説明できないので外した）。その場合は
-    `fallback` に **OFF 後も残る別の診断の文面**を書く（第 56 ラウンド agy P2-3）。文面を
-    宣言させていないと Run 2 が何で止まったか不明のまま「別の一で落ちた＝検出成功」と数える。
-    対象を消したのに `message` が残る実行は `clean=False` でも失敗にする（問 2 の契約）"""
+    使える（Astra 第 59 ラウンド 問 2）。その場合は `fallback` に **OFF 後も残る別の診断の文面**を
+    書く（第 56 ラウンド agy P2-3）。文面を宣言させていないと実行 2 が何で止まったか不明のまま
+    「別の一で落ちた＝検出成功」と数える。対象を消したのに `message` が残る実行は `clean=False`
+    でも失敗にする（問 2 の契約）"""
     ran['negative'] += 1
     names = (guards,) if isinstance(guards, str) else tuple(guards or ())
-    # Codex 第 68 ラウンド P1-1 の実測: 無効化集合の保存を**制御の素の実行の後**で撮ると、素の
-    # 実行が漏らした無効化を復元元として受け入れて成功した（`before=[]` → `after=['unrelated']`
-    # なのに失敗 0 件）。保存は制御の開始時（素の実行より前）で撮る
-    # （Astra 第 68 ラウンド 問 1 実装条件 4「各制御の開始時、無効化区間内、終了直後に集合全体を
-    # 確認する。不一致は復旧処理の前に失敗として記録する。後で正常化されても、その失敗を消さない」）
-    start = set(IN.GUARD_OFF)
+    bad = []
+    # 観測点 1（制御の開始時・準備前）。Codex 第 68 ラウンド P1-1 の実測: 保存を素の実行の**後**で
+    # 撮ると、実行が漏らした無効化を復元元として受け入れて `before=[] → after=['unrelated']` が
+    # 失敗 0 件で通った。`B` が唯一の復元基準
+    base = set(IN.GUARD_OFF)
+
+    def _chk(label, want):
+        got = set(IN.GUARD_OFF)
+        if got != want:
+            bad.append(f'{name}: {label}、見張り番の無効化集合が一致しない（期待 {sorted(want)} → '
+                       f'実際 {sorted(got)[:6]}。Astra 第 69 ラウンド 問 1 の 6 観測点は集合全体の'
+                       '完全一致。不一致は復旧処理の前に記録し、後で正常化されても消さない）')
+
+    if names and base & set(names):
+        # `B ∩ G` が空でないと「その 1 個だけを消した」状態を組めない（Astra 第 69 ラウンド 問 1）。
+        # 前の制御の戻し損ねか、入れ子の区間の内側で呼ばれたかのどちらか
+        bad.append(f'{name}: 制御の開始時にもう対象 {" / ".join(sorted(base & set(names)))} が'
+                   '無効化されている（開始集合と対象が見張っている名前は交わっていない事が必要。'
+                   '前の区間の戻し損ねか入れ子。Astra 第 69 ラウンド 問 1）')
+        failed.extend(bad)
+        return
+
+    # ---- 実行 1（見張り番が起きている）----
     try:
         det, text = _run_control(fn)
     except NotDetected as e:
-        failed.append(f'{name}: {e}')
-        return
-    except Exception as e:  # noqa: BLE001 - agy P2-1: 制御自身の壊れ方を黙らせない
-        failed.append(f'{name}: 制御が壊れている（{type(e).__name__}: {e}）')
-        return
-    if set(IN.GUARD_OFF) != start:
-        failed.append(f'{name}: 制御の素の実行が見張り番の無効化を漏らした'
-                      f'（開始時 {sorted(start)} → 実行後 {sorted(set(IN.GUARD_OFF))[:6]}。'
-                      '区間は抜けたら元に戻る事が約束。Codex 第 68 ラウンド P1-1）')
+        det, text = False, f'{e}'
+        bad.append(f'{name}: {e}')
+    except BaseException as e:  # noqa: BLE001 - agy P2-1: 制御自身の壊れ方を黙らせない
+        det, text = False, f'{type(e).__name__}: {e}'
+        bad.append(f'{name}: 制御が壊れている（{type(e).__name__}: {e}）')
+    finally:
+        _chk('素の実行の終了後', base)   # 観測点 2（実行が例外で終わっても見る）
+    if bad:
+        failed.extend(bad)
         return
     if not det:
         failed.append(f'{name}: 落ちずに通った（期待は終了 1）。{text[:160]}')
@@ -224,35 +253,23 @@ def negative(name, fn, guards=None, message=None, clean=True, fallback=None):
         return
     if not names:
         return
-    # Astra 第 68 ラウンド 問 1 の B案: 無効化は区間にする（抜けたら必ず前の集合へ戻る）。
-    # 開始時・区間中・復元後の**無効化集合全体**を比較して、1 名だけ戻して合格することを防ぐ
-    prev_env = os.environ.get('CGD_GUARD_OFF')
-    before = start
-    # 不一致は**復旧処理の前に記録**し、後から状態が正常化されても失敗を消さない。`finally` で
-    # `return` すると制御の故障が黙って消える（Python も警告する）ので、ここでは覚えておくだけにし、
-    # 合否の判定と `return` は区間の上でする
-    state_bad = []
+
+    # ---- 実行 2（対象だけ消した区間の中）----
+    want = base | set(names)
     try:
         with IN.guard_off(*names):
-            os.environ['CGD_GUARD_OFF'] = ','.join(sorted(set(names) | before))
-            mid = set(IN.GUARD_OFF)
-            # 部分集合判定をやめる: 対象外の名前まで消えた故障を拒否する（Codex 第 68 ラウンド P1-1）
-            if mid != before | set(names):
-                state_bad.append(
-                    f'{name}: 区間中の無効化集合が一致しない（期待 {sorted(before | set(names))} '
-                    f'→ 実際 {sorted(mid)[:6]}。Astra 第 68 ラウンド 問 1 の実装条件 4）')
+            _chk('区間へ入った直後', want)   # 観測点 3
             try:
                 det2, text2 = _run_control(fn, tolerant=True)
             finally:
-                _env_restore(prev_env)
+                _chk('見張り番を消した実行の終了後・区間を抜ける前', want)   # 観測点 4
     finally:
-        if set(IN.GUARD_OFF) != before:
-            state_bad.append(
-                f'{name}: 区間を抜けた後に見張り番の無効化が残った'
-                f'（{sorted(set(IN.GUARD_OFF) ^ before)[:6]}。抜けたら元に戻る事が区間の約束。'
-                'Astra 第 68 ラウンド 問 1 の B案）')
-    failed.extend(state_bad)
-    if state_bad:
+        _chk('区間を抜けた直後', base)       # 観測点 5
+        # 転記を**外側の `finally` の中**でやる（区間の終了処理が例外を投げても失敗は残る）。
+        # `finally` から `return` すると元の例外が黙って消えるのでしない（Astra 問 1）
+        failed.extend(bad)
+    if bad:
+        # 状態が合わない実行の結果を次の基準に採用しない（上の転記で失敗は残っている）
         return
     if text2.startswith('NotDetected:'):
         # Astra 第 59 ラウンド 追加穴 1 の実測: 見張り番を消した側で制御が準備に失敗すると
@@ -272,7 +289,7 @@ def negative(name, fn, guards=None, message=None, clean=True, fallback=None):
         # 見張り番を消しても実行が別の診断で拒否される制御は、**何が落ちたか**を宣言させる
         if not fallback:
             failed.append(f'{name}: clean=False は fallback に「OFF 後も残る別の診断の文面」を書く'
-                          '（何も言わないと Run 2 が何で止まったか不明のまま通る）')
+                          '（何も言わないと実行 2 が何で止まったか不明のまま通る）')
         elif not det2 or fallback not in text2:
             failed.append(f'{name}: 見張り番 {" / ".join(names)} を消した実行が'
                           f'「{fallback}」で止まらない（想定と違う所で落ちた）: {text2[:200]}')
@@ -280,11 +297,24 @@ def negative(name, fn, guards=None, message=None, clean=True, fallback=None):
             tier = 'fallback'
     else:
         tier = 'clean'
-    if tier and len(names) == 1:
+    if tier is None:
+        return
+
+    # ---- 実行 3（区間を抜けた後の ON。実行 1 と同じ拒否が出る事）----
+    det3, text3 = _run_control(fn, tolerant=True)
+    _chk('復元後の再実行の終了後', base)   # 観測点 6
+    if bad:
+        return
+    if not det3 or (message and message not in text3):
+        failed.append(f'{name}: 区間を抜けた後の再実行が実行 1 と同じ拒否を出さない'
+                      f'（復元後に測れていない。実行 1「{message}」→ 実行 3 `{text3[:160]}`。'
+                      'Astra 第 69 ラウンド 問 1 の 3 回実行）')
+        return
+    if tier and len(names) == 1 and not base:
         # 網羅を数える正控制は、ソースに書いてある制御ではなく**通った**単独名指しだけを使う
         # （Astra 第 59 ラウンド 問 4）。第 60 ラウンド Astra 問 3 の裁定で**後勝ち上書きをやめ**、
-        # 「どの控制がどの階級で通った」を名前ごとに全部残す（`child-fail` のように clean と
-        # fallback が並ぶ名前で、後に走った方の階級だけが残ることを防ぐ）
+        # 「どの控制がどの階級で通った」を名前ごとに全部残す。第 69 ラウンド 問 1 で**開始集合が
+        # 空の実行だけ**を数える（入れ子の区間の内側では「その 1 個だけ」を測っていない）
         ran['singleton'].setdefault(names[0], []).append((name, tier))
 
 
@@ -644,7 +674,7 @@ def dir_rule_all_empty_reports():
     argv = ['--graph', 'out/demo/graph.json', '--hops', '8', '--wiring-hops', '3',
             '--limit', '100000']
     for p in sorted((HERE / 'baseline-v1').glob('*.json')):
-        subprocess.run(['node', EMPTY_STUB, *argv, '--json', str(d / p.name)],
+        subprocess.run(['node', EMPTY_STUB, *argv, '--json', str(d / p.name)], env=IN.guard_env(),
                        cwd=str(REPO), capture_output=True, text=True, check=True)
     return py('check-dir-rule.py', '--profile', 'current', str(d))
 
@@ -4685,7 +4715,7 @@ def emit_relative_dest_from_other_cwd():
         out = pathlib.Path(td) / 'guard-owners.candidate.json'
         got = subprocess.run([sys.executable, str(HERE / 'emit-guard-owners.py'),
                               '--emit', 'guard-owners.candidate.json'],
-                             cwd=td, capture_output=True, text=True)
+                             cwd=td, capture_output=True, text=True, env=IN.guard_env())
         if got.returncode not in (0, 3):
             return '一時ディレクトリからの実行が終了 ' + str(got.returncode) + ': ' + \
                 (got.stderr or got.stdout)[:160]

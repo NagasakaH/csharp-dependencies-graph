@@ -23,6 +23,7 @@
   "fail_guard_ledger": "call",
   "fingerprint": "call",
   "graph_path": "call",
+  "guard_env": "call",
   "guard_exempt_map": "call",
   "guard_ledger_shape_errors": "call",
   "guard_off": "call",
