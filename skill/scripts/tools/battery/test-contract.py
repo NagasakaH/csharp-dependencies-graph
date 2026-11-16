@@ -4617,22 +4617,23 @@ MD_FENCE_DOCS = ((BATTERY + '/README.md', 'README.md'), (DECISIONS_FILE, 'decisi
 def _cn_glyph_lines(rel_path):
     """文書 1 本を走査し、中国語簡体字のコードポイントを `(行, 字)` で返す
 
-    一覧は AGENTS.md の頻出混入例に、双人レビューで実際に混入していた 6 字
-    （U+9488 / U+7EC6 / U+8FC7 / U+8D1F / U+67E5 / U+5BF9）を足した物。
+    一覧は AGENTS.md の頻出混入例に、双人レビューで実際に混入していた 9 字
+    （U+9488 / U+7EC6 / U+8FC7 / U+8D1F / U+67E5 / U+5BF9 / U+4ED3 / U+5E93 / U+5F55）を足した物。
     手元の字形検査（`~/.agents/scripts/check-cn-glyphs.py`）は JIS で
     符号化**できない**字を自動で落とすが、符号化できる変体字は明示リストに足すまで素通りする
     （双人レビュー agy 第 73 ラウンド P2-3: 追跡下の `check-invariants46.py` の U+8FC7 を見逃した）。
     一覧はコードポイントで持つ。説明文に簡体字その物を書くと自分の検査で落ちる為、下に並べるのは
     **日本表記側だけ**である。
     価・関・検・験・変・間・聞・長・門・説・語・読・車・馬・鳥・魚・島・書・買・発・電・風・飛・東・
-    頁・業・術・機・権・図・夢・極・遷・聴・復・創・撃・欠・陥
+    頁・業・術・機・権・図・夢・極・遷・聴・復・創・撃・欠・陥・倉・庫・録
     （U+4E8E は日本語で使わない字なので日本表記の対応を書かない）
     """
     cps = (0x4ef7, 0x5173, 0x68c0, 0x9a8c, 0x53d8, 0x95f4, 0x95fb, 0x957f, 0x95e8, 0x8bf4,
            0x8bed, 0x8bfb, 0x8f66, 0x9a6c, 0x9e1f, 0x9c7c, 0x5c9b, 0x4e66, 0x4e70, 0x53d1,
            0x7535, 0x98ce, 0x98de, 0x4e1c, 0x9875, 0x4e1a, 0x672f, 0x6743, 0x56fe,
            0x68a6, 0x6781, 0x8fc1, 0x542c, 0x590d, 0x521b, 0x51fb, 0x4e8e, 0x7f3a, 0x9677,
-           0x9488, 0x7ec6, 0x8fc7, 0x8d1f, 0x67e5, 0x5bf9)
+           0x9488, 0x7ec6, 0x8fc7, 0x8d1f, 0x67e5, 0x5bf9, 0x4ed3, 0x5e93, 0x5f55)
+    # U+4ED3 / U+5E93 は「リポジトリ」の代わりに出やすい（倉庫）。U+5F55 は「記録」で出やすい（録）
     # U+673A（机）は簡体字「機」に対応するが、日本語の「机（つくえ）」でもあるので禁止しない
     # （双人レビュー Codex 第 74 ラウンド P2-2: 「机上の空論」が通らなくなる）
     bad = set(chr(c) for c in cps)
@@ -4666,10 +4667,53 @@ MD_TOOL_RE = re.compile(r'([A-Za-z0-9_./+-]+\.(?:mjs|py|sh))')
 # 括弧の中の実測値を読む。「（26 項目）」と「（.NET 不要、28 項目）」の両方に効く
 MD_COUNT_RE = re.compile(r'（[^（）]*?([0-9]+) 項目')
 # リンクの宛先は山括弧形 `[説明](<path>)` とタイトル付き `[説明](path "題名")` の両方を読む
-# （Codex 第 76 ラウンド P2: 山括弧を実在しないファイル名と読んで誤検出し、タイトル付きを見逃した）
+# （双人レビュー Codex 第 76 ラウンド P2: 山括弧を実在しないファイル名と読んで誤検出し、
+# タイトル付きを見逃して壊れたリンクを素通しした）
 MD_LINK_RE = re.compile(r'\[[^\]]*\]\(\s*(?:<([^>]*)>|([^)\s]+))(?:\s+[^)]*)?\)')
 MD_REF_RE = re.compile(r'\[[^\]]+\]\[[^\]]*\]')      # 参照リンク。この一覧対象では使わない
-MD_CODE_RE = re.compile(r'`[^`]*`')                     # 行内のコード部分。記法の検査からは見ない
+MD_FENCE_RE = re.compile(r'^\s*(?:```|~~~)')          # フェンス。中身は記法の検査から見ない
+
+
+def _strip_code(line):
+    """行内のコード部分を空白へ退かす（記法の検査だけが対象。実在と件数の検査はコード内も見る）
+
+    バッククォートは**同じ長さの列が閉じた所まで**をコードにします。長さが違う列を対応付けたり、
+    エスケープしたバッククォートを区切りと読んだりすると、コード外の書き方を隠して素通します
+    （双人レビュー agy 第 77 ラウンド P2-3b / P2-3c）。閉じ列が無い行は退かしません
+    """
+    out, i = [], 0
+    while i < len(line):
+        if line[i] == '`' and (i == 0 or line[i - 1] != '\\'):
+            j = i
+            while j < len(line) and line[j] == '`':
+                j += 1
+            run = j - i
+            k = line.find('`' * run, j)
+            while k != -1 and k + run < len(line) and line[k + run] == '`':
+                k = line.find('`' * run, k + 1)      # より長い列の一部なら閉じ列ではない
+            if k == -1:
+                break
+            out.append(' ' * (k + run - i))
+            i = k + run
+            continue
+        out.append(line[i])
+        i += 1
+    return ''.join(out)
+
+
+def _missing_paths(案内):
+    """案内先の実在を一括で見る（git に無視されるパスは fresh clone に無いので対象外）
+
+    `skill/analyzer/bin/` の様に**ビルドで建つ物**を「実在しない案内先」として落とすと、新しい機械で
+    検査が落ちます（双人レビュー agy 第 77 ラウンド P2）。git に無視されるパスだけを静かに外します
+    """
+    todo = sorted({p for _, _, p in 案内})
+    if not todo:
+        return set()
+    got = subprocess.run(['git', '-C', str(REPO), 'check-ignore', '--stdin'],
+                         input='\n'.join(todo), capture_output=True, text=True)
+    ignored = {x.strip() for x in got.stdout.splitlines() if x.strip()}
+    return {p for p in todo if p not in ignored and not (REPO / p).exists()}
 
 
 def _text_docs(suffixes):
@@ -4680,59 +4724,76 @@ def _text_docs(suffixes):
 
 
 def doc_pointers_resolve():
-    """文書の案内先が実在し、同じ道具の数え上げが文書間で食い違わないか（双人レビュー第 72 / 73 / 74 ラウンド）
+    """文書の案内先が実在し、同じ道具の数え上げが文書間で食い違わないか（双人レビュー第 72 〜 77 ラウンド）
 
-    同じ類の P2 が 3 ラウンド続いた（実在しない見出しへの案内、`python3 <README>` という実行不能な案内、
+    同じ類の P2 が何ラウンドも続いた（実在しない見出しへの案内、`python3 <README>` という実行不能な案内、
     README を分割した後の案内の張り替え漏れ、`test-report.mjs` の `117 項目` が `130 項目` になった後の
-    取り残し）。人の目だけでは更新漏れが再発する。ここでは機械で読める 4 規則だけ守る:
+    取り残し、改行で割れてリンクとして解釈されない書き方）。人の目だけでは更新漏れが再発するので、
+    機械で読める形だけを規則にします。**読めない構文は黙って通さず落とす**のが一番危ない為の形です。
+    守る規則は 6 つ:
 
-    1. バッククォートで囲まれた `skill/` `docs/` `demo/` `README.md` の形は**実在するパス**だけにする
-       （`out/` は gitignore 済みの作業台帳なので対象外。新しい道具を増やした日の案内漏れを落とす）
-    2. 行末注釈 `# 説明（… N 項目 …）` は**実測値を書く場所**と決める。同じ行に道具名が並ぶ書き方を
-       道具名で集め、道具ごとに 1 つの値しか持てない（`（.NET 必要、130 項目）` の様な書き方も読む。
-       README を分割した後に片方だけ更新される事故が実例）
-    3. Markdown リンク `[説明](宛先)` の宛先が実在する事。`http(s)` / `mailto:` と文内アンカー（`#`
-       始まり）は外へ出す。山括弧 `[x](<path>)` とタイトル付き `[x](path "題名")` も読む。折り返しの
-       せいで `[説明]` と `(宛先)` が別々の行に割れた物はリンクとして解釈されない為、その形自体を落とす
-       （agy 第 75 ラウンド P2-2 で `docs/review-usage.md` のリンクが実体へ付かなかった）
-    4. **参照リンク `[説明][定義]` を使わない**。定義の一覧まで追わないと実在が確かめられないので、
-       この一覧対象では行内リンクだけを書く（使った日を落とす。見逃しの穴を塞ぐ為の規則）
+    1. バッククォートで囲まれた `skill/` `docs/` `demo/` `README.md` の形は実在するパスだけにする
+       （`out/` は gitignore 済みの作業台帳なので形が見えない。ビルドで建つ物も gitignore なので外れる）
+    2. 行末注釈 ` # 説明（… N 項目 …）` は**実測値を書く場所**と決める。同じ行の道具名（ファイル名）ごとに
+       1 つの値しか持てない（README を分割した後に片方だけ更新される事故が実例）
+    3. Markdown リンク `[説明](宛先)` の宛先が実在する事。`http(s)` / `mailto:` と文内アンカーは外へ出す。
+       山括弧とタイトル付きを読む。**空の宛先**と**リポジトリの外へ出る `..`** は落ちる
+    4. `[説明]` と `(宛先)` が改行で割れた形を落とす（Markdown がリンクとして解釈しない。agy 第 75
+       ラウンド P2-2 で `docs/review-usage.md` のリンクが実体へ付かなかった）
+    5. **参照リンク `[説明][定義]` を使わない**（定義の一覧まで追わないと実在が確かめられない）
+    6. 記法の検査（3 〜 5）はフェンスの中とコード部分を見ない。ただしコードの外で `](` が読めない時は
+       **「この検査が読めない書き方」として落とす**（角括弧のネストなどを黙って通さない）
     """
-    項目 = {}
+    項目, 案内 = {}, []
     for rel in _text_docs(('.md',)) + ['README.md']:
         lines = REPO.joinpath(rel).read_text(encoding='utf-8').splitlines()
+        フェンス = False
         for n, line in enumerate(lines, 1):
-            # コード部分（`perms[::step][:cap]` の様な `][` ）を参照リンクと取り違えない
-            if MD_REF_RE.search(MD_CODE_RE.sub(' ', line)):
-                failed.append(f'{rel}:{n}: 参照リンクの形がある（この一覧対象では行内リンクで書く）')
-            for angle, bare in MD_LINK_RE.findall(line):
-                link = angle or bare
-                if link.startswith(('http://', 'https://', 'mailto:', '#')):
-                    continue
-                target = (REPO / rel).parent / link.split('#')[0]
-                if not target.exists():
-                    failed.append(f'{rel}:{n}: Markdown リンクの宛先 `{link}` が実在しない')
-            if line.rstrip().endswith(']') and n < len(lines) and lines[n].lstrip().startswith('('):
-                failed.append(f'{rel}:{n}: リンクの `[...]` と `(...)` が改行で割れている'
-                              '（Markdown がリンクとして解釈しない形）')
+            if MD_FENCE_RE.match(line):
+                フェンス = not フェンス
+                continue
             for path in MD_PATH_RE.findall(line):
-                if not (REPO / path.split('#')[0]).exists():
-                    failed.append(f'{rel}:{n}: 案内先の `{path}` が実在しない'
-                                  '（ファイルを動かした日は案内も張り替える）')
+                案内.append((rel, n, path.split('#')[0]))
             got = MD_COUNT_RE.findall(line)
-            # 実測値を書くのは道具の呼び出し例の**行末の注釈**（` # 説明（N 項目）`）と決める。
-            # 決め表や本文の「5 項目」を道具の実測値と取り違えない為、この形以外は見ない
+            # 実測値を書くのは道具の呼び出し例の**行末の注釈**と決める。決め表や本文の「5 項目」を
+            # 道具の実測値と取り違えない為、この形以外は見ない
             if got and ' # ' in line:
-                # 鍵は**ファイル名だけ**にする。`$SKILL/scripts/x.mjs` と `skill/scripts/x.mjs` の様に
+                # 鍵は**ファイル名だけ**。`$SKILL/scripts/x.mjs` と `skill/scripts/x.mjs` の様に
                 # 書き方が違っても同じ実測値を指す為、この一覧対象で名前の重複が無い前提で揃える
                 for tool in MD_TOOL_RE.findall(line):
                     項目.setdefault(tool.rsplit('/', 1)[-1], set()).update(got)
+            plain = _strip_code(line)
+            if フェンス:
+                continue
+            if MD_REF_RE.search(plain):
+                failed.append(f'{rel}:{n}: 参照リンクの形がある（この一覧対象では行内リンクで書く）')
+            if plain.count('](') > len(MD_LINK_RE.findall(plain)):
+                failed.append(f'{rel}:{n}: この検査が読めないリンクの書き方がある'
+                              '（角括弧のネストなど。1 個 = `[文字列](宛先)` の行内リンクで書く）')
+            if plain.rstrip().endswith(']') and n < len(lines) and \
+                    _strip_code(lines[n]).lstrip().startswith('('):
+                failed.append(f'{rel}:{n}: リンクの `[...]` と `(...)` が改行で割れている'
+                              '（Markdown がリンクとして解釈しない形）')
+            for angle, bare in MD_LINK_RE.findall(plain):
+                link = angle or bare
+                if link.startswith(('http://', 'https://', 'mailto:', '#')):
+                    continue
+                if not link:
+                    failed.append(f'{rel}:{n}: リンクの宛先が空')
+                    continue
+                解 = os.path.normpath(str((REPO / rel).parent / link.split('#')[0]))
+                if 解 != str(REPO) and not 解.startswith(str(REPO) + os.sep):
+                    failed.append(f'{rel}:{n}: リンクの宛先 `{link}` がリポジトリの外へ出る')
+                    continue
+                案内.append((rel, n, pathlib.PurePosixPath(os.path.relpath(解, REPO)).as_posix()))
+    for rel, n, path in sorted(案内):
+        if path in _missing_paths(案内):
+            failed.append(f'{rel}:{n}: 案内先の `{path}` が実在しない（ファイルを動かした日は案内を'
+                          '張り替える。ビルドで建つ物は git に無視されるのでここへ出ない）')
     for tool in sorted(項目):
         if len(項目[tool]) > 1:
             failed.append(f'{tool}: 項目数の記載が文書間で食い違う {sorted(項目[tool])}'
                           '（実測して 1 つに揃える）')
-
-
 
 def fence_form_bypass():
     """情報文字列付きのフェンスを形検査が見逃すか（Astra 第 64 ラウンド 問 3 裁定 (b) の単独名指し）
