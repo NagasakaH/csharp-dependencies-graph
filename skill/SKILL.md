@@ -218,13 +218,13 @@ node $SKILL/scripts/report.mjs --graph out/graph/graph.json --api "POST /orders"
 - **起点は変更ファイルの中身**。`.cs` はその中のメソッドへ自動で展開し、`.tf` はそのファイルが宣言して
   いるリソースを起点にする。グラフに無い変更ファイルは**起点にしない**（`fallbacks` に出すだけ。
   `--folder-start` は誤検出を膨らませるので理由があるときだけ）
-- **6 つの枠に分けて出す**（`;` が枠の区切り。README の 6 枠と同じ組み方）:
+- **6 つの枠に分けて出す**（`;` が枠の区切り。docs/review-usage.md の 6 つの枠と同じ組み方）:
   影響する外部リソース・影響を受ける入口; コード側の出口・入口;
   リポジトリ内の成果物（`.csproj`・`.cs`・フォルダ。ビルドし直しが必要な範囲）;
   同じ API を定義するノード; 同じコードを使う別の API（エンドポイントと定義ノードの内訳を出す）;
   定義上の関連（Terraform の `references`。値そのものは変わるとは限らないが、定義を書き換えたら効く範囲）。
   **どの行も必ずどれか 1 つの枠にしか入らない**（`summary.rows` と各枠の合計が一致する）。
-  枠と Markdown の見出しと JSON の欄名の対応表は README にある。
+  枠と Markdown の見出しと JSON の欄名の対応表は `docs/review-usage.md` にある。
   段数は定義の縁（`references`）だけ数え、動きの縁を越えたら数え直す。
 - 起点がエンドポイントのときは、起点を定義する `resource` / `rest_api` / `integration` /
   `deployment` を「影響を受ける外部リソース」に数えない。
@@ -247,7 +247,7 @@ node $SKILL/scripts/report.mjs --graph out/graph/graph.json --api "POST /orders"
   関係が無い」意味で「そのノードに他の有向関係が無い」意味ではない。`none` の行は `tier` を保ったまま
   中立欄（定義上の関連 / 同じ API / 兄弟）で受け、Markdown の 向き 列は「—」、件数は
   `summary.directionless` / `summary.directionlessPrimary` に出す。**方向別の一覧で黙って行を消さない**。
-  詳細は README「向き」の項
+  詳細は `docs/review-usage.md`「縁の向き」の項
 - **段数欄は「表示経路の段数」**: 起点 0 段、表示経路の関係 1 本を 1 段。表の値と行の経路表示を
   一致させる。**最短とは限らない**（見出しの近くに常時表示する）。「本命」も「最短」を意味しない。
   経路全体の整合性を保つため、より長い代表経路を表示する場合があります。この段数は影響の強さや
@@ -282,7 +282,7 @@ node $SKILL/scripts/report.mjs --graph out/graph/graph.json --api "POST /orders"
   粗い変更（Terraform 1 ファイルをまるごと等）で注釈由来の着地が増えて適合率が下がるので、
   `--provenance static,terraform` か `--from tf:...` で絞る
 
-実測値は README の表にある（demo の `Order.cs` 変更で 外部着地 12 / 的中 11 の
+実測値は `docs/measurements.md` の表にある（demo の `Order.cs` 変更で 外部着地 12 / 的中 11 の
 再現率 0.917 / 適合率 0.917。余分な 1 着地は `ext:rds/orders-analytics` が `reads` 縁で着地したもの、
 `infra/main.tf` 変更は 外部着地 2 件の適合率 0、実プロジェクト 1.000 / 1.000）。
 
