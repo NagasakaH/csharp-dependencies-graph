@@ -2,8 +2,7 @@
 
 [README.md](../README.md) に置いていた運用解説をここにうつした（README は使用者向けの
 最小限に絞るため）。データ契約の本体は [skill/reference/schema.md](../skill/reference/schema.md)、
-レビュー手順の実測レシピは [skill/reference/review-workflows.md]
-(../skill/reference/review-workflows.md)。
+レビュー手順の実測レシピは [skill/reference/review-workflows.md](../skill/reference/review-workflows.md)。
 
 ### レビュー・設計での使い方
 

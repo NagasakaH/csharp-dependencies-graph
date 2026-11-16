@@ -3953,6 +3953,10 @@ def _record_pollutions(tiers):
     intruder = next(f'網羅に有り得ない控制 {i}' for i in range(1000)
                     if f'網羅に有り得ない控制 {i}' not in used)
     victim = keys[0]
+    out.append(('記録の形が壊れる',
+                lambda c: c[victim].append('記録でない物'),
+                '網羅の記録の形が壊れても網羅の検査が黙っている',
+                '形'))
     out.append(('実在のキーへの未登録の混入',
                 lambda c: c[victim].append((intruder, 'clean')),
                 '実在の見張り番のキーへ登録の無い記録を足しても網羅の検査が黙っている',
@@ -3978,6 +3982,10 @@ def _record_pollutions(tiers):
                             pos, (lbl, other)),
                         f'控制「{lbl}」の階級を宣言が許さない `{other}` に替えても網羅の検査が黙っている',
                         '階級逆'))
+            out.append(('階級が unknown になる',
+                        lambda c, n=n, pos=pos, lbl=lbl: c[n].__setitem__(pos, (lbl, '知らない値')),
+                        f'控制「{lbl}」の記録の階級が clean / fallback のどちらでもなくても黙っている',
+                        '階級未知'))
             return out
     return out
 
@@ -4067,8 +4075,8 @@ def _runner_self_check():
                      if e.startswith(f'[規則={mark}]'))
             if 後 <= 前:
                 bad.append(f'{label}: {why}（目印「{mark}」の診断が {前} 件から {後} 件）')
-        作れなかった = {'実在のキーへの未登録の混入', '同じ記録の二重計上',
-                    '登録と逆の階級'} - {f[0] for f in forms}
+        作れなかった = {'記録の形が壊れる', '実在のキーへの未登録の混入', '同じ記録の二重計上',
+                    '登録と逆の階級', '階級が unknown になる'} - {f[0] for f in forms}
         if 作れなかった:
             bad.append(f'混入の細工を {sorted(作れなかった)} 作れず、自己検査が黙って省略した')
     if len(failed) != n_failed:
@@ -4609,8 +4617,9 @@ MD_FENCE_DOCS = ((BATTERY + '/README.md', 'README.md'), (DECISIONS_FILE, 'decisi
 def _cn_glyph_lines(rel_path):
     """文書 1 本を走査し、中国語簡体字のコードポイントを `(行, 字)` で返す
 
-    一覧は AGENTS.md の頻出混入例に、双人レビューで実測した混入（U+9488 針・U+7EC6 細・U+8FC7 過・
-    U+8D1F 負・U+67E5 査）を足した物。手元の字形検査（`~/.agents/scripts/check-cn-glyphs.py`）は JIS で
+    一覧は AGENTS.md の頻出混入例に、双人レビューで実際に混入していた 6 字
+    （U+9488 / U+7EC6 / U+8FC7 / U+8D1F / U+67E5 / U+5BF9）を足した物。
+    手元の字形検査（`~/.agents/scripts/check-cn-glyphs.py`）は JIS で
     符号化**できない**字を自動で落とすが、符号化できる変体字は明示リストに足すまで素通りする
     （双人レビュー agy 第 73 ラウンド P2-3: 追跡下の `check-invariants46.py` の U+8FC7 を見逃した）。
     一覧はコードポイントで持つ。説明文に簡体字その物を書くと自分の検査で落ちる為、下に並べるのは
@@ -4654,7 +4663,9 @@ def japanese_glyphs_only():
 
 MD_PATH_RE = re.compile(r'`((?:skill|docs|demo)/[A-Za-z0-9_./+-]+|README\.md)`')
 MD_TOOL_RE = re.compile(r'([A-Za-z0-9_./+-]+\.(?:mjs|py|sh))')
-MD_COUNT_RE = re.compile(r'（([0-9]+) 項目')
+# 括弧の中の実測値を読む。「（26 項目）」と「（.NET 不要、28 項目）」の両方に効く
+MD_COUNT_RE = re.compile(r'（[^（）]*?([0-9]+) 項目')
+MD_LINK_RE = re.compile(r'\[[^\]]*\]\(([^)\s]+)\)')   # Markdown のリンクの宛先
 
 
 def _text_docs(suffixes):
@@ -4673,13 +4684,26 @@ def doc_pointers_resolve():
 
     1. バッククォートで囲まれた `skill/` `docs/` `demo/` `README.md` の形は**実在するパス**だけにする
        （`out/` は gitignore 済みの作業台帳なので対象外。新しい道具を増やした日の案内漏れを落とす）
-    2. 「（N 項目」の形は**括弧付きの実測値を書く場所**と決める。同じ行に道具名が並ぶ書き方を道具名で
-       集め、道具ごとに 1 つの値しか持てない（2 つ以上の値が並んだ日を落とす。README を分割した後に
-       片方だけ更新される事故。`117 項目` が `130 項目` へ変わった日の取り残しが実例）
+    2. 行末注釈 `# 説明（… N 項目 …）` は**実測値を書く場所**と決める。同じ行に道具名が並ぶ書き方を
+       道具名で集め、道具ごとに 1 つの値しか持てない（`（.NET 必要、130 項目）` の様な書き方も読む。
+       README を分割した後に片方だけ更新される事故が実例）
+    3. Markdown リンク `[説明](宛先)` の宛先が実在する事。`http(s)` と文内アンカー（`#` 始まり）は外に
+       出す。折り返しのせいで `[説明]` と `(宛先)` が別々の行に割れた物はリンクとして解釈されない為、
+       その形自体を落とす（agy 第 75 ラウンド P2-2 で `docs/review-usage.md` のリンクが実体へ付かなかった）
     """
     項目 = {}
     for rel in _text_docs(('.md',)) + ['README.md']:
-        for n, line in enumerate(REPO.joinpath(rel).read_text(encoding='utf-8').splitlines(), 1):
+        lines = REPO.joinpath(rel).read_text(encoding='utf-8').splitlines()
+        for n, line in enumerate(lines, 1):
+            for link in MD_LINK_RE.findall(line):
+                if link.startswith(('http://', 'https://', 'mailto:', '#')):
+                    continue
+                target = (REPO / rel).parent / link.split('#')[0]
+                if not target.exists():
+                    failed.append(f'{rel}:{n}: Markdown リンクの宛先 `{link}` が実在しない')
+            if line.rstrip().endswith(']') and n < len(lines) and lines[n].lstrip().startswith('('):
+                failed.append(f'{rel}:{n}: リンクの `[...]` と `(...)` が改行で割れている'
+                              '（Markdown がリンクとして解釈しない形）')
             for path in MD_PATH_RE.findall(line):
                 if not (REPO / path.split('#')[0]).exists():
                     failed.append(f'{rel}:{n}: 案内先の `{path}` が実在しない'
