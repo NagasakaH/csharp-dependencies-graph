@@ -2882,12 +2882,21 @@ def _negative_calls(path):
             continue
         why = []
         clean, dyn, dyn_clean = True, False, False
-        label = _const_str(node.args[0]) if node.args else None
+        # `*args` の展開が有ると位置引数の番号がズレるので**位置を読まない**（agy 第 74 ラウンド
+        # P2-2: `negative('a', fn, *[], guards='g')` で位置の guards を無い物と読み、キーワードと
+        # 両方に書いたという誤った理由を出していた）。キーワードの読み取りはズレないので使う
+        starred = any(isinstance(a, ast.Starred) for a in node.args)
+
+        def pos(i):
+            return None if starred else (node.args[i] if len(node.args) > i else None)
+
+        first = node.args[0] if node.args and not isinstance(node.args[0], ast.Starred) else None
+        label = _const_str(first) if first is not None else None
         for kw in node.keywords:
             if kw.arg == 'name':
                 label = _const_str(kw.value)
         # guards: 位置 2 番目かキーワード。単独名指しは 1 要素のタプルに揃える
-        gnode = node.args[2] if len(node.args) >= 3 else None
+        gnode = pos(2)
         names = None
         for kw in node.keywords:
             if kw.arg != 'guards':
@@ -2910,21 +2919,18 @@ def _negative_calls(path):
             else:
                 dyn = True                # `guards=FAKE` の様な動的な名前。単独登録しない
         # clean: 位置 4 番目かキーワード。階級は実行器と同じくこの値だけで決まる
-        cnode = node.args[4] if len(node.args) >= 5 else None
+        cnode = pos(4)
         for kw in node.keywords:
             if kw.arg != 'clean':
                 continue
             if cnode is not None:
                 why.append('clean を位置引数とキーワードの両方に書いた')
             cnode = kw.value
-        has_fb = len(node.args) >= 6 or any(kw.arg == 'fallback' for kw in node.keywords)
+        has_fb = pos(5) is not None or any(kw.arg == 'fallback' for kw in node.keywords)
         if any(kw.arg is None for kw in node.keywords):
             dyn = True                    # `**kwargs` の展開。単独名指しの時のみ失敗にする
-        # `*args` の展開も位置引数の番号がズレるので静的に読めない（agy 第 73 ラウンド P2-1）。
-        # ズレた番号で `guards` / `clean` を誤認しない様に、ここでは値を一切読まない
-        if any(isinstance(a, ast.Starred) for a in node.args):
-            dyn = True
-            names, cnode, clean, has_fb = None, None, True, False
+        if starred:
+            dyn = True                    # `*args` の展開。単独名指しの時のみ失敗にする
         dyn_clean = cnode is not None and not isinstance(cnode, ast.Constant)
         if dyn_clean:
             dyn = True                    # 式の `clean`。単独名指しの時のみ失敗にする
@@ -3819,19 +3825,21 @@ def singleton_record_errors(passed, registered, tiers=None):
         recs = passed[n]
         for rec in recs:
             if not isinstance(rec, tuple) or len(rec) != 2:
-                errs.append(f'{n}: 網羅の記録の形が壊れている（{rec!r}）')
+                errs.append(f'[規則=形] {n}: 網羅の記録の形が壊れている（{rec!r}）')
                 continue
             if rec[1] not in ('clean', 'fallback'):
-                errs.append(f'{n}: 網羅の記録の階級「{rec[1]}」が未知（clean / fallback のどちらか）')
+                errs.append(f'[規則=階級未知] {n}: 網羅の記録の階級「{rec[1]}」が未知'
+                            '（clean / fallback のどちらか）')
             if tiers is not None and (rec[0], n) in tiers and rec[1] not in tiers[(rec[0], n)]:
-                errs.append(f'{n}: 控制「{rec[0]}」の記録の階級「{rec[1]}」が宣言と逆'
+                errs.append(f'[規則=階級逆] {n}: 控制「{rec[0]}」の記録の階級「{rec[1]}」が宣言と逆'
                             f'（この控制が取り得るのは {sorted(tiers[(rec[0], n)])}）')
             if (rec[0], n) not in registered:
-                errs.append(f'{n}: 控制「{rec[0]}」は見張り番 {n} を名指す登録が無いのに網羅へ載った'
+                errs.append(f'[規則=未登録] {n}: 控制「{rec[0]}」は見張り番 {n} を名指す登録が'
+                            '無いのに網羅へ載った'
                             '（実行器の自己検査や未登録の控制が混入した）')
         for rec in set(recs):
             if recs.count(rec) > 1:
-                errs.append(f'{n}: 網羅の記録 {rec!r} が {recs.count(rec)} 件並んでいる'
+                errs.append(f'[規則=重複] {n}: 網羅の記録 {rec!r} が {recs.count(rec)} 件並んでいる'
                             '（集合化して重複を消さない契約）')
     return errs
 
@@ -3948,13 +3956,16 @@ def _record_pollutions(tiers):
     out.append(('実在のキーへの未登録の混入',
                 lambda c: c[victim].append((intruder, 'clean')),
                 '実在の見張り番のキーへ登録の無い記録を足しても網羅の検査が黙っている',
-                '登録が無いのに網羅へ載った'))
+                '未登録'))
     dup_key = next((n for n in keys if len(set(ran['singleton'][n])) == len(ran['singleton'][n])),
-                   victim)
-    out.append(('同じ記録の二重計上',
-                lambda c: c[dup_key].append(list(c[dup_key])[0]),
-                '同じ記録が 2 件並んでも網羅の検査が黙っている',
-                'が 2 件並んでいる'))
+                   None)
+    # 既に重複の有るキーへ戻すと、細工は「3 件並んでいる」を出して目印の件数が**減る**
+    # （agy 第 74 ラウンド P2-1: 重複済みのキーしか無い日に細工が空振りになった）
+    if dup_key is not None:
+        out.append(('同じ記録の二重計上',
+                    lambda c: c[dup_key].append(list(c[dup_key])[0]),
+                    '同じ記録が 2 件並んでも網羅の検査が黙っている',
+                    '重複'))
     for n in keys:
         for pos, (lbl, tier) in enumerate(ran['singleton'][n]):
             if (lbl, n) not in tiers:
@@ -3966,7 +3977,7 @@ def _record_pollutions(tiers):
                         lambda c, n=n, pos=pos, lbl=lbl, other=other: c[n].__setitem__(
                             pos, (lbl, other)),
                         f'控制「{lbl}」の階級を宣言が許さない `{other}` に替えても網羅の検査が黙っている',
-                        'が宣言と逆'))
+                        '階級逆'))
             return out
     return out
 
@@ -4051,8 +4062,9 @@ def _runner_self_check():
         for label, forge, why, mark in forms:
             copy = {k: list(v) for k, v in ran['singleton'].items()}
             forge(copy)
-            前 = sum(1 for e in base if mark in e)
-            後 = sum(1 for e in singleton_record_errors(copy, registered, tiers) if mark in e)
+            前 = sum(1 for e in base if e.startswith(f'[規則={mark}]'))
+            後 = sum(1 for e in singleton_record_errors(copy, registered, tiers)
+                     if e.startswith(f'[規則={mark}]'))
             if 後 <= 前:
                 bad.append(f'{label}: {why}（目印「{mark}」の診断が {前} 件から {後} 件）')
         作れなかった = {'実在のキーへの未登録の混入', '同じ記録の二重計上',
@@ -4597,18 +4609,23 @@ MD_FENCE_DOCS = ((BATTERY + '/README.md', 'README.md'), (DECISIONS_FILE, 'decisi
 def _cn_glyph_lines(rel_path):
     """文書 1 本を走査し、中国語簡体字のコードポイントを `(行, 字)` で返す
 
-    一覧は JIS X 0213 で**符号化できてしまう**為、手元の字形検査（`~/.agents/scripts/check-cn-glyphs.py`）が
-    自動では落とさない字だけを集める（双人レビュー agy 第 73 ラウンド P2-3: 追跡下の
-    `check-invariants46.py` の U+8FC7 を既存の検査が見逃していた）。対応する日本表記は
+    一覧は AGENTS.md の頻出混入例に、双人レビューで実測した混入（U+9488 針・U+7EC6 細・U+8FC7 過・
+    U+8D1F 負・U+67E5 査）を足した物。手元の字形検査（`~/.agents/scripts/check-cn-glyphs.py`）は JIS で
+    符号化**できない**字を自動で落とすが、符号化できる変体字は明示リストに足すまで素通りする
+    （双人レビュー agy 第 73 ラウンド P2-3: 追跡下の `check-invariants46.py` の U+8FC7 を見逃した）。
+    一覧はコードポイントで持つ。説明文に簡体字その物を書くと自分の検査で落ちる為、下に並べるのは
+    **日本表記側だけ**である。
     価・関・検・験・変・間・聞・長・門・説・語・読・車・馬・鳥・魚・島・書・買・発・電・風・飛・東・
     頁・業・術・機・権・図・夢・極・遷・聴・復・創・撃・欠・陥
     （U+4E8E は日本語で使わない字なので日本表記の対応を書かない）
     """
     cps = (0x4ef7, 0x5173, 0x68c0, 0x9a8c, 0x53d8, 0x95f4, 0x95fb, 0x957f, 0x95e8, 0x8bf4,
            0x8bed, 0x8bfb, 0x8f66, 0x9a6c, 0x9e1f, 0x9c7c, 0x5c9b, 0x4e66, 0x4e70, 0x53d1,
-           0x7535, 0x98ce, 0x98de, 0x4e1c, 0x9875, 0x4e1a, 0x672f, 0x673a, 0x6743, 0x56fe,
+           0x7535, 0x98ce, 0x98de, 0x4e1c, 0x9875, 0x4e1a, 0x672f, 0x6743, 0x56fe,
            0x68a6, 0x6781, 0x8fc1, 0x542c, 0x590d, 0x521b, 0x51fb, 0x4e8e, 0x7f3a, 0x9677,
-           0x9488, 0x7ec6, 0x8fc7, 0x8d1f, 0x67e5)
+           0x9488, 0x7ec6, 0x8fc7, 0x8d1f, 0x67e5, 0x5bf9)
+    # U+673A（机）は簡体字「機」に対応するが、日本語の「机（つくえ）」でもあるので禁止しない
+    # （双人レビュー Codex 第 74 ラウンド P2-2: 「机上の空論」が通らなくなる）
     bad = set(chr(c) for c in cps)
     out = []
     for n, line in enumerate(REPO.joinpath(rel_path).read_text(encoding='utf-8').splitlines(), 1):
@@ -4626,15 +4643,59 @@ def japanese_glyphs_only():
     守ってもらう為、**この検査器の中にリストを持つ**。frozen な `battery/r43-before.mjs` の注釈に
     残る U+5E76 は昔の物なので対象に含めない
     """
-    for rel in sorted(p.relative_to(REPO).as_posix() for d in ('skill', 'docs')
-                      for p in (REPO / d).rglob('*')
-                      if p.is_file() and p.suffix in ('.md', '.py', '.mjs', '.html')):
+    for rel in _text_docs(('.md', '.py', '.mjs', '.html')):
         for n, where in _cn_glyph_lines(rel)[:2]:
             failed.append(f'{rel}:{n}: 日本表記ではない字形 {where} が混ざっている'
                           '（AGENTS.md の一覧を直す）')
     for n, where in _cn_glyph_lines('README.md')[:2]:
         if n:
             failed.append(f'README.md:{n}: 日本表記ではない字形 {where} が混ざっている')
+
+
+MD_PATH_RE = re.compile(r'`((?:skill|docs|demo)/[A-Za-z0-9_./+-]+|README\.md)`')
+MD_TOOL_RE = re.compile(r'([A-Za-z0-9_./+-]+\.(?:mjs|py|sh))')
+MD_COUNT_RE = re.compile(r'（([0-9]+) 項目')
+
+
+def _text_docs(suffixes):
+    """走査対象の文書・検査器の相対パス（追跡下の `skill/` と `docs/`、およびルートの README）"""
+    return sorted(p.relative_to(REPO).as_posix() for d in ('skill', 'docs')
+                  for p in (REPO / d).rglob('*')
+                  if p.is_file() and p.suffix in suffixes)
+
+
+def doc_pointers_resolve():
+    """文書の案内先が実在し、同じ道具の数え上げが文書間で食い違わないか（双人レビュー第 72 / 73 / 74 ラウンド）
+
+    同じ類の P2 が 3 ラウンド続いた（実在しない見出しへの案内、`python3 <README>` という実行不能な案内、
+    README を分割した後の案内の張り替え漏れ、`test-report.mjs` の `117 項目` が `130 項目` になった後の
+    取り残し）。人の目だけでは更新漏れが再発する。ここでは機械で読める 2 規則だけ守る:
+
+    1. バッククォートで囲まれた `skill/` `docs/` `demo/` `README.md` の形は**実在するパス**だけにする
+       （`out/` は gitignore 済みの作業台帳なので対象外。新しい道具を増やした日の案内漏れを落とす）
+    2. 「（N 項目」の形は**括弧付きの実測値を書く場所**と決める。同じ行に道具名が並ぶ書き方を道具名で
+       集め、道具ごとに 1 つの値しか持てない（2 つ以上の値が並んだ日を落とす。README を分割した後に
+       片方だけ更新される事故。`117 項目` が `130 項目` へ変わった日の取り残しが実例）
+    """
+    項目 = {}
+    for rel in _text_docs(('.md',)) + ['README.md']:
+        for n, line in enumerate(REPO.joinpath(rel).read_text(encoding='utf-8').splitlines(), 1):
+            for path in MD_PATH_RE.findall(line):
+                if not (REPO / path.split('#')[0]).exists():
+                    failed.append(f'{rel}:{n}: 案内先の `{path}` が実在しない'
+                                  '（ファイルを動かした日は案内も張り替える）')
+            got = MD_COUNT_RE.findall(line)
+            # 実測値を書くのは道具の呼び出し例の**行末の注釈**（` # 説明（N 項目）`）と決める。
+            # 決め表や本文の「5 項目」を道具の実測値と取り違えない為、この形以外は見ない
+            if got and ' # ' in line:
+                # 鍵は**ファイル名だけ**にする。`$SKILL/scripts/x.mjs` と `skill/scripts/x.mjs` の様に
+                # 書き方が違っても同じ実測値を指す為、この一覧対象で名前の重複が無い前提で揃える
+                for tool in MD_TOOL_RE.findall(line):
+                    項目.setdefault(tool.rsplit('/', 1)[-1], set()).update(got)
+    for tool in sorted(項目):
+        if len(項目[tool]) > 1:
+            failed.append(f'{tool}: 項目数の記載が文書間で食い違う {sorted(項目[tool])}'
+                          '（実測して 1 つに揃える）')
 
 
 
@@ -5636,6 +5697,7 @@ def main():
         positive('豁免が名乗った import と名前だけを許すことを対で確かめる', guard_exemption_scope_holds)
         positive('README と決めの表のコードフェンスが許可した形だけになっている', markdown_fences_hold)
         positive('追跡下の一覧対象が日本表記の漢字だけを使う', japanese_glyphs_only)
+        positive('文書の案内先が実在し項目数の記載が文書間で揃う', doc_pointers_resolve)
         positive('負控制の実行器が 6 観測点と網羅の記録契約を守っている', _runner_self_check)
 
         # 追跡下のファイルへの変更が残っていないか（制御が途中で落ちても戻す）
