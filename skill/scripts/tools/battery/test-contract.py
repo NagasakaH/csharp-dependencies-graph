@@ -4319,7 +4319,11 @@ def exempt_use_form_hole():
     _n, holes, _c, _cl = _guard_scan(
         src, '<制御>', {'importlib.util': {'spec_from_file_location'}})
     bad = [h for h in holes if '登録した末端の直接呼び出し以外' in h]
-    return (len(bad), bad[0]) if len(bad) >= 4 else False
+    if bad and len(bad) != 4:
+        return (len(bad), f'豁免の形の穴 が期待した 4 件のうち {len(bad)} 件しか出ていない'
+                          '（閾値で合否を決める形はやめた。1 形見逃すと別の一の数で通る。'
+                          'Astra 第 69 ラウンド 問 2） / ' + bad[0][:60])
+    return (len(bad), bad[0]) if bad else False
 
 
 def ledger_box_shape_loose():
@@ -4364,7 +4368,11 @@ def in_public_name_hole():
                                      {'repo_root': 'call', 'load_guard_ledger': 'call',
                                       'read_only': 'const'})
     bad = [h for h in holes if '箱の公開名' in h]
-    return (len(bad), bad[0]) if len(bad) >= 4 else False
+    if bad and len(bad) != 4:
+        return (len(bad), f'箱の公開名の穴 が期待した 4 件のうち {len(bad)} 件しか出ていない'
+                          '（閾値で合否を決める形はやめた。1 形見逃すと別の一の数で通る。'
+                          'Astra 第 69 ラウンド 問 2） / ' + bad[0][:60])
+    return (len(bad), bad[0]) if bad else False
 
 
 def in_public_table_extra():
@@ -4757,7 +4765,11 @@ def exempt_map_expanded_wrong():
     broken['_never_scanned.py'] = {'types': {'SimpleNamespace'}}
     errs = _exempt_map_errors(doc, broken)
     bad = [x for x in errs if '台帳から作り直した物と違う' in x]
-    return (len(bad), bad[0]) if len(bad) >= 2 else False
+    if bad and len(bad) != 2:
+        return (len(bad), f'台帳の展開の穴 が期待した 2 件のうち {len(bad)} 件しか出ていない'
+                          '（閾値で合否を決める形はやめた。1 形見逃すと別の一の数で通る。'
+                          'Astra 第 69 ラウンド 問 2） / ' + bad[0][:60])
+    return (len(bad), bad[0]) if bad else False
 
 
 def exempt_loader_attrs_gap():
