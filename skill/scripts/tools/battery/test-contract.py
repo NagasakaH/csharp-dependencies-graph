@@ -4675,16 +4675,18 @@ REF_MARK = ']['                                       # 参照リンクの印。
 
 
 def _fence_kind(line):
-    """フェンス行なら `(文字, 長さ)`、違えば None（行内のコードと取り違えない）
+    """フェンス行なら `(文字, 長さ, 閉じになれるか)`、違えば None（行内のコードと取り違えない）
 
-    開きと同じ文字で、**同じ長さ以上**の列だけが閉じです。`` ``` `` フェンスの中の `~~~` を閉じと読む、
-    行頭の `` ```x``` `` をフェンス開始と読むと、フェンスの内外が入れ替わって誤拒否と素通しが出ます
-    （双人レビュー Codex 第 78 ラウンド P2-2）。info string に同じ文字が有る行は行内のコードです
+    3 つ目は**閉じになれるか**で、情報文字列（`sh` 等）が残っていない事が条件です。開きと同じ文字・
+    同じ長さ以上でも、情報文字列付きの行は閉じになれません。`` ``` `` フェンスの中に `` ```sh `` が有る
+    とそこで閉じたと読んで後続の本文がフェンスの外に反転します（双人レビュー Codex / agy 第 79 ラウンド
+    P2）。行頭の `` ```x``` `` の様な行内のコードは、残りと同じ文字を含むので None です
+    （Codex 第 78 ラウンド P2-2）
     """
     m = re.match(r'^\s{0,3}(`{3,}|~{3,})(.*)$', line)
     if not m or m.group(1)[0] in m.group(2):
         return None
-    return (m.group(1)[0], len(m.group(1)))
+    return (m.group(1)[0], len(m.group(1)), not m.group(2).strip())
 
 
 
@@ -4706,9 +4708,12 @@ def _strip_code(line):
             while k != -1 and (line[k + run:k + run + 1] == '`' or line[k - 1:k] == '`'):
                 k = line.find('`' * run, k + 1)      # より長い列の一部なら閉じ列ではない
             if k == -1:
-                # **閉じていないバッククォートで後続の本文を隠さない**（壊れたリンクの素通しが起きた）
-                out.append(line[i:])
-                break
+                # 閉じ列の無い列は**そのまま文字として残して後ろの走査を続ける**。行を捨てると
+                # 壊れたリンクを素通しし（Codex / agy 第 78 ラウンド P2）、後ろまで本文と読むと
+                # 正常なコード列を誤拒否する（agy 第 79 ラウンド P2-3）
+                out.append('`' * run)
+                i = j
+                continue
             out.append(' ' * (k + run - i))
             i = k + run
             continue
@@ -4739,6 +4744,14 @@ def _text_docs(suffixes):
                   if p.is_file() and p.suffix in suffixes)
 
 
+MD_HEAD_RE = re.compile(r'^\s{0,3}#{1,6}\s+(.*?)\s*#*\s*$')   # 見出し行。アンカーの実在をここから数える
+
+
+def _anchor_key(x):
+    "見出しとアンカーを揃える（大文字小文字・空白・強調とコードの記号を退かして較べる）"
+    return re.sub(r'[\s`*_]+', '', x).lower()
+
+
 def doc_pointers_resolve():
     """文書の案内先が実在し、同じ道具の数え上げが文書間で食い違わないか（双人レビュー第 72 〜 77 ラウンド）
 
@@ -4760,20 +4773,27 @@ def doc_pointers_resolve():
        実在が確かめられない。ラベルのネストとエスケープを解釈しない為、印の `][` その物を禁じる）
     6. 記法の検査（3 〜 5）はフェンスの中とコード部分を見ない。ただしコードの外で `](` が読めない時は
        **「この検査が読めない書き方」として落とす**（角括弧のネストなどを黙って通さない）
+    7. `#見出し` のリンクは**その文書の実在する見出し**と合う事（大文字小文字・空白・強調の記号を
+       退かして較べる。外部リンクと違い、アンカーは文書の内側を指すので見出しから実在を数えられる）
+
+    実在（1）と件数（2）の検査は**フェンスの中も見る**（フェンスの中の設定例に書かれた path も案内だから。
+    双人レビュー Codex 第 79 ラウンド P2-1: フェンスごと飛ばして両方を素通しする退行を起こした）。
+    **Markdown リンク（3）だけはフェンスの中を見ない**（フェンスの中の `[説明](先)` は例として書いた
+    Markdown であって案内ではない）
     """
     項目, 案内 = {}, []
     for rel in _text_docs(('.md',)) + ['README.md']:
         lines = REPO.joinpath(rel).read_text(encoding='utf-8').splitlines()
+        # フェンスの中の見出しも拾う（アンカーの実在を緩く見る。厳しくする必要性が出たら絞る）
+        見出し = {_anchor_key(m.group(1)) for m in (MD_HEAD_RE.match(x) for x in lines) if m}
         フェンス = None
         for n, line in enumerate(lines, 1):
             枠 = _fence_kind(line)
             if 枠 is not None:
                 if フェンス is None:
                     フェンス = 枠
-                elif 枠[0] == フェンス[0] and 枠[1] >= フェンス[1]:
+                elif 枠[2] and 枠[0] == フェンス[0] and 枠[1] >= フェンス[1]:
                     フェンス = None
-            if フェンス is not None:
-                continue                      # フェンスの中は記法の検査から見ない
             for path in MD_PATH_RE.findall(line):
                 案内.append((rel, n, path.split('#')[0]))
             got = MD_COUNT_RE.findall(line)
@@ -4785,8 +4805,8 @@ def doc_pointers_resolve():
                 for tool in MD_TOOL_RE.findall(line):
                     項目.setdefault(tool.rsplit('/', 1)[-1], set()).update(got)
             plain = _strip_code(line)
-            if フェンス:
-                continue
+            if フェンス is not None:
+                continue        # 記法の検査（3 〜 5）だけフェンスの中を見る。実在と件数は上で見終えている
             if REF_MARK in plain:
                 # 角括弧のラベルを完全に解釈しない限り `[a\\]b][1]` の様な迂回を塞げないので、
                 # コードの外に `][` を書かない規則にする（読めない書き方を黙って通さない方針と同じ）
@@ -4801,7 +4821,12 @@ def doc_pointers_resolve():
                               '（Markdown がリンクとして解釈しない形）')
             for angle, bare in MD_LINK_RE.findall(plain):
                 link = angle or bare
-                if link.startswith(('http://', 'https://', 'mailto:', '#')):
+                if link.startswith(('http://', 'https://', 'mailto:')):
+                    continue
+                if link.startswith('#'):
+                    if _anchor_key(link[1:]) not in 見出し:
+                        failed.append(f'{rel}:{n}: リンクのアンカー `{link}` に対応する見出しがこの文書に無い'
+                                      '（見出しを直した日は案内も張り替える）')
                     continue
                 if not link:
                     failed.append(f'{rel}:{n}: リンクの宛先が空')
