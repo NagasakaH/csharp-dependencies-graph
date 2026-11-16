@@ -4665,7 +4665,11 @@ MD_PATH_RE = re.compile(r'`((?:skill|docs|demo)/[A-Za-z0-9_./+-]+|README\.md)`')
 MD_TOOL_RE = re.compile(r'([A-Za-z0-9_./+-]+\.(?:mjs|py|sh))')
 # 括弧の中の実測値を読む。「（26 項目）」と「（.NET 不要、28 項目）」の両方に効く
 MD_COUNT_RE = re.compile(r'（[^（）]*?([0-9]+) 項目')
-MD_LINK_RE = re.compile(r'\[[^\]]*\]\(([^)\s]+)\)')   # Markdown のリンクの宛先
+# リンクの宛先は山括弧形 `[説明](<path>)` とタイトル付き `[説明](path "題名")` の両方を読む
+# （Codex 第 76 ラウンド P2: 山括弧を実在しないファイル名と読んで誤検出し、タイトル付きを見逃した）
+MD_LINK_RE = re.compile(r'\[[^\]]*\]\(\s*(?:<([^>]*)>|([^)\s]+))(?:\s+[^)]*)?\)')
+MD_REF_RE = re.compile(r'\[[^\]]+\]\[[^\]]*\]')      # 参照リンク。この一覧対象では使わない
+MD_CODE_RE = re.compile(r'`[^`]*`')                     # 行内のコード部分。記法の検査からは見ない
 
 
 def _text_docs(suffixes):
@@ -4680,22 +4684,29 @@ def doc_pointers_resolve():
 
     同じ類の P2 が 3 ラウンド続いた（実在しない見出しへの案内、`python3 <README>` という実行不能な案内、
     README を分割した後の案内の張り替え漏れ、`test-report.mjs` の `117 項目` が `130 項目` になった後の
-    取り残し）。人の目だけでは更新漏れが再発する。ここでは機械で読める 2 規則だけ守る:
+    取り残し）。人の目だけでは更新漏れが再発する。ここでは機械で読める 4 規則だけ守る:
 
     1. バッククォートで囲まれた `skill/` `docs/` `demo/` `README.md` の形は**実在するパス**だけにする
        （`out/` は gitignore 済みの作業台帳なので対象外。新しい道具を増やした日の案内漏れを落とす）
     2. 行末注釈 `# 説明（… N 項目 …）` は**実測値を書く場所**と決める。同じ行に道具名が並ぶ書き方を
        道具名で集め、道具ごとに 1 つの値しか持てない（`（.NET 必要、130 項目）` の様な書き方も読む。
        README を分割した後に片方だけ更新される事故が実例）
-    3. Markdown リンク `[説明](宛先)` の宛先が実在する事。`http(s)` と文内アンカー（`#` 始まり）は外に
-       出す。折り返しのせいで `[説明]` と `(宛先)` が別々の行に割れた物はリンクとして解釈されない為、
-       その形自体を落とす（agy 第 75 ラウンド P2-2 で `docs/review-usage.md` のリンクが実体へ付かなかった）
+    3. Markdown リンク `[説明](宛先)` の宛先が実在する事。`http(s)` / `mailto:` と文内アンカー（`#`
+       始まり）は外へ出す。山括弧 `[x](<path>)` とタイトル付き `[x](path "題名")` も読む。折り返しの
+       せいで `[説明]` と `(宛先)` が別々の行に割れた物はリンクとして解釈されない為、その形自体を落とす
+       （agy 第 75 ラウンド P2-2 で `docs/review-usage.md` のリンクが実体へ付かなかった）
+    4. **参照リンク `[説明][定義]` を使わない**。定義の一覧まで追わないと実在が確かめられないので、
+       この一覧対象では行内リンクだけを書く（使った日を落とす。見逃しの穴を塞ぐ為の規則）
     """
     項目 = {}
     for rel in _text_docs(('.md',)) + ['README.md']:
         lines = REPO.joinpath(rel).read_text(encoding='utf-8').splitlines()
         for n, line in enumerate(lines, 1):
-            for link in MD_LINK_RE.findall(line):
+            # コード部分（`perms[::step][:cap]` の様な `][` ）を参照リンクと取り違えない
+            if MD_REF_RE.search(MD_CODE_RE.sub(' ', line)):
+                failed.append(f'{rel}:{n}: 参照リンクの形がある（この一覧対象では行内リンクで書く）')
+            for angle, bare in MD_LINK_RE.findall(line):
+                link = angle or bare
                 if link.startswith(('http://', 'https://', 'mailto:', '#')):
                     continue
                 target = (REPO / rel).parent / link.split('#')[0]
