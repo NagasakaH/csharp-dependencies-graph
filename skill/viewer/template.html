@@ -103,6 +103,24 @@
   .prov { font-size: 10px; padding: 0 5px; border-radius: 4px; }
   
   
+  #entry-body { max-height: 34vh; overflow: auto; border-bottom: 1px solid var(--line);
+    padding-bottom: 6px; margin-bottom: 6px; }
+  .egrp { color: var(--dim); font-size: 10px; padding: 5px 8px 2px; }
+  .erow { display: flex; gap: 6px; align-items: baseline; padding: 2px 8px; cursor: pointer;
+    border-radius: 5px; font-size: 12px; }
+  .erow:hover { background: var(--panel-2); }
+  .erow .m { color: var(--dim); font-size: 10px; margin-left: auto; flex: 0 0 auto; max-width: 46%;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .trunc { color: var(--dim); font-size: 10px; }
+  .blast { display: grid; gap: 3px; }
+  .blast h4 { margin: 8px 0 2px; font-size: 11px; color: var(--accent); }
+  .brow { display: grid; grid-template-columns: 30px 1fr auto; gap: 6px; align-items: baseline;
+    padding: 2px 4px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+  .brow:hover { background: var(--panel-2); }
+  .brow .h { color: var(--dim); font-size: 10px; }
+  .brow .w { color: var(--dim); font-size: 10px; }
+  .cmd { font-family: ui-monospace, monospace; font-size: 10px; background: var(--panel-2);
+    border: 1px solid var(--line); border-radius: 5px; padding: 5px 6px; word-break: break-all; }
   #status { color: var(--dim); font-size: 11px; }
   .notice { color: #ffcf6b; font-size: 11px; }
   /* 「レポートを生成中」: 表の計算・描画が始まったことを利用者へ示す合図（第 40 ラウンド裁定
@@ -126,7 +144,7 @@
   <h1 id="title">C# 依存関係グラフ</h1>
   <span class="sub" id="stats"></span>
   <div id="search">
-    <input id="q" type="text" placeholder="メソッド / クラス / ファイル を検索（部分一致、Enter で先頭へ）" autocomplete="off">
+    <input id="q" type="text" placeholder="メソッド / クラス / ファイル / `POST /orders` / テーブル・列名で検索（Enter で先頭へ）" autocomplete="off">
     <div id="results"></div>
   </div>
   <select id="kind-filter" title="検索するノードの種類">
@@ -138,6 +156,14 @@
     <option value="folder">folder</option>
     <option value="resource">resource</option>
   </select>
+  <select id="entry-filter" title="調査の入口に絞って検索する">
+    <option value="">入口で絞らない</option>
+    <option value="endpoint">API エンドポイント</option>
+    <option value="table">テーブル</option>
+    <option value="column">列</option>
+    <option value="lambda">Lambda</option>
+    <option value="sfn">Step Functions</option>
+  </select>
   <button id="btn-anno">注釈 JSON</button>
   <button id="btn-link">表示を共有</button>
   <button id="btn-fit">画面に合わせる</button>
@@ -146,7 +172,12 @@
   <span id="status"></span>
 </header>
 <main>
-  <nav id="tree"><div class="pane-title">フォルダ階層（クリックで展開）</div><div id="tree-body"></div></nav>
+  <nav id="tree">
+    <div class="pane-title">調査の入口（クリックで一覧）</div>
+    <div id="entry-body"></div>
+    <div class="pane-title">フォルダ階層（クリックで展開）</div>
+    <div id="tree-body"></div>
+  </nav>
   <section id="canvas-wrap">
     <div id="toolbar"></div>
     <svg id="svg"><g id="vp"><g id="edges"></g><g id="nodes"></g></g></svg>
@@ -197,6 +228,68 @@
   const kindRankCache = new Map([['folder', 0], ['solution', 1], ['project', 2], ['file', 3], ['type', 4], ['member', 5], ['resource', 6]]);
   function kindRank(k) { return kindRankCache.get(k) ?? 7; }
 
+  // ---- 調査の入口（API エンドポイント / テーブル / 列 / Lambda / Step Functions）
+  // ベースデータ側の事実: scan-terraform.mjs は aws_api_gateway_method へ `endpoint`（実測
+  // `POST /orders`）と `apiPath` / `http_method` を入れる。RDS のテーブルは `metadata.table`、
+  // 列は `resourceType: rds-column` で、列の名前は `status` のようにコードの型名と衝突するので
+  // 「どのテーブルの列か」をラベルへ必ず入れる（第 85 ラウンド 人の指示）
+  const ENTRY_LABEL = {
+    endpoint: 'API エンドポイント', table: 'テーブル', column: '列', lambda: 'Lambda', sfn: 'Step Functions'
+  };
+  const ENTRY_ORDER = ['endpoint', 'table', 'column', 'lambda', 'sfn'];
+  function entryOf(n) {
+    if (n._entry !== undefined) return n._entry;
+    const m = n.meta || {};
+    const rt = String(m.resourceType || '');
+    const file = typeof m.file === 'string' ? m.file : '';
+    if (m.endpoint) {
+      n._entry = { group: 'endpoint', label: String(m.endpoint), sub: file };
+    } else if (rt === 'rds-table') {
+      n._entry = { group: 'table', label: String(m.table || n.name),
+                   sub: m.managedBy ? String(m.managedBy) : file };
+    } else if (rt === 'aws_dynamodb_table') {
+      n._entry = { group: 'table', label: String(m.name || n.name), sub: file };
+    } else if (rt === 'rds-column') {
+      const p = n.parent != null ? nodes[n.parent] : null;
+      const t = p && p.meta && p.meta.table ? String(p.meta.table) : (p ? p.name : '');
+      n._entry = { group: 'column', label: `${t}.${n.name}`,
+                   sub: [m.dataType, m.nullable === false ? 'NOT NULL' : null].filter(Boolean).join(' / ') };
+    } else if (rt === 'aws_lambda_function') {
+      n._entry = { group: 'lambda', label: String(m.function_name || n.name),
+                   sub: m.handler ? String(m.handler) : file };
+    } else if (rt === 'aws_sfn_state_machine') {
+      n._entry = { group: 'sfn', label: String(m.name || n.name), sub: file };
+    } else {
+      n._entry = null;
+    }
+    return n._entry;
+  }
+  // 検索の的になる文字列を 1 本にまとめます（ノードごとに覚えておく。注釈で meta が変わったら捨てる）
+  function searchBlob(n) {
+    if (n._sb) return n._sb;
+    const m = n.meta || {};
+    const parts = [n.id, n.kind, n.name, n.path || ''];
+    const e = entryOf(n);
+    if (e) parts.push(e.label);
+    for (const k of ['terraformAddress', 'resourceType', 'category', 'endpoint', 'apiPath', 'http_method',
+                     'table', 'column', 'dataType', 'function_name', 'handler', 'runtime', 'file', 'role',
+                     'namespace', 'name']) {
+      if (typeof m[k] === 'string') parts.push(m[k]);
+    }
+    // 列はテーブル名でも引っ掛ける（`order_summary status` のように打てるように）
+    if (n.parent != null && nodes[n.parent]) parts.push(nodes[n.parent].name);
+    return (n._sb = parts.join('\n').toLowerCase());
+  }
+  function dropCaches(n) { n._sb = null; n._entry = undefined; }
+  // 図の中に出す名前。Terraform のノードは `post_order` のようにリソース名だけだと
+  // 「どの HTTP パスか」「どのテーブルの列か」が分からないので、入口のラベルをそのまま使う
+  function displayName(n) { const e = entryOf(n); return e ? e.label : n.name; }
+  // 「黙って切る」を「表示 N / 全 M 件」にする為の 1 箇所のヘルパ（6 箇所で使い回す）
+  function truncLabel(shown, total, unit) {
+    if (!(total > shown)) return '';
+    return `表示 ${shown} / 全 ${total} ${unit || '件'}`;
+  }
+
   const STORE_KEY = 'csdg:annotations';
   function readStoredAnnotations() {
     try { return JSON.parse(localStorage.getItem(STORE_KEY) || '[]'); } catch { return []; }
@@ -207,10 +300,11 @@
     exportable.push(obj);
   }
   const exportable = [];
+  let entriesDirty = true;
 
 
   // ---- 表示状態
-  const state = { expanded: new Set([ROOT.i]), selected: null, visible: new Set(), ghost: new Map(), links: new Map(), filters: new Set(EDGE_KINDS.filter((k) => k !== 'references' && k !== 'accesses')), prov: new Set(PROV), layout: null };
+  const state = { expanded: new Set([ROOT.i]), selected: null, visible: new Set(), ghost: new Map(), links: new Map(), filters: new Set(EDGE_KINDS.filter((k) => k !== 'references' && k !== 'accesses')), prov: new Set(PROV), layout: null, blast: null, hops: 2 };
 
   function childNodes(i) { return (childrenOf.get(i) || []).filter((c) => kindAllowed(nodes[c].kind)); }
   function kindAllowed(k) { return state.filters.size === EDGE_KINDS.length || true; }
@@ -335,6 +429,7 @@
     const seenRaw = new Set(agg.map((e) => e.s + '|' + e.t + '|' + e.kind));
     let drawn = [...agg, ...raw.filter((e) => !seenRaw.has(e.s + '|' + e.t + '|' + e.kind))].filter((e) => state.filters.has(e.kind));
     const MAX_EDGES = 900;
+    state.edgeTotal = drawn.length;
     if (drawn.length > MAX_EDGES) { drawn.sort((x, y) => y.count - x.count); drawn = drawn.slice(0, MAX_EDGES); state.edgeTruncated = true; } else state.edgeTruncated = false;
     const depthOf = (i) => lay.depth.get(i) ?? 0;
     for (const e of drawn) {
@@ -360,7 +455,7 @@
         stroke: EDGE_COLOR[e.kind] || '#7f8ea3', 'stroke-width': Math.min(6, 1 + Math.log2(1 + e.count) * 1.1)
       });
       path.dataset.s = e.s; path.dataset.t = e.t;
-      path.appendChild(el('title', {}, `${e.kind} × ${e.count}\n${nodes[e.s].name} → ${nodes[e.t].name}${e.detail ? '\n' + e.detail : ''}`));
+      path.appendChild(el('title', {}, `${e.kind} × ${e.count}\n${displayName(nodes[e.s])} → ${displayName(nodes[e.t])}${e.detail ? '\n' + e.detail : ''}`));
       gEdges.appendChild(path);
     }
     for (const i of vis) {
@@ -375,7 +470,8 @@
       const expandable = kids > 0 || state.ghost.size > 0;
       g.appendChild(el('rect', { width: p.w, height: p.h, fill: shade(n.kind), rx: 5 }));
       g.appendChild(el('rect', { x: 0, y: 0, width: 3, height: p.h, fill: KIND_COLOR[n.kind] || '#888', rx: 2 }));
-      const label = n.name.length > 22 ? n.name.slice(0, 21) + '…' : n.name;
+      const dn = displayName(n);
+      const label = dn.length > 24 ? dn.slice(0, 23) + '…' : dn;
       g.appendChild(el('text', { x: 9, y: 13, class: 'name' }, label));
       const sub = subtitle(n, kids);
       g.appendChild(el('text', { x: 9, y: 25, class: 'sub' }, sub));
@@ -384,6 +480,7 @@
       gNodes.appendChild(g);
     }
     clampLabels(gNodes);
+    if (entriesDirty) renderEntries();
     renderTree();
     renderStatus(vis, drawn);
     if (state.selected != null) renderDetail(state.selected);
@@ -409,6 +506,8 @@
     if (n.kind === 'file') return n.path ? n.path.split('/').slice(0, -1).join('/') || '.' : 'file';
     if (n.kind === 'type') return (m.csKind || 'type') + (m.memberCount ? ` / ${m.memberCount}` : '');
     if (n.kind === 'member') return m.memberKind || 'member';
+    const e = entryOf(n);
+    if (e) return ENTRY_LABEL[e.group];
     if (n.kind === 'resource') return m.resourceType || n.id.split(':')[1] || 'resource';
     return n.kind;
   }
@@ -418,6 +517,7 @@
 
   function onSelect(i, ev) {
     state.selected = i;
+    if (entryOf(nodes[i])) state.blast = i;
     if (ev && (ev.shiftKey || ev.metaKey)) { expandDependencies(i, ev.altKey ? 'in' : 'out'); return; }
     const kids = childNodes(i);
     if (kids.length) state.expanded.has(i) ? state.expanded.delete(i) : state.expanded.add(i);
@@ -447,7 +547,9 @@
     reveal(i);
     render();
     renderDetail(i);
-    setStatus(added ? `周辺 ${hops} ホップで ${added} ノードを追加（近傍は合計 ${seen.size} 件）` : `このノードの ${hops} ホップ近傍には他にノードがありません`);
+    const around = seen.size - 1;
+    const lbl = truncLabel(added, around);
+    setStatus(added ? `周辺 ${hops} ホップで ${added} ノードを追加` + (lbl ? `（${lbl}）` : '') : `このノードの ${hops} ホップ近傍には他にノードがありません`);
   }
 
   function expandDependencies(i, direction) {
@@ -477,7 +579,7 @@
       const kids = childNodes(i);
       const tw = document.createElement('span'); tw.className = 'tw'; tw.textContent = kids.length ? (state.expanded.has(i) ? '▾' : '▸') : '·';
       const dot = document.createElement('span'); dot.className = 'dot'; dot.style.background = KIND_COLOR[n.kind] || '#888';
-      const label = document.createElement('span'); label.className = 'label'; label.textContent = n.name;
+      const label = document.createElement('span'); label.className = 'label'; label.textContent = displayName(n);
       row.append(tw, dot, label);
       const badge = treeBadge(n);
       if (badge) { const b = document.createElement('span'); b.className = 'badge'; b.textContent = badge; row.appendChild(b); }
@@ -486,7 +588,8 @@
       if (state.expanded.has(i)) {
         const sorted = kids.slice().sort((a, b) => nodes[a].kind !== nodes[b].kind ? kindRank(nodes[a].kind) - kindRank(nodes[b].kind) : nodes[a].name.localeCompare(nodes[b].name, 'ja'));
         for (const c of sorted.slice(0, 400)) walk(c, depth + 1, container);
-        if (sorted.length > 400) { const more = document.createElement('div'); more.className = 'tnode'; more.style.paddingLeft = (depth + 1) * 12 + 'px'; more.textContent = `… 他 ${sorted.length - 400} 件`; container.appendChild(more); }
+        const lbl = truncLabel(400, sorted.length);
+        if (lbl) { const more = document.createElement('div'); more.className = 'tnode'; more.style.paddingLeft = (depth + 1) * 12 + 'px'; more.textContent = lbl; container.appendChild(more); }
       }
     };
     walk(ROOT.i, 0, treeBody);
@@ -501,24 +604,167 @@
     return '';
   }
 
+  // ---- 調査の入口（検索語を打たなくても、エンドポイントとテーブルから始められるようにする）
+  const entryBody = document.getElementById('entry-body');
+  const ENTRY_CAP = 40;
+  function renderEntries() {
+    entryBody.replaceChildren();
+    const buckets = new Map(ENTRY_ORDER.map((g) => [g, []]));
+    for (const n of nodes) { const e = entryOf(n); if (e) buckets.get(e.group).push(n); }
+    let shownAny = false;
+    for (const g of ENTRY_ORDER) {
+      const list = buckets.get(g);
+      if (!list.length) continue;
+      shownAny = true;
+      list.sort((a, b) => {
+        const ka = entryOf(a).label.localeCompare(entryOf(b).label, 'ja');
+        return ka !== 0 ? ka : (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+      });
+      const head = document.createElement('div'); head.className = 'egrp';
+      const lbl = truncLabel(ENTRY_CAP, list.length);
+      head.textContent = `${ENTRY_LABEL[g]} ${list.length} 件` + (lbl ? `（${lbl}）` : '');
+      entryBody.appendChild(head);
+      for (const n of list.slice(0, ENTRY_CAP)) {
+        const e = entryOf(n);
+        const row = document.createElement('div'); row.className = 'erow';
+        const t = document.createElement('span'); t.textContent = e.label;
+        const sub = document.createElement('span'); sub.className = 'm'; sub.textContent = e.sub || '';
+        row.append(t, sub);
+        row.title = n.id;
+        row.dataset.entry = g;
+        row.dataset.nodeId = n.id;
+        row.addEventListener('click', withBusy(() => {
+          state.blast = n.i;
+          // リソースの入口は 1 段が Terraform の定義どうしの縁で埋まるので、既定の 2 では
+          // C# に届かない（demo の POST /orders は 3 段目で handler の メソッドへ付く・実測）
+          if (!state.hops || state.hops < 3) state.hops = 3;
+          reveal(n.i);
+        }));
+        entryBody.appendChild(row);
+      }
+    }
+    if (!shownAny) {
+      const d = document.createElement('div'); d.className = 'trunc'; d.style.paddingLeft = '8px';
+      d.textContent = 'Terraform のリソースノードがありません（scan-terraform.mjs の出力を混ぜるとここに出ます）';
+      entryBody.appendChild(d);
+    }
+    entriesDirty = false;
+  }
+
+  // ---- 弊害検証一覧（一覧を主・20 行・4 区分。`query.mjs` と同じ到達規則で計算する）
+  const BLAST_LIMIT = 20;
+  const DYNAMIC_KINDS = new Set(['calls', 'invokes', 'triggers', 'handler', 'creates']);
+  function blastRows(i, hops) {
+    // query.mjs の BFS をそのまま真似る（方向 both / 張られた縁をすべて / 最初に到達した 1 経路を
+    // 残す / 隣接の調べ順は in → out）。実縁の本数は**調べた縁ごと**に加算するので、到達木の
+    // えり好みに左右されない。ブラウザの `edges` には階層の疑似縁が無いので reachedByHierarchy は
+    // 常に false（= `query.mjs` を --via-parent 無しで走らせた場合と同じ）
+    const seen = new Set([nodes[i].id]);
+    const realHits = new Map();
+    const rows = [];
+    let frontier = [i];
+    for (let hop = 1; hop <= hops && frontier.length; hop++) {
+      const next = [];
+      for (const cur of frontier) {
+        for (const e of [...(inEdges.get(cur) || []), ...(outEdges.get(cur) || [])]) {
+          const other = e.s === cur ? e.t : e.s;
+          const oid = nodes[other].id;
+          let hit = realHits.get(oid);
+          if (!hit) { hit = { edges: 0, kinds: {}, provenances: {} }; realHits.set(oid, hit); }
+          hit.edges += 1;
+          hit.kinds[e.kind] = (hit.kinds[e.kind] || 0) + 1;
+          hit.provenances[e.prov] = (hit.provenances[e.prov] || 0) + 1;
+          if (seen.has(oid)) continue;
+          seen.add(oid);
+          next.push(other);
+          rows.push({ hop, id: oid, i: other, via: nodes[cur].id, kind: e.kind, provenance: e.prov,
+                      detail: e.detail || null, name: nodes[other].name, nodeKind: nodes[other].kind,
+                      path: nodes[other].path || null, realEdges: 0, reachedByHierarchy: false });
+        }
+      }
+      frontier = next;
+    }
+    const by = { code: [], calls: [], resource: [], unsure: [] };
+    for (const r of rows) {
+      const hit = realHits.get(r.id) || { edges: 0, kinds: {} };
+      r.realEdges = hit.edges;
+      const dyn = DYNAMIC_KINDS.has(r.kind) || Object.keys(hit.kinds).some((k) => DYNAMIC_KINDS.has(k));
+      r.entry = entryOf(nodes[r.i]);
+      // 区分は 1 ノード 1 箇所（件数が混ぜこぜにならない）。判定は上の順で最初に合った方へ
+      r.bucket = (r.provenance === 'llm' || r.provenance === 'human' || r.realEdges === 0) ? 'unsure'
+        : (r.nodeKind === 'resource' ? 'resource' : (dyn ? 'calls' : 'code'));
+      by[r.bucket].push(r);
+    }
+    const cmp = (a, b) => a.hop - b.hop || b.realEdges - a.realEdges || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+    for (const k of Object.keys(by)) by[k].sort(cmp);
+    return { by, rows, total: rows.length };
+  }
+  function blastPanel(i) {
+    if (state.blast !== i) return null;
+    const b = blastRows(i, state.hops);
+    const box = document.createElement('div'); box.className = 'blast';
+    const note = document.createElement('div'); note.className = 'trunc';
+    note.textContent = `表示フィルタ（上のチップ）に関係なく、張られた縁すべてを ${state.hops} ホップ双方向で数えます（query.mjs と同じ規則）。C# が見当たらないときは上の「周辺 3」以降へ`
+      + (b.total === 0 ? ' / このノードに張られた縁はありません' : '');
+    box.appendChild(note);
+    for (const [key, title] of [['code', 'コード'], ['calls', '呼び出し'], ['resource', 'リソース'], ['unsure', '不確か']]) {
+      const list = b.by[key];
+      const h = document.createElement('h4');
+      const lbl = truncLabel(BLAST_LIMIT, list.length);
+      h.textContent = `${title} ${list.length} 件` + (lbl ? `（${lbl}）` : '');
+      box.appendChild(h);
+      if (!list.length) { const d = document.createElement('div'); d.className = 'w'; d.textContent = '該当なし'; box.appendChild(d); continue; }
+      for (const r of list.slice(0, BLAST_LIMIT)) {
+        const row = document.createElement('div'); row.className = 'brow'; row.dataset.blastId = r.id;
+        const hop = document.createElement('span'); hop.className = 'h'; hop.textContent = `${r.hop} 段`;
+        const name = document.createElement('span');
+        name.textContent = r.entry ? r.entry.label
+          : (r.nodeKind === 'member' && nodes[r.i].parent != null ? `${nodes[nodes[r.i].parent].name}.${r.name}` : r.name);
+        const w = document.createElement('span'); w.className = 'w';
+        w.textContent = `${r.kind} / ${r.provenance}${r.realEdges > 1 ? ` / 実縁 ${r.realEdges}` : ''}`;
+        row.append(hop, name, w);
+        row.title = `${r.id}\n${r.via} から ${r.kind}（${r.provenance}）\n実縁 ${r.realEdges} 本` + (r.detail ? `\n${r.detail}` : '');
+        row.addEventListener('click', withBusy(() => reveal(r.i)));
+        box.appendChild(row);
+      }
+    }
+    const cmd = `node skill/scripts/query.mjs --graph <graph.json> --from '${nodes[i].id}' --dir both --hops ${state.hops} --json`;
+    const h = document.createElement('h4'); h.textContent = '残りをターミナルで見る'; box.appendChild(h);
+    const pre = document.createElement('div'); pre.className = 'cmd'; pre.textContent = cmd; box.appendChild(pre);
+    const cp = mkBtn('コピー', async () => {
+      try { await navigator.clipboard.writeText(cmd); setStatus('コマンドをコピーしました'); } catch { setStatus(cmd); }
+    });
+    box.appendChild(cp);
+    return box;
+  }
+
   // ---- 詳細パネル
   const detail = document.getElementById('detail-body');
   function renderDetail(i) {
     const n = nodes[i];
     const m = n.meta || {};
     detail.replaceChildren();
-    const h = document.createElement('h2'); h.textContent = n.name; detail.appendChild(h);
+    const ent = entryOf(n);
+    const h = document.createElement('h2'); h.textContent = displayName(n); detail.appendChild(h);
     const p = document.createElement('div'); p.className = 'path';
-    p.textContent = `${n.kind} · ${n.id}`;
+    p.textContent = (ent ? ENTRY_LABEL[ent.group] + ' · ' : '') + `${n.kind} · ${n.id}`;
     detail.appendChild(p);
     if (n.path) { const pp = document.createElement('div'); pp.className = 'path'; pp.textContent = n.path; detail.appendChild(pp); }
 
     const btns = document.createElement('div'); btns.className = 'row-btns';
     history.replaceState(null, '', currentHash());
     const outCount = (outEdges.get(i) || []).length, inCount = (inEdges.get(i) || []).length;
-    btns.append(mkBtn(`出力 ${outCount}`, () => expandDependencies(i, 'out')), mkBtn(`入力 ${inCount}`, () => expandDependencies(i, 'in')), mkBtn('周辺 1', () => focusNeighbors(i, 1)), mkBtn('周辺 2', () => focusNeighbors(i, 2)), mkBtn('祖先を開く', () => reveal(i)));
+    const hopBtns = [1, 2, 3, 4, 5].map((k) => mkBtn(`周辺 ${k}`, () => { state.hops = k; focusNeighbors(i, k); }));
+    btns.append(
+      mkBtn(`出力 ${outCount}`, () => expandDependencies(i, 'out')),
+      mkBtn(`入力 ${inCount}`, () => expandDependencies(i, 'in')),
+      ...hopBtns,
+      mkBtn('弊害検証一覧', () => { state.blast = state.blast === i ? null : i; state.hops = state.hops || 2; render(); }, state.blast === i ? 'primary' : null),
+      mkBtn('中心に戻す', () => { state.ghost.clear(); state.links.clear(); render(); centerOn(i); }),
+      mkBtn('祖先を開く', () => reveal(i)));
     detail.appendChild(btns);
 
+    section('弊害検証一覧', blastPanel(i));
     section('メタデータ', metaTable(m));
     section('出力エッジ', edgeList(outEdges.get(i), i, 'out'));
     section('入力エッジ', edgeList(inEdges.get(i), i, 'in'));
@@ -564,7 +810,8 @@
       row.addEventListener('click', withBusy(() => { reveal(other.i); }));
       box.appendChild(row);
     }
-    if (sorted.length > 60) { const more = document.createElement('div'); more.className = 'badge'; more.textContent = `… 他 ${sorted.length - 60} 件`; box.appendChild(more); }
+    const lbl = truncLabel(60, sorted.length, '本');
+    if (lbl) { const more = document.createElement('div'); more.className = 'badge'; more.textContent = lbl; box.appendChild(more); }
     return box;
   }
 
@@ -590,10 +837,15 @@
       const blank = document.createElement('option'); blank.value = ''; blank.textContent = q ? '（一致なし）' : '（検索してください）';
       pick.appendChild(blank);
       if (!q) return;
-      for (const n of nodes.filter((x) => x.id !== from.id && (x.id.toLowerCase().includes(q) || x.name.toLowerCase().includes(q))).slice(0, 60)) {
-        const o = document.createElement('option'); o.value = n.id; o.textContent = `${n.name}  [${n.kind}]`;
+      const hits = nodes.filter((x) => x.id !== from.id && (x.id.toLowerCase().includes(q) || x.name.toLowerCase().includes(q)));
+      for (const n of hits.slice(0, 60)) {
+        const o = document.createElement('option'); o.value = n.id;
+        const e = entryOf(n);
+        o.textContent = `${e ? e.label : n.name}  [${n.kind}]`;
         pick.appendChild(o);
       }
+      const more = truncLabel(60, hits.length);
+      if (more) { const o = document.createElement('option'); o.disabled = true; o.textContent = `（${more}）`; pick.appendChild(o); }
     };
     search.addEventListener('input', fill);
     const relKind = kindSelect(ANNO_KINDS);
@@ -653,10 +905,10 @@
 
   function addNode(spec) {
     const existing = byId.get(spec.id);
-    if (existing) { existing.meta = { ...(existing.meta || {}), ...(spec.metadata || {}) }; existing.raw = { id: existing.id, kind: existing.kind, name: existing.name, metadata: existing.meta }; return existing; }
+    if (existing) { dropCaches(existing); existing.meta = { ...(existing.meta || {}), ...(spec.metadata || {}) }; existing.raw = { id: existing.id, kind: existing.kind, name: existing.name, metadata: existing.meta }; return existing; }
     const i = nodes.length;
     const n = { i, id: spec.id, kind: spec.kind, name: spec.name, parent: spec.parent ?? ROOT.i, path: spec.path || null, meta: spec.metadata || null };
-    nodes.push(n); byId.set(n.id, n);
+    dropCaches(n); nodes.push(n); byId.set(n.id, n); entriesDirty = true;
     if (!childrenOf.has(n.parent)) childrenOf.set(n.parent, []);
     childrenOf.get(n.parent).push(i);
     n.raw = { id: n.id, kind: n.kind, name: n.name, parent: nodes[n.parent].id, metadata: n.meta };
@@ -716,42 +968,70 @@
   }
 
   // ---- 検索
-  const qInput = document.getElementById('q'), results = document.getElementById('results'), kindFilter = document.getElementById('kind-filter');
+  const qInput = document.getElementById('q'), results = document.getElementById('results'), kindFilter = document.getElementById('kind-filter'), entryFilter = document.getElementById('entry-filter');
   let resultIndex = [], cursor = 0;
   function doSearch() {
     const q = qInput.value.trim().toLowerCase();
-    const kf = kindFilter.value;
-    if (!q) { results.classList.remove('open'); return; }
+    const kf = kindFilter.value, ef = entryFilter.value;
+    // 空欄のときは前の候補を DOM に残さない（見えていなくても支援技術が読み上げる）
+    if (!q) { results.replaceChildren(); results.classList.remove('open'); return; }
     const scored = [];
+    let total = 0, scanned = false;
     for (const n of nodes) {
       if (kf && n.kind !== kf) continue;
+      const e = entryOf(n);
+      if (ef && (!e || e.group !== ef)) continue;
       const name = n.name.toLowerCase();
-      let score = -1;
-      if (name === q) score = 0; else if (name.startsWith(q)) score = 1; else if (name.includes(q)) score = 2;
-      else if (n.path && n.path.toLowerCase().includes(q)) score = 3;
-      else if ((n.meta && n.meta.namespace && n.meta.namespace.toLowerCase().includes(q))) score = 4;
+      const eLabel = e ? e.label.toLowerCase() : '';
+      let score = -1, why = '';
+      if (name === q) { score = 0; why = '名前'; }
+      else if (eLabel && eLabel === q) { score = 0; why = ENTRY_LABEL[e.group]; }
+      else if (name.startsWith(q)) { score = 1; why = '名前'; }
+      else if (eLabel && eLabel.startsWith(q)) { score = 1; why = ENTRY_LABEL[e.group]; }
+      else if (name.includes(q)) { score = 2; why = '名前'; }
+      else if (eLabel && eLabel.includes(q)) { score = 2; why = ENTRY_LABEL[e.group]; }
+      else if (n.path && n.path.toLowerCase().includes(q)) { score = 3; why = 'パス'; }
+      else if (searchBlob(n).includes(q)) { score = 4; why = '情報'; }
       if (score < 0) continue;
+      total += 1;
       if (n.kind === 'member') score -= 0.5;
-      scored.push([score, n.i]);
-      if (scored.length > 4000) break;
+      scored.push([score, n.i, why]);
+      if (scored.length >= 4000) { scanned = true; break; }
     }
     scored.sort((a, b) => a[0] - b[0] || nodes[a[1]].name.length - nodes[b[1]].name.length);
     resultIndex = scored.slice(0, 200).map((x) => x[1]);
+    const shown = resultIndex.length;
     cursor = 0;
     results.replaceChildren();
-    for (const i of resultIndex) {
+    for (const [score, i, why] of scored.slice(0, 200)) {
       const n = nodes[i];
+      const e = entryOf(n);
       const row = document.createElement('div'); row.className = 'row';
-      const k = document.createElement('span'); k.className = 'kind'; k.textContent = n.kind;
+      const k = document.createElement('span'); k.className = 'kind';
+      k.textContent = e ? ENTRY_LABEL[e.group] : n.kind;
       const label = document.createElement('span');
+      // 列は `status` のようにコードの型名と衝突するので、ラベルは必ず「テーブル.列」で出す
       const owner = n.kind === 'member' && n.parent != null ? nodes[n.parent].name + '.' : '';
-      label.textContent = owner + n.name;
-      const path = document.createElement('span'); path.className = 'path'; path.textContent = n.path || (n.parent != null ? nodes[n.parent].name : '');
+      label.textContent = e ? e.label : owner + n.name;
+      const path = document.createElement('span'); path.className = 'path';
+      path.textContent = e && e.sub ? e.sub : (n.path || (n.parent != null ? nodes[n.parent].name : ''));
       row.append(k, label, path);
+      row.title = `${why}で一致: ${n.id}${e && e.sub ? '\n' + e.sub : ''}`;
       row.addEventListener('click', withBusy(() => { results.classList.remove('open'); reveal(i); }));
       results.appendChild(row);
     }
-    if (!resultIndex.length) { const row = document.createElement('div'); row.className = 'row'; row.textContent = '該当なし'; results.appendChild(row); }
+    const lbl = truncLabel(shown, scanned ? Math.max(total, 4000) : total);
+    if (lbl) {
+      const row = document.createElement('div'); row.className = 'row';
+      const t = document.createElement('span'); t.className = 'path';
+      t.textContent = lbl + (scanned ? '（一致の走査を 4,000 件で打ち切りました。語を足してください）' : '');
+      row.appendChild(t); results.appendChild(row);
+    }
+    if (!resultIndex.length) {
+      const row = document.createElement('div'); row.className = 'row';
+      row.textContent = '該当なし（API エンドポイント `GET /orders`、テーブル `public.order_summary`、列、Lambda 名でも引けます）';
+      results.appendChild(row);
+    }
     results.classList.add('open');
     highlightResult();
   }
@@ -770,6 +1050,7 @@
   document.addEventListener('click', (ev) => { if (!ev.target.closest('#search')) results.classList.remove('open'); });
 
   function reveal(i) {
+    if (entryOf(nodes[i])) state.blast = i;
     const chain = [];
     let cur = nodes[i].parent;
     while (cur != null) { chain.push(cur); cur = nodes[cur].parent; }
@@ -835,9 +1116,15 @@
   function mkBtn(text, fn, cls) { const b = document.createElement('button'); if (cls) b.className = cls; b.textContent = text; b.addEventListener('click', withBusy(fn)); return b; }
   function setStatus(text) { document.getElementById('status').textContent = text; setTimeout(() => { if (document.getElementById('status').textContent === text) document.getElementById('status').textContent = ''; }, 6000); }
   function renderStatus(vis, drawn) {
-    document.getElementById('stats').textContent = `node ${nodes.length} / edge ${edges.length} / 表示 ${vis.size} / 描画エッジ ${drawn.length}`;
+    const lay = state.layout || { capped: 0 };
+    const elbl = truncLabel(drawn.length, state.edgeTotal || drawn.length, '本');
+    // 「node / edge」はグラフ全体の総数、「表示」は実際に描いた数。差が出るのは折りたたみと
+    // 描画上限なので、その理由を同じ行に出す（黙って減らさない）
+    document.getElementById('stats').textContent = `node ${nodes.length} / edge ${edges.length}`
+      + ` / 表示 ${vis.size} ノード` + (lay.capped ? `（子 ${lay.capped} 件を折りたたみ）` : '')
+      + ` / 描画エッジ ${drawn.length}` + (elbl ? `（${elbl}）` : '');
     const chips = [...toolbar.querySelectorAll('.chip')].filter((c) => c.className.includes('chip') && !c.className.includes('static') && !c.className.includes('llm') && !c.className.includes('terraform'));
-    if (state.edgeTruncated) setStatus(`描画エッジが多いため上位 ${drawn.length} 本に絞っています（チップで kind を減らすと見やすくなります）`);
+    if (state.edgeTruncated) setStatus(`描画エッジが多いため上位 ${drawn.length} / 全 ${state.edgeTotal} 本に絞っています（チップで kind を減らすと見やすくなります）`);
     else if (chips.length && chips.some((c) => c.classList.contains('off'))) setStatus('一部の edge kind を隠しています（チップで切替）');
   }
 
@@ -846,17 +1133,28 @@
     const expand = (hash.get('expand') || '').split(',').filter(Boolean).map((id) => byId.get(id)).filter(Boolean);
     for (const n of expand) state.expanded.add(n.i);
     const select = hash.get('select') ? byId.get(hash.get('select')) : null;
-    if (select) { state.selected = select.i; let cur = select.parent; while (cur != null) { state.expanded.add(cur); cur = nodes[cur].parent; } }
+    const h = Number(hash.get('hops'));
+    if (select) {
+      state.selected = select.i;
+      if (Number.isFinite(h) && h >= 1 && h <= 5) state.hops = Math.round(h);
+      // select が無いときの hops は無視する（上の式で 1-5 に絞った値だけを使う）
+      state.blast = select.i;
+      let cur = select.parent; while (cur != null) { state.expanded.add(cur); cur = nodes[cur].parent; }
+    }
     return select;
   }
   function currentHash() {
     const params = new URLSearchParams();
     params.set('expand', [...state.expanded].map((i) => nodes[i].id).join(','));
-    if (state.selected != null) params.set('select', nodes[state.selected].id);
+    if (state.selected != null) {
+      params.set('select', nodes[state.selected].id);
+      params.set('hops', String(state.hops || 2));
+    }
     return '#' + params.toString();
   }
   window.__csdg = {
     state, nodes, edges, byId, reveal, focusNeighbors, render, collectAnnotations,
+    entryOf, blastRows, renderEntries, truncLabel,
     applyAnnotation, exportable, storedAnnotations: readStoredAnnotations,
     // 「レポートを生成中」表示の状態（検査用。表示中かどうかと、開始した回数）
     busyShown: () => !busyEl.hidden, busyStarts: () => busyStarts,
@@ -867,7 +1165,7 @@
     catch { setStatus(url); }
   });
   document.getElementById('btn-fit').addEventListener('click', fit);
-  document.getElementById('btn-collapse').addEventListener('click', withBusy(() => { state.expanded = new Set([ROOT.i]); state.ghost.clear(); state.links.clear(); state.selected = null; render(); }));
+  document.getElementById('btn-collapse').addEventListener('click', withBusy(() => { state.expanded = new Set([ROOT.i]); state.ghost.clear(); state.links.clear(); state.selected = null; state.blast = null; render(); }));
   document.getElementById('btn-anno').addEventListener('click', () => {
     downloadAnnotations();
     setStatus(exportable.length ? 'annotations.json をダウンロードしました（merge.mjs に渡すと恒久化）' : 'まだブラウザ内で追加した注釈はありません');
@@ -884,6 +1182,7 @@
   // データ埋め込みの大きい graph.html では解析だけで時間がかかるので、ヘッダの
   // 「レポートを生成中」がまず描画され、計算はその後に入る
   beginBusy(() => {
+    renderEntries();
     render();
     if (preselected) centerOn(preselected.i); else fit();
   });

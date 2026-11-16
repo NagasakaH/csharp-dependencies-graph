@@ -392,6 +392,45 @@ demo-api 1.01 / elsa-50 1.00 / **elsa-folder 1.67（超過）** / v2-mix 1.02。
 外部 JS・CDN に依存しない）。表示が消えるのは選択と並び順が確定した表が DOM へ入りきったあとで、
 半途の表を見せない。
 
+## API エンドポイントと DB のテーブルから調べる
+
+「この API を変えたらどこまで困るか」「このテーブルを読むコードはどれか」を、普通の入口として扱う。
+ターミナルとブラウザは**同じ規則**で辿る（双方向で、張られた縁をすべて使う。`--dir out` だけでは
+`exposed-by` と `triggers` がコード側からリソース側へ向いているため Lambda に届かない。demo で実測）。
+
+### ターミナル
+
+```sh
+# エンドポイント名で引く（scan-terraform.mjs が path_part / parent_id から `POST /orders` を作る）
+node skill/scripts/report.mjs --graph out/demo/graph.json --api "POST /orders"
+
+# テーブル / 列のノードが分からなければ --find で探す。そこから逆方向へ広げる
+node skill/scripts/query.mjs --graph out/demo/graph.json --find order_summary
+node skill/scripts/query.mjs --graph out/demo/graph.json \
+  --from 'ext:rds-table/orders-analytics.public.order_summary' --dir both --hops 3
+```
+
+### ブラウザ（`graph.html`）
+
+- 左欄の **調査の入口** に API エンドポイント / テーブル / 列 / Lambda / Step Functions が群で並ぶ。
+  クリックするとそのノードが開いて **弊害検証一覧**が自動で開く。入口は 1 段目が Terraform 定義どうしの
+  縁で埋まって C# に見えないので、ホップ数は 3 まで自動で上げる（demo の `GET /orders` は 3 段目で
+  Lambda の handler メソッドへ付く）
+- 検索は `POST /orders`、`/orders`、`public.order_summary`、列名、`aws_lambda_function.orders_api`
+  （terraformAddress）でも引っかかる。列名は `status` のようにコードの型名と衝突するので、結果は
+  必ず `public.order_summary.status` の形（テーブル名付き）で出す
+- **弊害検証一覧**は 4 区分（コード / 呼び出し / リソース / 不確か）の各 20 行まで。表示フィルタ
+  （上のチップ）に関係なく張られた縁すべてで計算するので `query.mjs --json` と同じ到達になる
+  （検査で照合している）。続きは一覧の下に出るコマンドを貼って追う
+- 図の上でも `post_order` ではなく `POST /orders`、`orders` ではなく `local.orders_table` のように、
+  利用者が呼ぶ名前で出す（`displayName()`。ツリー・キャンバス・詳細見出し・エッジのツールチップ共通）
+- 折りたたみと描画上限で黙って減らない。状態バーは `表示 N ノード（子 M 件を折りたたみ） /
+  描画エッジ K（表示 K / 全 L 本）`、一覧と検索は「表示 N / 全 M 件」を出す
+
+実測（elsa 13,000 ノード / 12,922 縁、`out/tmp-r69/elsa85/graph.html`）: 初期表示 124 ms、
+`GET /workflows` 検索 32 ms（1 件・エンドポイントが先頭）、入口クリック → 一覧表示 388 ms
+（到達 350 件）、最も縁の多い member（71 本）から 5 ホップの到達計算 4 ms（3,593 件）。
+
 ## 検証する
 
 ### 保存した条件でレポートを再生成して比べる
@@ -479,9 +518,9 @@ v2 の `$default` のように**未解決の式からエンドポイントを作
 node $SKILL/scripts/verify.mjs --html out/graph/graph.html --shots out/shots
 ```
 
-ヘッドレス Chromium で実際にクリックし、26 項目を確かめる。検査対象は `graph.json`
-から自動選択するので、どのプロジェクトにもそのまま効く（Terraform ノードが無い場合は
-該当チェックを省略して 24 項目）。主な確認項目:
+ヘッドレス Chromium で実際にクリックし、36 項目を確かめる。検査対象は `graph.json`
+から自動選択するので、どのプロジェクトにもそのまま効く（Terraform のリソースノードが 1 つも
+無いグラフでは入口まわりの 10 項目を省略して 26 項目）。主な確認項目:
 
 - ルート 1 段だけの初期表示／クリックしたフォルダだけの子展開
 - `.cs` クリック → 型 → メンバ（メソッド）の段階展開、ロールアップ値
@@ -496,6 +535,9 @@ node $SKILL/scripts/verify.mjs --html out/graph/graph.html --shots out/shots
 - 表の計算・描画が始まるときヘッダに「レポートを生成中」が出ること（`#busy`。`role=status` と
   `aria-live=polite` を持ち、発火直後に表示中、確定した表のあとは非表示）。第 40 ラウンド裁定
   `out/loop/r40-astra.md` の待ち時間の表示
+- 調査の入口（エンドポイント / テーブル / 列）が左欄に並び、`POST /orders` とテーブル名で検索が
+  引っかかり、入口から開いた弊害検証一覧が `query.mjs --json` と**同じ到達**を出すこと、選んだ
+  ノードとホップ数が URL に入って再読み込みで戻ること
 - コンソールエラーゼロ
 
 `#busy` は CSS と `requestAnimationFrame` だけで動き、外部 JS・CDN に依存しない。合図を出してから

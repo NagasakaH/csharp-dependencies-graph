@@ -408,6 +408,103 @@ record('計算の始まりに「レポートを生成中」が出て、確定し
   busy ? `発火直後 ${busy.text}（${busy.role} / ${busy.live}）/ 開始 ${busy.starts} → ${busyAfter.starts} / ノード ${nodesBeforeBusy} → ${nodesAfterBusy}` : 'HTML に #busy が無い（ビューアを再生成してください）');
 await shot('09-after-collapse.png');
 
+// 10. API エンドポイントと DB のテーブル / 列から調べられるか（第 85 ラウンド 人の指示）
+await page.goto(baseUrl, { waitUntil: 'load', timeout: 120000 });
+await page.waitForTimeout(800);
+const md = (n) => n.metadata || {};
+const apiStarts = graph.nodes.filter((n) => md(n).endpoint);
+const tableStarts = graph.nodes.filter((n) => ['rds-table', 'aws_dynamodb_table'].includes(md(n).resourceType));
+const columnStarts = graph.nodes.filter((n) => md(n).resourceType === 'rds-column');
+if (!apiStarts.length && !tableStarts.length && !columnStarts.length) {
+  record('調査の入口から API / テーブルをたどれる', true, 'このグラフに Terraform リソースが 0 件なので対象なし');
+} else {
+  const entryGroups = await page.evaluate(() => {
+    const out = {};
+    for (const el of document.querySelectorAll('#entry-body .erow')) {
+      out[el.dataset.entry] = (out[el.dataset.entry] || 0) + 1;
+    }
+    return out;
+  });
+  const wantApi = apiStarts.length ? 1 : 0, wantTable = tableStarts.length ? 1 : 0;
+  record('左欄の「調査の入口」にエンドポイントとテーブルが並ぶ',
+    (!wantApi || (entryGroups.endpoint || 0) >= wantApi) && (!wantTable || (entryGroups.table || 0) >= wantTable),
+    JSON.stringify(entryGroups));
+
+  if (apiStarts.length) {
+    const ep = String(md(apiStarts[0]).endpoint);
+    await page.fill('#q', ep);
+    await page.waitForTimeout(500);
+    const firstRow = ((await page.locator('#results .row').first().textContent()) || '').trim();
+    record(`エンドポイント名「${ep}」で検索が引っかかる`, firstRow.includes(ep), firstRow);
+
+    // 入口をクリック → 弊害検証一覧が 4 区分で開き、query.mjs と同じ到達を出すること
+    await page.fill('#q', '');
+    await page.waitForTimeout(300);
+    await page.locator('#entry-body .erow[data-entry=\"endpoint\"]').first().click();
+    await page.waitForTimeout(900);
+    const blast = await page.evaluate(() => {
+      const box = document.querySelector('.blast');
+      if (!box) return null;
+      return {
+        heads: [...box.querySelectorAll('h4')].map((x) => x.textContent),
+        rows: [...box.querySelectorAll('.brow')].map((x) => x.textContent),
+        cmd: (box.querySelector('.cmd') || {}).textContent || '',
+        hops: window.__csdg.state.hops,
+        sel: (window.__csdg.nodes[window.__csdg.state.selected] || {}).id,
+        reached: window.__csdg.blastRows(window.__csdg.state.selected, window.__csdg.state.hops).rows
+          .map((r) => `${r.hop}|${r.id}|${r.kind}|${r.provenance}|${r.realEdges}`),
+      };
+    });
+    const four = ['コード', '呼び出し', 'リソース', '不確か'].every((k) => (blast ? blast.heads.some((h) => h.startsWith(k)) : false));
+    record('入口を選ぶと弊害検証一覧が 4 区分で開く', !!blast && four,
+      blast ? `${blast.heads.join(' / ')}（${blast.rows.length} 行）` : '一覧が出ない');
+    record('一覧は 20 行を超える区分で「表示 N / 全 M 件」を出す',
+      !!blast && blast.heads.every((h) => !/ \d+ 件$/.test(h) || /（表示 \d+ \/ 全 \d+ 件）/.test(h) || Number((h.match(/ (\d+) 件/) || [0, 0])[1]) <= 20),
+      blast ? blast.heads.filter((h) => h.includes('表示')).join(' / ') || '打ち切りなし' : '一覧が出ない');
+
+    // 照合は「実際に選んだノード」に対して行う（入口の並び順はラベル順なので先頭とは限らない）
+    const q = JSON.parse(execSync(`node ${join(dirname(process.argv[1]), 'query.mjs')} --graph ${JSON.stringify(graphPath)}`
+      + ` --from ${JSON.stringify(blast ? blast.sel : apiStarts[0].id)} --dir both --hops ${blast ? blast.hops : 3} --json`,
+      { encoding: 'utf8', maxBuffer: 1 << 28 }));
+    const want = q.reached.map((r) => `${r.hop}|${r.id}|${r.kind}|${r.provenance}|${r.realEdges}`);
+    const got = blast ? blast.reached : [];
+    const keySort = (a) => a.slice().sort().join('\n');
+    record('弊害検証一覧は query.mjs と同じ到達を出す', keySort(got) === keySort(want),
+      `ブラウザ ${got.length} 件 / query.mjs ${want.length} 件` + (keySort(got) === keySort(want) ? '' : '\n' + keySort(got).split('\n').slice(0, 4).join('\n')));
+    record('残りの件数をターミナルのコマンドで示す', blast ? blast.cmd.includes('query.mjs') && blast.cmd.includes('--dir both') : false,
+      blast ? blast.cmd.slice(0, 90) : '一覧が出ない');
+    const hash = await page.evaluate(() => location.hash);
+    const selBefore = await page.evaluate(() => (window.__csdg.nodes[window.__csdg.state.selected] || {}).id);
+    record('選んだノードとホップ数が URL に入り、再読み込みで戻る', /hops=\d+/.test(hash) && hash.includes('select='), hash.slice(0, 120));
+    await page.goto(baseUrl + hash, { waitUntil: 'load', timeout: 120000 });
+    await page.waitForTimeout(1100);
+    const restored = await page.evaluate(() => ({ hops: window.__csdg.state.hops, sel: (window.__csdg.nodes[window.__csdg.state.selected] || {}).id }));
+    record('再読み込み後にホップ数と選択が復元される',
+      restored.sel === selBefore && Number((hash.match(/hops=(\d+)/) || [0, 0])[1]) === restored.hops,
+      JSON.stringify(restored));
+  }
+
+  if (tableStarts.length || columnStarts.length) {
+    const t = tableStarts[0] || columnStarts[0];
+    const word = String(md(t).table || md(t).name || t.name);
+    await page.fill('#q', word);
+    await page.waitForTimeout(500);
+    const rows = (await page.locator('#results .row').allTextContents()).map((x) => x.trim());
+    record(`テーブル名「${word}」でテーブルと列がまとめて見つかる`,
+      rows.length >= 1 && rows[0].includes(word), `${rows.length} 件 / 先頭: ${rows[0] || 'なし'}`);
+    if (columnStarts.length && tableStarts.length) {
+      const col = columnStarts[0];
+      const tableName = String(md(graph.nodes.find((x) => x.id === col.parent) || {}).table || '');
+      await page.fill('#q', col.name);
+      await page.waitForTimeout(500);
+      const rows2 = (await page.locator('#results .row').allTextContents()).map((x) => x.trim());
+      const hit = rows2.find((x) => x.includes(`${tableName}.${col.name}`));
+      record('列は「テーブル.列」の形で探す（コードの型名と衝突しても判る）', !!hit, hit || `「${col.name}」の候補にテーブル名が付かない: ${rows2.slice(0, 2).join(' / ')}`);
+    }
+  }
+  await shot('10-entry-blast.png');
+}
+
 record('ブラウザコンソールエラーなし', errors.length === 0, errors.slice(0, 3).join(' | '));
 await browser.close();
 

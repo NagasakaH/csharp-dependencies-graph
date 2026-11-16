@@ -33,7 +33,18 @@ git diff --name-only origin/main... | node skill/scripts/report.mjs \
 
 # HTTP のメソッドとパスでも引ける
 node skill/scripts/report.mjs --graph out/demo/graph.json --api "POST /orders"
+
+# テーブル / 列を起点に、双方向で（exposed-by / triggers はコード側からリソース側へ向くので
+# --dir out だけでは Lambda に届かない）
+node skill/scripts/query.mjs --graph out/demo/graph.json --find order_summary
+node skill/scripts/query.mjs --graph out/demo/graph.json \
+  --from 'ext:rds-column/orders-analytics.public.order_summary.status' --dir both --hops 3
 ```
+
+ブラウザ側でも同じ調査ができる: `graph.html` の左欄「調査の入口」からエンドポイントとテーブルを
+選ぶと **弊害検証一覧**（4 区分・各 20 行）が自動で開く。一覧は表示フィルタに関係なく張られた縁
+すべてで計算するので `query.mjs --json` と同じ到達になり、続きは一覧の下に出るコマンドで追える
+（`skill/SKILL.md` §API エンドポイントと DB のテーブルから調べる）。
 
 出方は次の 6 枠に分ける。混ぜるほど読み間違えるため、**どの行も必ずどれか 1 つの枠にしか入らない**
 （`summary.rows` と各枠の合計が必ず一致する。検査でも固定している）。
