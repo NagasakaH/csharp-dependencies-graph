@@ -25,6 +25,8 @@
   "graph_path": "call",
   "guard_exempt_map": "call",
   "guard_ledger_shape_errors": "call",
+  "guard_off": "call",
+  "guards_on": "call",
   "launch_conditions": "call",
   "load_guard_ledger": "call",
   "materialize": "call",
@@ -45,7 +47,6 @@
   "resolve_cli_path": "call",
   "run_json": "call",
   "sample_permutations": "call",
-  "set_guard_off": "call",
   "validate_report": "call",
   "validate_required_spec": "call"
  },
@@ -70,6 +71,9 @@
    },
    "note": "edge-order.py を制御の一時的な読み込みで呼ぶ為の静的な読み込み（同じく 2 つの末端だけ。Astra 第 66 ラウンド 問 1 の裁定）"
   }
+ ],
+ "guardCallers": [
+  "skill/scripts/tools/battery/test-contract.py"
  ],
  "note": "見張り番の名前と、その名前を**直接呼ぶ**道具の対応表。走査（test-contract.py の _guard_names_by_file）から見つかる集合とその場で比べる台帳で、実行結果から自動更新しない。作り直しは emit-guard-owners.py（候補の書き出し）。exemptions は走査対象のファイルが許可一覧（test-contract.py の `_ALLOWED_IMPORTS`）に無い import を使う時に、そのファイルで許す import と名前だけを書く（Astra 第 63 ラウンド 問 1・第 64 ラウンド 問 1 裁定 (c)。ファイル全体の豁免は置けず、動的機構の名前（exec / compile / FunctionType / modules など）は豁免で登録できない。第 64 ラウンド 問 2 裁定 (i)。豁免はファイルの正準相対パス ×完全修飾モジュール × 許可する末端名で持つ（Astra 第 66 ラウンド 問 1 の裁定）。boxNames は見張り番の箱 `IN` の公開名と用途（call / const）で、実ツリーの使用から作る（Astra 第 66 ラウンド 追記の裁定 (ア)、第 67 ラウンド 問 2 の 6 マス）",
  "owners": {
@@ -197,6 +201,15 @@
    "_inputs.py"
   ],
   "fp-unregistered": [
+   "_inputs.py"
+  ],
+  "guard-caller-file": [
+   "test-contract.py"
+  ],
+  "guard-caller-form": [
+   "test-contract.py"
+  ],
+  "guard-callers-shape": [
    "_inputs.py"
   ],
   "guard-unbound": [

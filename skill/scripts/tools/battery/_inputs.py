@@ -39,12 +39,48 @@ def guard(name):
     return name not in GUARD_OFF
 
 
-def set_guard_off(*names):
-    """プロセス内で見張り番を消す（`test-contract.py` の制御から）。前の値を返す"""
-    global GUARD_OFF
-    prev = GUARD_OFF
-    GUARD_OFF = frozenset(names)
-    return prev
+class _GuardOff:
+    """`with IN.guard_off('名前'):` の区間（Astra 第 68 ラウンド 問 1 の B案）
+
+    第 67 ラウンドまで置いていた `set_guard_off()` は**呼び出し後も無効化が残った**（両名の
+    レビューの実測 `holes=0 before=True after=False later=False`）。区間にすることで
+    1. 抜けたら必ず直前の集合へ戻る（`finally`。例外を握り潰さない）
+    2. 入れ子の内側が抜けると外側の集合へ戻る
+    3. 呼び出し元を台帳 `guardCallers` のファイルに絞れる（走査が `with` の管理以外で呼ぶ形を穴に
+       する）
+    """
+
+    def __init__(self, names, only=None):
+        self._names = frozenset(str(x) for x in names)
+        self._only = only
+        self._prev = None
+
+    def __enter__(self):
+        global GUARD_OFF
+        self._prev = GUARD_OFF
+        GUARD_OFF = self._only if self._only is not None else (GUARD_OFF | self._names)
+        return self._prev
+
+    def __exit__(self, exc_type, exc, tb):
+        global GUARD_OFF
+        GUARD_OFF = self._prev
+        return False
+
+
+def guard_off(*names):
+    """この区間だけ見張り番を消す（`with IN.guard_off('fp-sha'):`）
+
+    環境変数 `CGD_GUARD_OFF` との違いは**元へ戻す**こと。使えるのは台帳 `guardCallers` に登録した
+    制御ファイルだけで、`with` の管理としてだけ呼べる（第 68 ラウンド Astra 問 1 の実装条件 2）"""
+    return _GuardOff(names)
+
+
+def guards_on():
+    """区間中は見張り番を全部生かす（`with IN.guards_on():`）
+
+    制御の自己検査のように「外から残った設定を消して走らせる」場所用。消したまま走らせることを
+    防ぐ為、戻す責任を区間が持つ"""
+    return _GuardOff((), only=frozenset())
 
 
 def repo_root(start=None):
@@ -1363,7 +1399,8 @@ def materialize(cond, tmpdir):
 # 走査から見つかる集合とその場で比べる為だけの一覧なので、`cond` の様な起動条件は持たない。
 GUARD_LEDGER_FILE = 'skill/scripts/tools/battery/guard-owners.json'
 GUARD_LEDGER_HEADER = '見張り番の対応表（guard-owners.json）が壊れている'
-GUARD_LEDGER_KEYS = ('note', 'scannedFiles', 'owners', 'exemptions', 'boxNames')
+GUARD_LEDGER_KEYS = ('note', 'scannedFiles', 'owners', 'exemptions', 'boxNames',
+                     'guardCallers')
 # `boxNames` の値の形（Astra 第 66 ラウンド 追記の裁定 (ア): 見張り番の箱 `IN` の公開名は
 # **用途付きの許可表**に載せた物だけ、その用途の形で使える）
 _BOX_KINDS = ('call', 'const')
@@ -1575,6 +1612,24 @@ def guard_ledger_shape_errors(doc):
                 errs.append('台帳の boxNames に `guard` が有る（見張り番の読み出しは別の規則で '
                             '`IN.guard(\'名前\')` の 1 形に既に限定している。表へ載せると同じ名前へ'
                             '2 通りの読み方が通る。Astra 第 66 ラウンド 追記の裁定）')
+    # 見張り番を消す区間を使えるファイルの一覧（Astra 第 68 ラウンド 問 1 の B案: 無効化は
+    # 環境変数の初期化に限るのが前の約束だったが、制御のプロセス内切替を認める代わりに
+    # **呼び出し元を台帳で絞る**。`guardCallers` は正準相対パスで持つ）
+    if guard('guard-callers-shape'):
+        callers = doc.get('guardCallers')
+        if not isinstance(callers, list) or not callers:
+            errs.append('台帳の guardCallers が空でない列ではない'
+                        '（`IN.guard_off(...)` / `IN.guards_on()` を呼べる制御ファイルの'
+                        '正準相対パス。Astra 第 68 ラウンド 問 1 の B案）')
+        else:
+            for x in callers:
+                if not isinstance(x, str) or not x:
+                    errs.append(f'台帳の guardCallers に空でない文字列でない物が有る: {x!r}')
+                    continue
+                if x.startswith('/') or x.startswith('..') or '\\' in x or x != x.strip():
+                    errs.append(f'台帳の guardCallers「{x[:40]}」がリポジトリからの正準相対パスで'
+                                'ない（先頭が `/` や `..`・区切りの `\\`・前後の空白は不可。'
+                                '走査側の `origin` と同じ形で持つ）')
     return errs
 
 

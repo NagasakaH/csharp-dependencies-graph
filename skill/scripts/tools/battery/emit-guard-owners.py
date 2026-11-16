@@ -118,7 +118,10 @@ def candidate(root, keep_exemptions):
     box = {n: sorted(kinds - {'write'})[0] for n, kinds in used.items() if kinds - {'write'}}
     # 台帳の豁免を渡して走査する（豁免つきの走査が主。Astra 第 64 ラウンド 問 2 裁定 (iii)）
     exempt_by_file = tc._exempt_index_of({'exemptions': list(keep_exemptions)}) or None
-    names, direct, counts, holes, _calls = tc._guard_names_by_file(exempt_by_file, box)
+    # 無効化の区間を作れるファイルの一覧も今の走査から作る（Astra 第 68 ラウンド 問 1 の B案:
+    # 無効化を呼べる場所を台帳で絞る。旧台帳の表ではなく今の実測で検証する）
+    callers = tc._guard_switch_callers()
+    names, direct, counts, holes, _calls = tc._guard_names_by_file(exempt_by_file, box, callers)
     errs = candidate_refusals(used, holes)
     if errs:
         for x in errs:
@@ -127,7 +130,8 @@ def candidate(root, keep_exemptions):
     # `direct` は「道具 -> 名前」なので台帳の形（名前 -> 直接呼ぶ道具）へ裏返す
     owners = {n: sorted(tool for tool, got in direct.items() if n in got) for n in sorted(names)}
     return {'note': NOTE, 'scannedFiles': files, 'owners': owners,
-            'exemptions': list(keep_exemptions), 'boxNames': dict(sorted(box.items()))}
+            'exemptions': list(keep_exemptions), 'boxNames': dict(sorted(box.items())),
+            'guardCallers': callers}
 
 
 def diff_lines(old, new):
@@ -155,6 +159,12 @@ def diff_lines(old, new):
         if changed:
             out.append(f'箱の公開名の用途の変わり目 {len(changed)} 件: ' + ', '.join(
                 f'{n}（{a} → {b}）' for n, a, b in changed[:6]))
+        oc, nc = set(old.get('guardCallers') or []), set(new.get('guardCallers') or [])
+        for verb, xs in (('追加', sorted(nc - oc)), ('削除', sorted(oc - nc))):
+            if xs:
+                out.append(f'無効化の区間を使えるファイル {verb} {len(xs)} 件: '
+                           f'{", ".join(xs[:6])}'
+                           + (f' …ほか {len(xs) - 6} 件' if len(xs) > 6 else ''))
         oa, na = _exempt_keys(old), _exempt_keys(new)
         for verb, xs in (('追加', sorted(na - oa)), ('削除', sorted(oa - na))):
             if xs:
@@ -195,9 +205,10 @@ def main():
         dest = args[args.index('--emit') + 1] if args.index('--emit') + 1 < len(args) else None
         if not dest:
             IN.fail('--emit の後に書き先（運用中の台帳以外）を 1 つ書くこと')
-        p = pathlib.Path(dest)
-        if not p.is_absolute():
-            p = root / p
+        # 明示した相対パスは cwd から解決する（他の道具と同じ慣習。第 67 ラウンドまでは
+        # `root / p` でリポジトリ基準にしていた為、`battery/` から `--emit guard-owners.json` と
+        # 打つとリポジトリ直下へ書かれた（agy P2-1 の実測 `written at repo root exists = True`）
+        p = IN.resolve_cli_path(dest)
         bad = target_errors(path, p)
         if bad:
             IN.fail(bad[0])
