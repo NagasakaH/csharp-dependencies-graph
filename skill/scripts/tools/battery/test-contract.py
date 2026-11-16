@@ -182,139 +182,172 @@ def _env_restore(prev):
         os.environ['CGD_GUARD_OFF'] = prev
 
 
-def negative(name, fn, guards=None, message=None, clean=True, fallback=None):
-    """失敗しなければならない制御。**その見張り番が落ちたこと**まで確かめる
+class _RealGuardState:
+    """本番の見張り番の箱を読む実装（Astra 第 70 ラウンド 問 2 の注入点）
 
-    第 55 ラウンド agy P1 の実測で、負控制の 3 件は「別の一の見張り番が先に落ちる」だけで
-    合格していた（対象の見張り番を無効化しても制御がまだ落ちる＝その見張り番を測っていない
-    空振り）。だからここで **3 度**走らせる:
+    `IN.guard_off` を**値として持ち出さず**、`with` の管理位置で直接呼ぶ。公開名への書き換えも
+    しないので第 67 / 68 ラウンドの箱の規則を破らない。ここを差し替えられるのは「区間を抜けた後に
+    無効化が残る」等の**偽の状態**を実行器の自己検査で作る為で、実在の箱を汚す細工は要らない
+    （第 70 ラウンド 問 2 の「別プロセス」「別スレッド」「規則の豁免」はどれも却下された）
+    """
 
-    1. **素の実行（ON）**: 落ちて、`message`（対象の見張り番の案内）が含まれること
-    2. **`guards` だけ消した区間の中の実行**: `message` が出ないこと。`clean`（既定）なら
-       **通ること**も要求する（他の見張り番に遮われている間は、その制御は対象を測っていない）
-    3. **区間を抜けた後の同じ実行（復元後の ON）**: 実行 1 と同じ拒否が出ること（戻った後も
-       計れる事が実測の根拠。Astra 第 68 ラウンド 問 3 (a) の「2 回に減らす」案は第 69 ラウンド
-       問 1 で「区間を抜けた後の観測が実測されなくなる」として取りやめ）
+    def read(self):
+        return set(IN.GUARD_OFF)
 
-    見張り番の無効化は**区間**（`with IN.guard_off('名前'):`）で、抜けたら前の集合へ戻る事が
-    約束（Astra 第 68 ラウンド 問 1 の B案・決 92）。Astra 第 69 ラウンド 問 1 の実装条件で
-    観測点を 6 つに増やし、**開始時に保存した集合 `B` だけを復元基準**に、**集合全体の完全一致**で
-    見る（部分集合の判定は、対象外の名前まで消えた故障を通す。Codex 第 68 ラウンド P1-1）。
-    子プロセスへは `os.environ` を切り替えず `IN.guard_env()` で作った `env` を渡す（問 1 条件 5）。
-    `clean=False` は「見張り番を消すと対象の診断は消えるが、実行は別の診断で拒否される」制御が
-    使える（Astra 第 59 ラウンド 問 2）。その場合は `fallback` に **OFF 後も残る別の診断の文面**を
-    書く（第 56 ラウンド agy P2-3）。文面を宣言させていないと実行 2 が何で止まったか不明のまま
-    「別の一で落ちた＝検出成功」と数える。対象を消したのに `message` が残る実行は `clean=False`
-    でも失敗にする（問 2 の契約）"""
-    ran['negative'] += 1
-    names = (guards,) if isinstance(guards, str) else tuple(guards or ())
-    bad = []
-    # 観測点 1（制御の開始時・準備前）。Codex 第 68 ラウンド P1-1 の実測: 保存を素の実行の**後**で
-    # 撮ると、実行が漏らした無効化を復元元として受け入れて `before=[] → after=['unrelated']` が
-    # 失敗 0 件で通った。`B` が唯一の復元基準
-    base = set(IN.GUARD_OFF)
+    def is_off(self, name):
+        return name in IN.GUARD_OFF
+
+    def inside_off(self, names, body):
+        with IN.guard_off(*names):
+            return body()
+
+
+_REAL_STATE = _RealGuardState()
+
+
+def _run_negative(name, fn, names, message, clean, fallback, out, state=None):
+    """負控制を**実行するだけの共通器**（Astra 第 70 ラウンド 問 2・問 3）
+
+    失敗は呼び出し側が渡した列 `out` へ積み、通った階級（`clean` / `fallback`）を返す。`failed` にも
+    網羅 `ran` にも手を出さない — **網羅への登録は実行器の外側**でしかしない（問 3。実行器の自己検査が
+    ここを呼んでも網羅へは混入しない）。状態の読みと OFF 区間は `state` 経由（既定は本番の箱）
+
+    無効化集合は 6 箇所で**集合全体の完全一致**として見る（Astra 第 69 ラウンド 問 1。基準は制御の
+    開始時に読んだ `base` ただ 1 つ）。実行は ON → OFF → 復元後 ON の 3 回で、3 回目は 1 回目と同じ
+    拒否が出る事。各観測は `finally` の中で行い、失敗はその場で `out` へ転記する（区間の終了処理や
+    再実行が例外を投げても失敗は残る）。`finally` から `return` して元の例外を黙らせることはしない
+    """
+    st = _REAL_STATE if state is None else state
+    pending = []
 
     def _chk(label, want):
-        got = set(IN.GUARD_OFF)
+        got = st.read()
         if got != want:
-            bad.append(f'{name}: {label}、見張り番の無効化集合が一致しない（期待 {sorted(want)} → '
-                       f'実際 {sorted(got)[:6]}。Astra 第 69 ラウンド 問 1 の 6 観測点は集合全体の'
-                       '完全一致。不一致は復旧処理の前に記録し、後で正常化されても消さない）')
+            pending.append(f'{name}: {label}、見張り番の無効化集合が一致しない（期待 {sorted(want)} → '
+                           f'実際 {sorted(got)[:6]}。Astra 第 69 ラウンド 問 1 の 6 観測点は集合全体の'
+                           '完全一致。不一致は復旧処理の前に記録し、後で正常化されても消さない）')
 
+    def _flush():
+        if pending:
+            out.extend(pending)
+            del pending[:]
+
+    base = st.read()   # 観測点 1（制御の開始時・準備前）
     if names and base & set(names):
-        # `B ∩ G` が空でないと「その 1 個だけを消した」状態を組めない（Astra 第 69 ラウンド 問 1）。
-        # 前の制御の戻し損ねか、入れ子の区間の内側で呼ばれたかのどちらか
-        bad.append(f'{name}: 制御の開始時にもう対象 {" / ".join(sorted(base & set(names)))} が'
+        out.append(f'{name}: 制御の開始時にもう対象 {" / ".join(sorted(base & set(names)))} が'
                    '無効化されている（開始集合と対象が見張っている名前は交わっていない事が必要。'
                    '前の区間の戻し損ねか入れ子。Astra 第 69 ラウンド 問 1）')
-        failed.extend(bad)
-        return
+        return None, False
 
     # ---- 実行 1（見張り番が起きている）----
     try:
         det, text = _run_control(fn)
     except NotDetected as e:
         det, text = False, f'{e}'
-        bad.append(f'{name}: {e}')
-    except BaseException as e:  # noqa: BLE001 - agy P2-1: 制御自身の壊れ方を黙らせない
+        pending.append(f'{name}: {e}')
+    except BaseException as e:  # noqa: BLE001 - 制御自身の壊れ方を黙らせない
         det, text = False, f'{type(e).__name__}: {e}'
-        bad.append(f'{name}: 制御が壊れている（{type(e).__name__}: {e}）')
+        pending.append(f'{name}: 制御が壊れている（{type(e).__name__}: {e}）')
     finally:
-        _chk('素の実行の終了後', base)   # 観測点 2（実行が例外で終わっても見る）
-    if bad:
-        failed.extend(bad)
-        return
+        _chk('素の実行の終了後', base)   # 観測点 2（例外で終わっても観測する）
+        _flush()
+    if out:
+        return None, not base
     if not det:
-        failed.append(f'{name}: 落ちずに通った（期待は終了 1）。{text[:160]}')
-        return
+        out.append(f'{name}: 落ちずに通った（期待は終了 1）。{text[:160]}')
+        return None, not base
     if message and message not in text:
-        failed.append(f'{name}: 期待した見張り番「{message}」ではなく別の物で落ちた'
-                      f'（空振り）: {text[:200]}')
-        return
+        out.append(f'{name}: 期待した見張り番「{message}」ではなく別の物で落ちた（空振り）: {text[:200]}')
+        return None, not base
     if not names:
-        return
+        return None, not base
 
     # ---- 実行 2（対象だけ消した区間の中）----
     want = base | set(names)
+
+    def _inside():
+        _chk('区間へ入った直後', want)   # 観測点 3
+        try:
+            return _run_control(fn, tolerant=True)
+        finally:
+            _chk('見張り番を消した実行の終了後・区間を抜ける前', want)   # 観測点 4
+
     try:
-        with IN.guard_off(*names):
-            _chk('区間へ入った直後', want)   # 観測点 3
-            try:
-                det2, text2 = _run_control(fn, tolerant=True)
-            finally:
-                _chk('見張り番を消した実行の終了後・区間を抜ける前', want)   # 観測点 4
+        det2, text2 = st.inside_off(names, _inside)
     finally:
-        _chk('区間を抜けた直後', base)       # 観測点 5
-        # 転記を**外側の `finally` の中**でやる（区間の終了処理が例外を投げても失敗は残る）。
-        # `finally` から `return` すると元の例外が黙って消えるのでしない（Astra 問 1）
-        failed.extend(bad)
-    if bad:
-        # 状態が合わない実行の結果を次の基準に採用しない（上の転記で失敗は残っている）
-        return
+        _chk('区間を抜けた直後', base)   # 観測点 5
+        _flush()
+    if out:
+        # 状態が合わない実行の結果を次の判定に採用しない（失敗は転記済み）
+        return None, not base
     if text2.startswith('NotDetected:'):
-        # Astra 第 59 ラウンド 追加穴 1 の実測: 見張り番を消した側で制御が準備に失敗すると
-        # 「拒否なし」に化けて `clean=True` を通っていた。制御自身の故障は成功ではない
-        failed.append(f'{name}: 見張り番を消した実行が制御の準備失敗で終わった'
-                      f'（制御が壊れている。成功ではない）: {text2[:160]}')
-        return
+        out.append(f'{name}: 見張り番を消した実行が制御の準備失敗で終わった（制御が壊れている。'
+                   f'成功ではない）: {text2[:160]}')
+        return None, not base
     if message and message in text2:
-        failed.append(f'{name}: 見張り番 {" / ".join(names)} を消したのに同じ案内が出た'
-                      f'（この制御が見ているのは別物）: {text2[:160]}')
-        return
+        out.append(f'{name}: 見張り番 {" / ".join(names)} を消したのに同じ案内が出た'
+                   f'（この制御が見ているのは別物）: {text2[:160]}')
+        return None, not base
     tier = None
     if clean and det2:
-        failed.append(f'{name}: 見張り番 {" / ".join(names)} を消しても別の所で落ちる'
-                      f'（他の見張り番に遮われて対象を測っていない）: {text2[:200]}')
+        out.append(f'{name}: 見張り番 {" / ".join(names)} を消しても別の所で落ちる'
+                   f'（他の見張り番に遮われて対象を測っていない）: {text2[:200]}')
     elif not clean:
-        # 見張り番を消しても実行が別の診断で拒否される制御は、**何が落ちたか**を宣言させる
         if not fallback:
-            failed.append(f'{name}: clean=False は fallback に「OFF 後も残る別の診断の文面」を書く'
-                          '（何も言わないと実行 2 が何で止まったか不明のまま通る）')
+            out.append(f'{name}: clean=False は fallback に「OFF 後も残る別の診断の文面」を書く'
+                       '（何も言わないと実行 2 が何で止まったか不明のまま通る）')
         elif not det2 or fallback not in text2:
-            failed.append(f'{name}: 見張り番 {" / ".join(names)} を消した実行が'
-                          f'「{fallback}」で止まらない（想定と違う所で落ちた）: {text2[:200]}')
+            out.append(f'{name}: 見張り番 {" / ".join(names)} を消した実行が「{fallback}」で止まらない'
+                       f'（想定と違う所で落ちた）: {text2[:200]}')
         else:
             tier = 'fallback'
     else:
         tier = 'clean'
     if tier is None:
-        return
+        return None, not base
 
     # ---- 実行 3（区間を抜けた後の ON。実行 1 と同じ拒否が出る事）----
-    det3, text3 = _run_control(fn, tolerant=True)
-    _chk('復元後の再実行の終了後', base)   # 観測点 6
-    if bad:
-        return
+    try:
+        det3, text3 = _run_control(fn, tolerant=True)
+    except BaseException as e:  # noqa: BLE001
+        det3, text3 = False, f'{type(e).__name__}: {e}'
+        pending.append(f'{name}: 復元後の再実行が壊れている（{type(e).__name__}: {e}）')
+    finally:
+        _chk('復元後の再実行の終了後', base)   # 観測点 6（`finally` の中。例外時も観測する）
+        _flush()
+    if out:
+        return None, not base
     if not det3 or (message and message not in text3):
-        failed.append(f'{name}: 区間を抜けた後の再実行が実行 1 と同じ拒否を出さない'
-                      f'（復元後に測れていない。実行 1「{message}」→ 実行 3 `{text3[:160]}`。'
-                      'Astra 第 69 ラウンド 問 1 の 3 回実行）')
-        return
-    if tier and len(names) == 1 and not base:
-        # 網羅を数える正控制は、ソースに書いてある制御ではなく**通った**単独名指しだけを使う
-        # （Astra 第 59 ラウンド 問 4）。第 60 ラウンド Astra 問 3 の裁定で**後勝ち上書きをやめ**、
-        # 「どの控制がどの階級で通った」を名前ごとに全部残す。第 69 ラウンド 問 1 で**開始集合が
-        # 空の実行だけ**を数える（入れ子の区間の内側では「その 1 個だけ」を測っていない）
+        out.append(f'{name}: 区間を抜けた後の再実行が実行 1 と同じ拒否を出さない（復元後に測れていない。'
+                   f'実行 1「{message}」→ 実行 3 `{text3[:160]}`。Astra 第 69 ラウンド 問 1 の 3 回実行）')
+        return None, not base
+    return tier, not base
+
+
+def negative(name, fn, guards=None, message=None, clean=True, fallback=None):
+    """失敗しなければならない制御。**その見張り番が落ちたこと**まで確かめる
+
+    実行の実装は `_run_negative()`（実行だけの共通器）に置いた。ここでは本数を数え、失敗を `failed`
+    へ転記し、**通った単独名指しだけ**を網羅 `ran['singleton']` へ登録する（Astra 第 70 ラウンド 問 3:
+    網羅への登録は共通実行器の外側。実行器を呼ぶ自己検査はここを通らないので網羅へ混入しない）
+
+    契約の要点は決 92 と決 95 に書いた（6 観測点・集合の完全一致・3 回実行・`B ∩ G = ∅`・同期的な
+    完了）。`clean=False` は「見張り番を消すと対象の診断は消えるが、実行は別の診断で拒否される」制御が
+    使える（Astra 第 59 ラウンド 問 2）。その場合は `fallback` に **OFF 後も残る別の診断の文面**を
+    書く（第 56 ラウンド agy P2-3）
+    """
+    ran['negative'] += 1
+    names = (guards,) if isinstance(guards, str) else tuple(guards or ())
+    out = []
+    try:
+        tier, base_empty = _run_negative(name, fn, names, message, clean, fallback, out)
+    finally:
+        # 実行器が積んだ失敗は、登録の段で何が起きても失敗記録へ残す
+        failed.extend(out)
+    if tier and len(names) == 1 and base_empty:
+        # 網羅を数えるのは、ソースに書いてある制御ではなく**通った**単独名指しだけ（Astra 第 59
+        # ラウンド 問 4。第 60 ラウンド 問 3 で後勝ち上書きをやめ、名前ごとに全部残す）。第 69
+        # ラウンド 問 1 で**開始集合が空の実行だけ**を数える
         ran['singleton'].setdefault(names[0], []).append((name, tier))
 
 
@@ -3673,6 +3706,11 @@ def guard_names_have_singleton_controls():
     if never:
         failed.append(f'登録だけの単独名指し控制 {len(never)} 本が走っていない'
                       f'（通った控制だけを網羅に数える規則では黙って減る）: {never[:4]}')
+    # 網羅の記録が**登録済みの控制からしか生まれていない**事の検査（Astra 第 70 ラウンド 問 3）。
+    # キー集合の完全一致だけでは、実在の見張り番の名前へ余計な記録が混入した事を読めない
+    registered = {(lbl, n) for lbl, n in _singleton_controls(pathlib.Path(__file__))}
+    for e in singleton_record_errors(passed, registered):
+        failed.append(f'網羅の記録が登録済みの控制と対応しない: {e}')
     both = tree & set(passed)
     tiers = {n: {tier for _lbl, tier in recs} for n, recs in passed.items()}
     ok = sorted(n for n in both if tiers[n] == {'clean'})
@@ -3683,6 +3721,197 @@ def guard_names_have_singleton_controls():
           f'（{_format_guard_names(mix)}）。通った控制 {sum(len(v) for v in passed.values())} 本を'
           '名前ごとに保持し、'
           '後勝ちで潰さない')
+
+
+def singleton_record_errors(passed, registered):
+    """網羅の記録が**登録済みの控制からしか生まれていない**かの検査（Astra 第 70 ラウンド 問 3）
+
+    キー集合の完全一致だけでは、実在の見張り番の名前へ余計な記録が混入した事を読めない。ここでは
+    記録 1 件ずつが登録（控制名・見張り番名・階級）と対応する事、同じ記録が二重に並んでいない事を
+    見る。自己検査の記録が網羅へ入る経路は `_run_negative()` に無いが、将来そこへ手を入れた日を
+    この検査が落とす
+    """
+    errs = []
+    for n in sorted(passed):
+        recs = passed[n]
+        for rec in recs:
+            if not isinstance(rec, tuple) or len(rec) != 2:
+                errs.append(f'{n}: 網羅の記録の形が壊れている（{rec!r}）')
+                continue
+            if rec[1] not in ('clean', 'fallback'):
+                errs.append(f'{n}: 網羅の記録の階級「{rec[1]}」が未知（clean / fallback のどちらか）')
+            if (rec[0], n) not in registered:
+                errs.append(f'{n}: 控制「{rec[0]}」は見張り番 {n} を名指す登録が無いのに網羅へ載った'
+                            '（実行器の自己検査や未登録の控制が混入した）')
+        for rec in set(recs):
+            if recs.count(rec) > 1:
+                errs.append(f'{n}: 網羅の記録 {rec!r} が {recs.count(rec)} 件並んでいる'
+                            '（集合化して重複を消さない契約）')
+    return errs
+
+
+class _IntervalBoom(BaseException):
+    """区間の中で制御が**握り潰さない**例外（`_run_control` の `tolerant` を通り抜ける）"""
+
+
+class _LeakOnExitState:
+    """区間を抜けた後も無効化が残る偽の状態（Astra 第 70 ラウンド 問 2 の③）"""
+
+    def __init__(self):
+        self.held = set()
+
+    def read(self):
+        return set(self.held)
+
+    def is_off(self, name):
+        return name in self.held
+
+    def inside_off(self, names, body):
+        self.held |= set(names)
+        return body()   # 戻さない
+
+
+class _RestoreOnExceptionState:
+    """例外の時だけ復元される偽の状態（Astra 第 70 ラウンド 問 2 の④）"""
+
+    def __init__(self):
+        self.held = set()
+
+    def read(self):
+        return set(self.held)
+
+    def is_off(self, name):
+        return name in self.held
+
+    def inside_off(self, names, body):
+        self.held |= set(names)
+        try:
+            res = body()
+        except BaseException:
+            self.held -= set(names)
+            raise
+        return res   # 正常終了では戻さない
+
+
+class _DirtyAtSixthReadState:
+    """復元後の再実行（観測点⑥）の時にだけ集合が汚れる偽の状態（Codex 第 70 ラウンドの実測の再現）"""
+
+    def __init__(self):
+        self.held = set()
+        self.reads = 0
+
+    def read(self):
+        self.reads += 1
+        got = set(self.held)
+        return got | {'unrelated'} if self.reads >= 6 else got
+
+    def is_off(self, name):
+        return name in self.held
+
+    def inside_off(self, names, body):
+        self.held |= set(names)
+        try:
+            return body()
+        finally:
+            self.held -= set(names)
+
+
+def _state_dependent_control(state, gname, mark):
+    """`state` を見て落ちる偽制御（実行器の自己検査専用。実行 1 と 3 で落ち、実行 2 で通る）"""
+
+    def _f():
+        if state.is_off(gname):
+            return (0, '見張り番を消したので通った')
+        raise SystemExit(f'{mark}が出た')
+    return _f
+
+
+def _shrinking_control(mark):
+    """実行 1 は 4 件、見張り番を消すと 3 件へ減るが**対象の診断は残る**偽制御（問 2 の②）"""
+    calls = [0]
+
+    def _f():
+        calls[0] += 1
+        k = 4 if calls[0] == 1 else 3
+        raise SystemExit(f'{mark}の診断が {k} 件')
+    return _f
+
+
+def _runner_self_check():
+    """実行器自身の自己検査（Astra 第 70 ラウンド 問 2 (エ)。網羅とは別建てで数えない）
+
+    偽の状態と偽の制御を `_run_negative()` へ渡して、**実行器が失敗を記録するか**だけを見る。偽物が
+    自分で期待する失敗を返す検査はしない。実在の箱 `IN` は汚さず、`failed` と `ran` へ手を出さない
+    こともここで確かめる
+    """
+    mark = '自己検査の対象の見張り番'
+    bad = []
+    n_failed = len(failed)
+    keys = sorted(ran['singleton'])
+
+    def _one(label, fn, gname, state, expect_sub, expect_raise=False):
+        out = []
+        ctl = _state_dependent_control(state or _REAL_STATE, gname, mark) if fn is None else fn
+        try:
+            _run_negative(label, ctl, (gname,), mark, True, None, out, state)
+        except BaseException as e:  # noqa: BLE001 - 例外を成功にしない事を確かめる為に見る
+            if not expect_raise:
+                bad.append(f'{label}: 実行器が例外を投げて終わった（失敗として記録する）: '
+                           f'{type(e).__name__}: {e}')
+                return
+            out.append(f'（実行器から例外が抜けた: {type(e).__name__}）')
+            return
+        if expect_raise:
+            bad.append(f'{label}: 例外が実行器から伝わらない（握り潰して成功にした）')
+            return
+        got = ' / '.join(out)
+        if expect_sub is None:
+            if out:
+                bad.append(f'{label}: 正常な実行が失敗を記録した: {got[:200]}')
+        elif not out:
+            bad.append(f'{label}: 実行器が失敗を記録しなかった（偽合格）')
+        elif expect_sub not in got:
+            bad.append(f'{label}: 期待した失敗「{expect_sub}」が違う: {got[:200]}')
+
+    # ① 見張り番を消した側でも同じ診断が残る偽制御
+    _one('① 無効化しても同じ診断が出続ける偽制御', lambda: (1, f'{mark}が出続ける'), 'self-check-a',
+         None, '消したのに同じ案内が出た')
+    # ② 4 件 → 3 件へ減る偽制御（件数だけ減っても対象の診断が消えていない）
+    _one('② 診断が 4 件から 3 件へ減る偽制御', _shrinking_control(mark), 'self-check-b', None,
+         '消したのに同じ案内が出た')
+    # ③ 区間を抜けた後に無効化が残る
+    _one('③ 区間を抜けた後に無効化が残る', None, 'self-check-c', _LeakOnExitState(),
+         '区間を抜けた直後')
+    # ④ 例外の時だけ復元される区間（正常終了では戻らない）
+    _one('④ 例外の時だけ復元される区間（正常終了）', None, 'self-check-d',
+         _RestoreOnExceptionState(), '区間を抜けた直後')
+    # ④の続き。例外で終わるときは復元されており、実行器は例外を成功にしない
+    st_e = _RestoreOnExceptionState()
+
+    def _boom():
+        if st_e.is_off('self-check-e'):
+            raise _IntervalBoom('区間の中で制御が壊れた')
+        raise SystemExit(f'{mark}が出た')
+    _one('④の続き 例外で終わる区間は復元され例外はそのまま抜ける', _boom, 'self-check-e',
+         st_e, None, expect_raise=True)
+    # ⑥ 復元後の再実行の時にだけ集合が汚れる（Codex 第 70 ラウンドの実測の再現）
+    _one('⑥ 復元後の再実行の時にだけ集合が汚れる', None, 'self-check-f',
+         _DirtyAtSixthReadState(), '復元後の再実行の終了後')
+    # 本番の箱を通す正常系（3 回実行して失敗が無い事）
+    _one('本番の箱での正常な 3 回実行', None, 'self-check-g', None, None)
+
+    # 網羅の記録へ実在の見張り番の名前に偽の記録を足した場合を検出できるか（問 3）
+    if ran['singleton']:
+        victim = sorted(ran['singleton'])[0]
+        copy = {k: list(v) for k, v in ran['singleton'].items()}
+        copy[victim].append(('実行器の自己検査', 'clean'))
+        if not singleton_record_errors(copy, set()):
+            bad.append('実在の見張り番のキーへ偽の記録を足しても網羅の検査が黙っている')
+    if len(failed) != n_failed:
+        bad.append(f'自己検査が本番の失敗記録へ手を出した（{n_failed} 件 → {len(failed)} 件）')
+    if sorted(ran['singleton']) != keys:
+        bad.append('自己検査が網羅の名前集合を変えた（共通実行器は網羅へ登録しない契約）')
+    return ' / '.join(bad) if bad else None
 
 
 _SCAN_HEAD = 'import _inputs as IN\n'
@@ -4384,7 +4613,12 @@ def in_public_table_extra():
     doc['boxNames']['unused_in_public_table'] = 'const'
     errs = _guard_ledger_errors(doc, _exempt_index_of(doc))
     bad = [x for x in errs if 'boxNames に登録した公開名' in x]
-    return (len(bad), bad[0]) if len(bad) == 1 else False
+    if bad and len(bad) != 1:
+        return (len(bad), f'期待した 1 件に対して {len(bad)} 件の診断が出た'
+                          '（細工が別の一に効いたか診断が混ざった。残った診断を'
+                          '件数の条件で捨てない。Astra 第 70 ラウンド 問 4） / '
+                          + bad[0][:60])
+    return (len(bad), bad[0]) if bad else False
 
 
 _EMIT = None
@@ -4415,7 +4649,12 @@ def relative_import_hole():
     src = f'{_SCAN_HEAD}from .os import path\nprint(path)\n'
     _n, holes, _c, _cl = _guard_scan(src, '<制御>', None, {})
     bad = [h for h in holes if '相対 import' in h]
-    return (len(bad), bad[0]) if len(bad) == 1 else False
+    if bad and len(bad) != 1:
+        return (len(bad), f'期待した 1 件に対して {len(bad)} 件の診断が出た'
+                          '（細工が別の一に効いたか診断が混ざった。残った診断を'
+                          '件数の条件で捨てない。Astra 第 70 ラウンド 問 4） / '
+                          + bad[0][:60])
+    return (len(bad), bad[0]) if bad else False
 
 
 def dynamic_root_import_hole():
@@ -4431,7 +4670,12 @@ def dynamic_root_import_hole():
     bad = [h for h in holes if '動的な機構のモジュール「importlib」を' in h]
     if [h for h in holes if '登録すれば可' in h]:
         return False
-    return (len(bad), bad[0]) if len(bad) == 1 else False
+    if bad and len(bad) != 1:
+        return (len(bad), f'期待した 1 件に対して {len(bad)} 件の診断が出た'
+                          '（細工が別の一に効いたか診断が混ざった。残った診断を'
+                          '件数の条件で捨てない。Astra 第 70 ラウンド 問 4） / '
+                          + bad[0][:60])
+    return (len(bad), bad[0]) if bad else False
 
 
 def public_write_hole():
@@ -4445,7 +4689,12 @@ def public_write_hole():
            'del IN.CONST\nIN.CONST.x = 1\n')
     _n, holes, _c, _cl = _guard_scan(src, '<制御>', None, {'CONST': 'const'})
     bad = [h for h in holes if '書き換え・削除' in h]
-    return (len(bad), bad[0]) if len(bad) == 4 else False
+    if bad and len(bad) != 4:
+        return (len(bad), f'期待した 4 件に対して {len(bad)} 件の診断が出た'
+                          '（細工が別の一に効いたか診断が混ざった。残った診断を'
+                          '件数の条件で捨てない。Astra 第 70 ラウンド 問 4） / '
+                          + bad[0][:60])
+    return (len(bad), bad[0]) if bad else False
 
 
 def emit_box_diff_blind():
@@ -4485,7 +4734,12 @@ def candidate_refusal_blind():
     em = _emit_tool()
     errs = em.candidate_refusals({'wrote': {'call', 'write'}, 'both': {'call', 'const'}},
                                  ['<制御>:1 走査の穴の実例'])
-    return (len(errs), errs[0]) if len(errs) == 3 else False
+    if errs and len(errs) != 3:
+        return (len(errs), f'期待した 3 種の拒否に対して {len(errs)} 件出た'
+                          '（細工が別の一に効いたか診断が混ざった。残った診断を'
+                          '件数の条件で捨てない。Astra 第 70 ラウンド 問 4） / '
+                          + errs[0][:60])
+    return (len(errs), errs[0]) if errs else False
 
 
 def emit_caller_approval_blind():
@@ -4509,6 +4763,11 @@ def emit_target_blind():
     alt = pathlib.Path(str(live.parent) + '/./' + live.name)
     errs = em.target_errors(live, alt)
     other = em.target_errors(live, live.parent / 'guard-owners.candidate.json')
+    if errs and len(errs) != 1:
+        return (len(errs), f'期待した 1 件の拒否に対して {len(errs)} 件出た'
+                          '（細工が別の一に効いたか診断が混ざった。残った診断を'
+                          '件数の条件で捨てない。Astra 第 70 ラウンド 問 4） / '
+                          + errs[0][:60])
     return (1, errs[0]) if len(errs) == 1 and not other else False
 
 
@@ -5178,6 +5437,7 @@ def main():
         positive('見張り番の対応表 guard-owners.json が今の走査と一致している', guard_owner_ledger_holds)
         positive('豁免が名乗った import と名前だけを許すことを対で確かめる', guard_exemption_scope_holds)
         positive('README と決めの表のコードフェンスが許可した形だけになっている', markdown_fences_hold)
+        positive('負控制の実行器が 6 観測点と網羅の記録契約を守っている', _runner_self_check)
 
         # 追跡下のファイルへの変更が残っていないか（制御が途中で落ちても戻す）
         left = git_touches()
