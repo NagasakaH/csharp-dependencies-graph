@@ -4663,63 +4663,6 @@ def japanese_glyphs_only():
 
 
 MD_PATH_RE = re.compile(r'`((?:skill|docs|demo)/[A-Za-z0-9_./+-]+|README\.md)`')
-MD_TOOL_RE = re.compile(r'([A-Za-z0-9_./+-]+\.(?:mjs|py|sh))')
-# 括弧の中の実測値を読む。「（26 項目）」と「（.NET 不要、28 項目）」の両方に効く
-MD_COUNT_RE = re.compile(r'（[^（）]*?([0-9]+) 項目')
-# リンクの宛先は山括弧形 `[説明](<path>)` とタイトル付き `[説明](path "題名")` の両方を読む
-# （双人レビュー Codex 第 76 ラウンド P2: 山括弧を実在しないファイル名と読んで誤検出し、
-# タイトル付きを見逃して壊れたリンクを素通しした）
-MD_LINK_RE = re.compile(r'\[[^\]]*\]\(\s*(?:<([^>]*)>|([^)\s]+))(?:\s+[^)]*)?\)')
-REF_MARK = ']['                                       # 参照リンクの印。この一覧対象では書かない
-
-
-
-def _fence_kind(line):
-    """フェンス行なら `(文字, 長さ, 閉じになれるか)`、違えば None（行内のコードと取り違えない）
-
-    3 つ目は**閉じになれるか**で、情報文字列（`sh` 等）が残っていない事が条件です。開きと同じ文字・
-    同じ長さ以上でも、情報文字列付きの行は閉じになれません。`` ``` `` フェンスの中に `` ```sh `` が有る
-    とそこで閉じたと読んで後続の本文がフェンスの外に反転します（双人レビュー Codex / agy 第 79 ラウンド
-    P2）。行頭の `` ```x``` `` の様な行内のコードは、残りと同じ文字を含むので None です
-    （Codex 第 78 ラウンド P2-2）
-    """
-    m = re.match(r'^\s{0,3}(`{3,}|~{3,})(.*)$', line)
-    if not m or m.group(1)[0] in m.group(2):
-        return None
-    return (m.group(1)[0], len(m.group(1)), not m.group(2).strip())
-
-
-
-def _strip_code(line):
-    """行内のコード部分を空白へ退かす（記法の検査だけが対象。実在と件数の検査はコード内も見る）
-
-    バッククォートは**同じ長さの列が閉じた所まで**をコードにします。長さが違う列を対応付けたり、
-    エスケープしたバッククォートを区切りと読んだりすると、コード外の書き方を隠して素通します
-    （双人レビュー agy 第 77 ラウンド P2-3b / P2-3c）。閉じ列が無い行は退かしません
-    """
-    out, i = [], 0
-    while i < len(line):
-        if line[i] == '`' and (i == 0 or line[i - 1] != '\\'):
-            j = i
-            while j < len(line) and line[j] == '`':
-                j += 1
-            run = j - i
-            k = line.find('`' * run, j)
-            while k != -1 and (line[k + run:k + run + 1] == '`' or line[k - 1:k] == '`'):
-                k = line.find('`' * run, k + 1)      # より長い列の一部なら閉じ列ではない
-            if k == -1:
-                # 閉じ列の無い列は**そのまま文字として残して後ろの走査を続ける**。行を捨てると
-                # 壊れたリンクを素通しし（Codex / agy 第 78 ラウンド P2）、後ろまで本文と読むと
-                # 正常なコード列を誤拒否する（agy 第 79 ラウンド P2-3）
-                out.append('`' * run)
-                i = j
-                continue
-            out.append(' ' * (k + run - i))
-            i = k + run
-            continue
-        out.append(line[i])
-        i += 1
-    return ''.join(out)
 
 
 def _missing_paths(案内):
@@ -4744,106 +4687,33 @@ def _text_docs(suffixes):
                   if p.is_file() and p.suffix in suffixes)
 
 
-MD_HEAD_RE = re.compile(r'^\s{0,3}#{1,6}\s+(.*?)\s*#*\s*$')   # 見出し行。アンカーの実在をここから数える
-
-
-def _anchor_key(x):
-    "見出しとアンカーを揃える（大文字小文字・空白・強調とコードの記号を退かして較べる）"
-    return re.sub(r'[\s`*_]+', '', x).lower()
-
-
 def doc_pointers_resolve():
-    """文書の案内先が実在し、同じ道具の数え上げが文書間で食い違わないか（双人レビュー第 72 〜 77 ラウンド）
+    """文書に書いた案内先の path が実在するか（Astra 第 21 ラウンド裁定で契約を縮小した）
 
-    同じ類の P2 が何ラウンドも続いた（実在しない見出しへの案内、`python3 <README>` という実行不能な案内、
-    README を分割した後の案内の張り替え漏れ、`test-report.mjs` の `117 項目` が `130 項目` になった後の
-    取り残し、改行で割れてリンクとして解釈されない書き方）。人の目だけでは更新漏れが再発するので、
-    機械で読める形だけを規則にします。**読めない構文は黙って通さず落とす**のが一番危ない為の形です。
-    守る規則は 6 つ:
+    見るのは**固定書式の案内だけ**です。コード（バッククォート）で囲まれた `skill/…` `docs/…`
+    `demo/…` `README.md` の path を拾い、実在と照合する。git に無視される物（ビルドで建つ物）は
+    落とさない。
 
-    1. バッククォートで囲まれた `skill/` `docs/` `demo/` `README.md` の形は実在するパスだけにする
-       （`out/` は gitignore 済みの作業台帳なので形が見えない。ビルドで建つ物も gitignore なので外れる）
-    2. 行末注釈 ` # 説明（… N 項目 …）` は**実測値を書く場所**と決める。同じ行の道具名（ファイル名）ごとに
-       1 つの値しか持てない（README を分割した後に片方だけ更新される事故が実例）
-    3. Markdown リンク `[説明](宛先)` の宛先が実在する事。`http(s)` / `mailto:` と文内アンカーは外へ出す。
-       山括弧とタイトル付きを読む。**空の宛先**と**リポジトリの外へ出る `..`** は落ちる
-    4. `[説明]` と `(宛先)` が改行で割れた形を落とす（Markdown がリンクとして解釈しない。agy 第 75
-       ラウンド P2-2 で `docs/review-usage.md` のリンクが実体へ付かなかった）
-    5. コードの外に `][` を書かない = **参照リンク `[説明][定義]` を使わない**（定義の一覧まで追わないと
-       実在が確かめられない。ラベルのネストとエスケープを解釈しない為、印の `][` その物を禁じる）
-    6. 記法の検査（3 〜 5）はフェンスの中とコード部分を見ない。ただしコードの外で `](` が読めない時は
-       **「この検査が読めない書き方」として落とす**（角括弧のネストなどを黙って通さない）
-    7. `#見出し` のリンクは**その文書の実在する見出し**と合う事（大文字小文字・空白・強調の記号を
-       退かして較べる。外部リンクと違い、アンカーは文書の内側を指すので見出しから実在を数えられる）
+    **Markdown の記法は解釈しない。** リンクの宛先、`#` のアンカー、改行で割れているリンク、`][`、
+    フェンスとコードの読み分け、道具の呼び出し例の項目数の文書間一致は測らない。測らない物は
+    `docs/maintenance.md` の保留一覧に書き、双人レビューの人の目で見る。第 76 〜 80 ラウンドで
+    この区域に出た指摘は**1 件も実文書の案内の欠落ではなく**、検査の側の読みと説明文の誤記だった
+    （双人レビュー 3 ラウンド連続の REQUEST_CHANGES を受けた Astra 裁定）
 
-    実在（1）と件数（2）の検査は**フェンスの中も見る**（フェンスの中の設定例に書かれた path も案内だから。
-    双人レビュー Codex 第 79 ラウンド P2-1: フェンスごと飛ばして両方を素通しする退行を起こした）。
-    **Markdown リンク（3）だけはフェンスの中を見ない**（フェンスの中の `[説明](先)` は例として書いた
-    Markdown であって案内ではない）
+    「読めない書き方を落とす」もやめる。それは**明示した必須入力の内側**だけで働く規則で、人が普通に
+    書く文書へ適用すると誤検出との付き合い方が目的になります（Astra 第 21 ラウンド 問 2）
     """
-    項目, 案内 = {}, []
+    案内 = []
     for rel in _text_docs(('.md',)) + ['README.md']:
         lines = REPO.joinpath(rel).read_text(encoding='utf-8').splitlines()
-        # フェンスの中の見出しも拾う（アンカーの実在を緩く見る。厳しくする必要性が出たら絞る）
-        見出し = {_anchor_key(m.group(1)) for m in (MD_HEAD_RE.match(x) for x in lines) if m}
-        フェンス = None
         for n, line in enumerate(lines, 1):
-            枠 = _fence_kind(line)
-            if 枠 is not None:
-                if フェンス is None:
-                    フェンス = 枠
-                elif 枠[2] and 枠[0] == フェンス[0] and 枠[1] >= フェンス[1]:
-                    フェンス = None
             for path in MD_PATH_RE.findall(line):
-                案内.append((rel, n, path.split('#')[0]))
-            got = MD_COUNT_RE.findall(line)
-            # 実測値を書くのは道具の呼び出し例の**行末の注釈**と決める。決め表や本文の「5 項目」を
-            # 道具の実測値と取り違えない為、この形以外は見ない
-            if got and ' # ' in line:
-                # 鍵は**ファイル名だけ**。`$SKILL/scripts/x.mjs` と `skill/scripts/x.mjs` の様に
-                # 書き方が違っても同じ実測値を指す為、この一覧対象で名前の重複が無い前提で揃える
-                for tool in MD_TOOL_RE.findall(line):
-                    項目.setdefault(tool.rsplit('/', 1)[-1], set()).update(got)
-            plain = _strip_code(line)
-            if フェンス is not None:
-                continue        # 記法の検査（3 〜 5）だけフェンスの中を見る。実在と件数は上で見終えている
-            if REF_MARK in plain:
-                # 角括弧のラベルを完全に解釈しない限り `[a\\]b][1]` の様な迂回を塞げないので、
-                # コードの外に `][` を書かない規則にする（読めない書き方を黙って通さない方針と同じ）
-                failed.append(f'{rel}:{n}: コードの外に `{REF_MARK}` がある'
-                              '（参照リンク `[説明][定義]` は使わない。行内リンクで書く）')
-            if plain.count('](') > len(MD_LINK_RE.findall(plain)):
-                failed.append(f'{rel}:{n}: この検査が読めないリンクの書き方がある'
-                              '（角括弧のネストなど。1 個 = `[文字列](宛先)` の行内リンクで書く）')
-            if plain.rstrip().endswith(']') and n < len(lines) and \
-                    _strip_code(lines[n]).lstrip().startswith('('):
-                failed.append(f'{rel}:{n}: リンクの `[...]` と `(...)` が改行で割れている'
-                              '（Markdown がリンクとして解釈しない形）')
-            for angle, bare in MD_LINK_RE.findall(plain):
-                link = angle or bare
-                if link.startswith(('http://', 'https://', 'mailto:')):
-                    continue
-                if link.startswith('#'):
-                    if _anchor_key(link[1:]) not in 見出し:
-                        failed.append(f'{rel}:{n}: リンクのアンカー `{link}` に対応する見出しがこの文書に無い'
-                                      '（見出しを直した日は案内も張り替える）')
-                    continue
-                if not link:
-                    failed.append(f'{rel}:{n}: リンクの宛先が空')
-                    continue
-                解 = os.path.normpath(str((REPO / rel).parent / link.split('#')[0]))
-                if 解 != str(REPO) and not 解.startswith(str(REPO) + os.sep):
-                    failed.append(f'{rel}:{n}: リンクの宛先 `{link}` がリポジトリの外へ出る')
-                    continue
-                案内.append((rel, n, pathlib.PurePosixPath(os.path.relpath(解, REPO)).as_posix()))
+                案内.append((rel, n, path))
     for rel, n, path in sorted(案内):
         if path in _missing_paths(案内):
-            failed.append(f'{rel}:{n}: 案内先の `{path}` が実在しない（ファイルを動かした日は案内を'
+            failed.append(f'{rel}:{n}: 案内先の `{path}` が実在しない（ファイルを動かした日は案内も'
                           '張り替える。ビルドで建つ物は git に無視されるのでここへ出ない）')
-    for tool in sorted(項目):
-        if len(項目[tool]) > 1:
-            failed.append(f'{tool}: 項目数の記載が文書間で食い違う {sorted(項目[tool])}'
-                          '（実測して 1 つに揃える）')
+
 
 def fence_form_bypass():
     """情報文字列付きのフェンスを形検査が見逃すか（Astra 第 64 ラウンド 問 3 裁定 (b) の単独名指し）
@@ -5843,7 +5713,7 @@ def main():
         positive('豁免が名乗った import と名前だけを許すことを対で確かめる', guard_exemption_scope_holds)
         positive('README と決めの表のコードフェンスが許可した形だけになっている', markdown_fences_hold)
         positive('追跡下の一覧対象が日本表記の漢字だけを使う', japanese_glyphs_only)
-        positive('文書の案内先が実在し項目数の記載が文書間で揃う', doc_pointers_resolve)
+        positive('文書の案内先（コード内の path）が実在する', doc_pointers_resolve)
         positive('負控制の実行器が 6 観測点と網羅の記録契約を守っている', _runner_self_check)
 
         # 追跡下のファイルへの変更が残っていないか（制御が途中で落ちても戻す）
