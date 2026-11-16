@@ -300,7 +300,7 @@ node $SKILL/scripts/report.mjs --graph out/graph/graph.json --api "POST /orders"
 時間ゲートだけが置き換わり、RSS の絶対上限はそのまま残った。混雑時の新版と静かだった過去の旧版を
 直接比べて合否を出すこと、混雑を理由に倍率超過を免除することは裁定で却下されている。
 
-相対ゲートでの実測（`out/tmp-r50/gate-p50b.log`、旧版は commit `a44b7c7` を `out/wt-head` に固定、
+相対ゲートでの実測（`out/tmp-r50/gate-p50b.log`、旧版はコミット `perf-baseline`（履歴の書き直しの為、旧 `a44b7c7` はタグで指す）を `out/wt-head` に固定、
 旧→新 / 新→旧 を交互に 5 組、2026-11-15 13:19〜13:20、load average 3.31〜3.95。
 第 49 ラウンド双人レビューの修正（兄弟一覧の並び順・エンドポイント欄の二重スライス・
 `--md` / `--json` を付けない実行の告知文言）を当てた版。18 条件を再生成して差分を見ると、
@@ -345,7 +345,7 @@ node $SKILL/scripts/report.mjs --graph out/graph/graph.json --api "POST /orders"
 （中央値 1.09）、その前は 1.55 まで振れました。
 この入力を「遅いから」と理由に打ち切ることはしない。
 
-かつて超過していた値はこうです（`out/loop/r42-decision.md` §3、2026-11-14 23:00、commit `a44b7c7` との比較）:
+かつて超過していた値はこうです（`out/loop/r42-decision.md` §3、2026-11-14 23:00、コミット `perf-baseline` との比較）:
 demo-api 1.01 / elsa-50 1.00 / **elsa-folder 1.67（超過）** / v2-mix 1.02。超過の主因は
 「縁順に依存しない選び直しの候補を保持すること」で、**結果を 1 バイトも変えない軽量化**
 （縁の表示コピーを隣エントリで共有し、候補を写しではなく実体で持つ）で 1.09 まで下がった。

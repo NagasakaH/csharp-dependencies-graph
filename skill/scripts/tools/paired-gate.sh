@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 性能の相対ゲート: 固定した変更前版と新版の report.mjs を、同じ 4 条件で 5 組交互に測る。
 #   使い方: bash skill/scripts/tools/paired-gate.sh <タグ>      （タグは毎回新しくする）
-#   CGD_GATE_OLD=<前の report.mjs>   ... 既定 out/wt-head/skill/scripts/report.mjs（コミット a44b7c7）
+#   CGD_GATE_OLD=<前の report.mjs>   ... 既定 out/wt-head/skill/scripts/report.mjs（コミット perf-baseline）
 #   CGD_PERF_DIR=<out/tmp-perf>      ... 生ログと集計の書き先
 # 判定（1 つでも外れれば終了 1）:
 #   1. 測る前に**入力の存在**を確かめる（無ければ測らない。第 48 ラウンドで、入力が消えて

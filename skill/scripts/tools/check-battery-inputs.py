@@ -159,7 +159,7 @@ if missing or empty:
           '作り直せるものは README.md の手順（build.mjs / make-v2-graph.py / make-changed-list.py）で'
           '再生成して使う。'
           '性能ゲートの固定旧版 out/wt-head/ が無いときは '
-          '`git worktree add out/wt-head a44b7c7`（人が「消さない」と決めた比較対象。'
+          '`git worktree add out/wt-head perf-baseline`（人が「消さない」と決めた比較対象。'
           '作らないまま測ると旧版の標本が消えてゲートが落ちる）', file=sys.stderr)
     raise SystemExit(1)
 if stale:
