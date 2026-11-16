@@ -6,6 +6,8 @@
 
 ## 試した対象と実測
 
+レポートの再現率・適合率の実測（`--expect` を使った着地の当たり外れ）は[review-usage.md](review-usage.md) の表にある。
+
 | 対象 | ノード / エッジ | 内容 |
 | --- | --- | --- |
 | [elsa-core](https://github.com/elsa-workflows/elsa-core) | 51,179 / 53,521（C# 解析 3 秒、HTML 20MB） | 336 csproj、6,754 個の `.cs`（ファイル計 7,207）、8,223 型、32,572 メンバ、calls 14,607 / accesses 13,788 / references 15,633、898 ファイルが AWS/DB シグナル、1,010 ファイル（1,260 名）が「張れなかった同名候補」の記録あり |

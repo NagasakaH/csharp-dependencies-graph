@@ -282,7 +282,7 @@ node $SKILL/scripts/report.mjs --graph out/graph/graph.json --api "POST /orders"
   粗い変更（Terraform 1 ファイルをまるごと等）で注釈由来の着地が増えて適合率が下がるので、
   `--provenance static,terraform` か `--from tf:...` で絞る
 
-実測値は `docs/measurements.md` の表にある（demo の `Order.cs` 変更で 外部着地 12 / 的中 11 の
+実測値は `docs/review-usage.md` の再現率・適合率の表にある（demo の `Order.cs` 変更で 外部着地 12 / 的中 11 の
 再現率 0.917 / 適合率 0.917。余分な 1 着地は `ext:rds/orders-analytics` が `reads` 縁で着地したもの、
 `infra/main.tf` 変更は 外部着地 2 件の適合率 0、実プロジェクト 1.000 / 1.000）。
 

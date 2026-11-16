@@ -2890,26 +2890,21 @@ def _singleton_controls(path):
     """`negative(...)` に**書いてある単独名指しの控制**を `(説明, 名前)` で集める
 
     第 60 ラウンド Astra 問 3 の裁定は「登録した控制はすべて実行・成功を必須とし、片方の成功で
-    他方の失敗や未実行を埋め合わせない」。ここでは**登録**を見て、実行後に通った記録と突き合わせる"""
-    out = []
-    for node in ast.walk(ast.parse(path.read_text(encoding='utf-8'))):
-        if not (isinstance(node, ast.Call) and getattr(node.func, 'id', '') == 'negative'):
-            continue
-        label = _const_str(node.args[0]) if node.args else None
-        for kw in node.keywords:
-            if kw.arg == 'guards':
-                one = _const_str(kw.value)
-                if one and label:
-                    out.append((label, one))
-    return out
+    他方の失敗や未実行を埋め合わせない」。ここでは**登録**を見て、実行後に通った記録と突き合わせる。
+    読み取りは `_singleton_tiers()` と**同じ 1 本**に寄せる（2 本だと `guards` を位置引数で書く形式で
+    階級だけ見て制御を見ない、というズレ方が起きる。双人レビュー Codex 第 70 ラウンドの注記）
+    """
+    return sorted(_singleton_tiers(path))
 
 
 def _singleton_tiers(path):
-    """`negative(...)` の**宣言**が許す階級の集合を `(控制名, 見張り番名)` で返す
+    """`negative(...)` の**宣言**が取り得る階級の集合を `(控制名, 見張り番名)` で返す
 
-    階級 `fallback` は控制が `fallback=` を書いていない限り取り得ない（実行器は `fallback=` の
-    案内に頼って通った時だけそう数える）。第 70 ラウンド双人レビュー Codex P2-1: 実在の控制名と
-    実在の階級の組なら何でも通っていた為、**登録と逆の階級**の記録を拒否できなかった
+    実行器は階級を `clean` の値だけで一つに決める（`clean=True` なら `clean`、`clean=False` なら
+    `fallback`。`clean=False` は `fallback=` の文面を見た時だけ通る）。よって普通の控制は 1 つの
+    階級しか取り得ず、逆の階級の記録は反則である。双人レビュー Codex 第 70 ラウンド P2-1:
+    `fallback=` が有るだけで両階級を許しており、`clean=False` の控制の `clean` の記録を通していた。
+    `clean=` に定数でなく式を渡した控制は取りあえず両方を許す（取り違えて落とさない為）
     """
     out = {}
     for node in ast.walk(ast.parse(path.read_text(encoding='utf-8'))):
@@ -2917,19 +2912,23 @@ def _singleton_tiers(path):
             continue
         label = _const_str(node.args[0]) if node.args else None
         gname = None
-        has_fb = False
-        for i, arg in enumerate(node.args):          # (説明, 制御, guards, message, clean, fallback)
-            if i == 2:
+        mode = 'clean'
+        for k, arg in enumerate(node.args):    # (説明, 制御, guards, message, clean, fallback)
+            if k == 2:
                 gname = _const_str(arg)
-            if i == 5:
-                has_fb = True
+            elif k == 4 and isinstance(arg, ast.Constant):
+                mode = 'clean' if arg.value else 'fallback'
         for kw in node.keywords:
             if kw.arg == 'guards':
                 gname = _const_str(kw.value)
-            if kw.arg == 'fallback':
-                has_fb = True
-        if label and gname:
-            out[(label, gname)] = {'clean', 'fallback'} if has_fb else {'clean'}
+            elif kw.arg == 'clean':
+                if not isinstance(kw.value, ast.Constant):
+                    mode = 'both'
+                else:
+                    mode = 'clean' if kw.value.value else 'fallback'
+        if not (label and gname):
+            continue
+        out[(label, gname)] = {'clean', 'fallback'} if mode == 'both' else {mode}
     return out
 
 
@@ -3874,23 +3873,28 @@ def _record_pollutions(victim, tiers):
     """本番の網羅記録にありそうな**混入の形**を `(ラベル, 細工, 案内)` で返す
 
     細工は「実在の見張り番のキーに、実在の控制名と実在の階級を乗せる」までが本物なので、キー集合の
-    一致だけでは読めない（双人レビュー Codex P2-1・P2-2）。階級を反転させる形は、その控制の宣言が
-    `clean` だけの時だけ反則になるので、宣言が `clean` だけと読める制御を選んで細工する
+    一致だけでは読めない（双人レビュー Codex P2-1・P2-2）。階級を反転させる形は、実行器が階級を
+    `clean` の値だけで一つに決めるので通常は必ず作れる。呼び出し側は 3 形が揃わなかった日を失敗に
+    するので、細工を選べなくて黙って 1 形減る事が起きない
     """
     out = [('実在のキーへの未登録の混入',
             lambda c: c[victim].append(('実行器の自己検査', 'clean')),
             '実在の見張り番のキーへ登録の無い記録を足しても網羅の検査が黙っている')]
-    if ran['singleton'].get(victim):
-        out.append(('同じ記録の二重計上',
-                    lambda c: c[victim].append(list(c[victim])[0]),
-                    '同じ記録が 2 件並んでも網羅の検査が黙っている'))
-        for lbl, tier in ran['singleton'][victim]:
-            if tiers.get((lbl, victim)) == {'clean'}:
-                out.append(('登録と逆の階級',
-                            lambda c, lbl=lbl: c[victim].__setitem__(
-                                [r[0] for r in c[victim]].index(lbl), (lbl, 'fallback')),
-                            '宣言が `clean` だけの控制へ `fallback` の記録を足しても網羅の検査が黙っている'))
-                break
+    recs = ran['singleton'].get(victim) or []
+    if not recs:
+        return out
+    out.append(('同じ記録の二重計上',
+                lambda c: c[victim].append(list(c[victim])[0]),
+                '同じ記録が 2 件並んでも網羅の検査が黙っている'))
+    for lbl, tier in recs:
+        other = 'clean' if tier == 'fallback' else 'fallback'
+        if other in tiers.get((lbl, victim), set()):
+            continue                  # 宣言が両階級を許す控制では反則にならない
+        out.append(('登録と逆の階級',
+                    lambda c, lbl=lbl, other=other: c[victim].__setitem__(
+                        [r[0] for r in c[victim]].index(lbl), (lbl, other)),
+                    f'控制「{lbl}」の階級を宣言が許さない `{other}` に替えても網羅の検査が黙っている'))
+        break
     return out
 
 
@@ -3962,12 +3966,21 @@ def _runner_self_check():
     if ran['singleton']:
         registered = {(lbl, n) for lbl, n in _singleton_controls(pathlib.Path(__file__))}
         tiers = _singleton_tiers(pathlib.Path(__file__))
-        victim = sorted(ran['singleton'])[0]
-        for label, forge, why in _record_pollutions(victim, tiers):
+        victim = next((k for k in sorted(ran['singleton']) if ran['singleton'][k]), None)
+        if victim is None:
+            bad.append('網羅の記録が 1 件も無く、混入の細工を 1 つも測れない')
+        elif not tiers:
+            bad.append('`negative(...)` の宣言が 1 件も読めず、階級の検査が空振りしている')
+        forms = _record_pollutions(victim, tiers) if victim else []
+        for label, forge, why in forms:
             copy = {k: list(v) for k, v in ran['singleton'].items()}
             forge(copy)
             if not singleton_record_errors(copy, registered, tiers):
                 bad.append(f'{label}: {why}')
+        作れなかった = {'実在のキーへの未登録の混入', '同じ記録の二重計上',
+                    '登録と逆の階級'} - {f[0] for f in forms}
+        if 作れなかった:
+            bad.append(f'混入の細工を {sorted(作れなかった)} 作れず、自己検査が黙って省略した')
     if len(failed) != n_failed:
         bad.append(f'自己検査が本番の失敗記録へ手を出した（{n_failed} 件 → {len(failed)} 件）')
     if ran['singleton'] != snapshot:
