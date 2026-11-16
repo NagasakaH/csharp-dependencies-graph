@@ -1486,6 +1486,29 @@ def relative_paths_from_both_cwds():
         failed.append(f'相対パスのプロファイル実行が通らない（根 {rc_root} / battery {rc_here}）')
 
 
+def ledger_controls_leave_ledger_untouched():
+    """台帳を細工する控制が、実ツリーの台帳の bytes を変えないこと（Astra 第 22 ラウンド 問 3）
+
+    第 82 ラウンドまで台帳の細工は実ツリーを一時書き換えしていた（元 bytes はメモリにしか無く、
+    プロセスが殺されると細工が残り、次回の通常実行が「所属が変わった」と誤って落ちる）。隔離した
+    という主張を**今の実体へ測り返す**為の正控制。4 つの細工を走らせた前後で台帳 3 部の bytes が
+    不変であることを確かめる。細工が 1 つでも検出しなくなったら（前提が変わったら）それも失敗にする
+    """
+    rels = [f'{BATTERY}/required-checks.json', f'{BATTERY}/known-v1-diffs.json',
+            IN.GUARD_LEDGER_FILE]
+    before = {rel: (REPO / rel).read_bytes() for rel in rels}
+    for fn in (ledger_name_missing, ledger_owner_moved, ledger_file_missing,
+               ledger_exemption_unscanned):
+        if not fn():
+            failed.append(f'{fn.__name__} が検出しない（台帳の細工の前提が変わった）')
+    for rel in rels:
+        now = (REPO / rel).read_bytes()
+        if now != before[rel]:
+            failed.append(f'{rel}: 控制の前後で bytes が変わった（{len(before[rel])} → '
+                          f'{len(now)}。台帳の実ツリー書き換えが戻っていない。'
+                          f'`git checkout -- {rel}` で戻す）')
+
+
 def ledger_self_valid():
     """今追跡下の一覧は自分の形を検査して通る"""
     IN.validate_required_spec(IN.required_spec(REPO), REPO)
@@ -3178,11 +3201,32 @@ def guard_owner_ledger_holds():
         failed.append(f'{IN.GUARD_LEDGER_FILE}: {msg}')
 
 
+def _ledger_doc():
+    """実ツリーの対応表を**書き換えないコピー**として読む（Astra 第 22 ラウンド 問 3）"""
+    return json.loads((REPO / f'{BATTERY}/guard-owners.json').read_text(encoding='utf-8'))
+
+
+def _write_ledger_at(root, doc=None, raw=None):
+    """使い捨ての root へ台帳を置く（`load_guard_ledger` は root からの相対で読むだけ）"""
+    p = pathlib.Path(root) / IN.GUARD_LEDGER_FILE
+    p.parent.mkdir(parents=True, exist_ok=True)
+    if raw is not None:
+        p.write_text(raw, encoding='utf-8')
+    else:
+        p.write_text(json.dumps(doc, ensure_ascii=False, indent=1, sort_keys=True) + '\n',
+                     encoding='utf-8')
+    return p
+
+
 def _ledger_mutate(victim_how, mut):
-    """対応表を一時的に細工して制御を走らせる（`stash` / `restore` で必ず戻す）"""
-    rel = f'{BATTERY}/guard-owners.json'
-    p = stash(rel)
-    doc = json.loads(p.read_text(encoding='utf-8'))
+    """対応表の**メモリ上のコピー**を細工して照合を走らせる（Astra 第 22 ラウンド 問 3 の裁定）
+
+    実ツリーの `guard-owners.json` を一時書き換えしない。前の作りは `finally` で元 bytes を書き戻して
+    いたが、元 bytes はメモリにしか無いので、制御の途中でプロセスが殺されると台帳が細工されたまま残り、
+    次回の通常実行が「所属が変わった」と誤って落ちた（双人レビュー agy 第 82 ラウンドで原因を特定）。
+    照合 `_guard_ledger_errors` は渡した doc を読むので、走査（実ツリーの `.py`）は本物を見たまま、
+    台帳だけを隔離できる"""
+    doc = _ledger_doc()
     if victim_how == 'names' and len(doc.get('owners') or {}) < 3:
         raise NotDetected('対応表の名前が 3 未満（制御の前提が変わった）')
     # 細工後の台帳から豁免マップを作り直す（Astra 第 65 ラウンド 問 4: 細工前のマップとマージする
@@ -3190,12 +3234,7 @@ def _ledger_mutate(victim_how, mut):
     # 細工が「未登録の import」の穴を先に出す問題は、測る対象を関数の直接呼びに絞った控制で避ける
     # （`ledger_exemption_removed` は豁免を 1 件落とした台帳で走査その物を見る）
     mut(doc)
-    p.write_text(json.dumps(doc, ensure_ascii=False, indent=1, sort_keys=True) + '\n',
-                 encoding='utf-8')
-    try:
-        return _guard_ledger_errors(doc, _exempt_index_of(doc))
-    finally:
-        restore()
+    return _guard_ledger_errors(doc, _exempt_index_of(doc))
 
 
 def ledger_name_missing():
@@ -3239,45 +3278,40 @@ def ledger_exemption_unscanned():
 
 
 def ledger_shape_broken():
-    """台帳の `owners` の値を配列でなくして、形の検査が同じ見出しで止まること（`own-shape`）"""
-    rel = f'{BATTERY}/guard-owners.json'
-    p = stash(rel)
-    doc = json.loads(p.read_text(encoding='utf-8'))
+    """台帳の `owners` の値を配列でなくして、形の検査が同じ見出しで止まること（`own-shape`）
+
+    細工した台帳は**使い捨ての root** に置いて読む（Astra 第 22 ラウンド 問 3）。形の検査は実ツリーを
+    書かずに同じ経路（`load_guard_ledger`）を通る"""
+    doc = _ledger_doc()
     if len(doc.get('owners') or {}) < 3:
         raise NotDetected('対応表の名前が 3 未満（制御の前提が変わった）')
     doc['owners'][sorted(doc['owners'])[-1]] = '_inputs.py'
-    p.write_text(json.dumps(doc, ensure_ascii=False, indent=1, sort_keys=True) + '\n',
-                 encoding='utf-8')
-    try:
-        IN.load_guard_ledger(REPO)
-    finally:
-        restore()
+    with tempfile.TemporaryDirectory(prefix='r83-shape-') as td:
+        _write_ledger_at(td, doc)
+        IN.load_guard_ledger(td)
     return False        # 止まらなかった = 検出無し（見張り番を消した側はここを通って成功する）
 
 
 def _ledger_doc_mutated(mut):
-    """対応表を一時的に細工した**テキスト**を置いて `load_guard_ledger` を通す（Astra 問 2 の控制）
+    """対応表を細工した**テキスト**を使い捨ての root に置いて `load_guard_ledger` を通す（Astra 問 2 の控制）
 
     `raw` を渡すと JSON を組み直さずその文字列をそのまま置く（同じ鍵を 2 度書く細工は
     `json.dumps` では作れない為）。戻り値は `load_guard_ledger` が止まったら `(1, 文面)`、
-    止まらなかったら `False`（見張り番を消した側は必ずこっちへ来る）"""
-    rel = f'{BATTERY}/guard-owners.json'
-    p = stash(rel)
-    try:
+    止まらなかったら `False`（見張り番を消した側は必ずこっちへ来る）。細工した台帳は**使い捨ての
+    root** に置いて読む。実ツリーの台帳は書かない（Astra 第 22 ラウンド 問 3 の裁定。前の作りは
+    プロセスが殺された時に細工が残った）"""
+    with tempfile.TemporaryDirectory(prefix='r83-ledger-') as td:
         if 'raw' in mut:
-            p.write_text(mut['raw'], encoding='utf-8')
+            _write_ledger_at(td, raw=mut['raw'])
         else:
-            doc = json.loads(p.read_text(encoding='utf-8'))
+            doc = _ledger_doc()
             mut['fn'](doc)
-            p.write_text(json.dumps(doc, ensure_ascii=False, indent=1, sort_keys=True) + '\n',
-                         encoding='utf-8')
+            _write_ledger_at(td, doc)
         try:
-            IN.load_guard_ledger(REPO)
+            IN.load_guard_ledger(td)
         except SystemExit as exc:
             return (1, str(exc) or f'exit {exc.code}')
         return False
-    finally:
-        restore()
 
 
 def _one_scanned_file(doc):
@@ -5700,6 +5734,8 @@ def main():
         positive('期待値の合計が条件別の合計と導出で一致', coverage_current_matches)
         positive('リポジトリ根と battery/ の両方から同じ相対パス', relative_paths_from_both_cwds)
         positive('追跡下の一覧が自分の形を検査して通る', ledger_self_valid)
+        positive('台帳を細工する控制が実ツリーの台帳の bytes を変えない',
+                 ledger_controls_leave_ledger_untouched)
         positive('指紋台帳と入力が揃っている', fingerprint_ledger_clean)
         positive('入力点検の道具が実際に起動して終了 0 で通る', input_check_tool_runs)
         positive('要求一覧を壊した日に 2 本の道具が同じ案内を出す', broken_required_ledger_same_message)
