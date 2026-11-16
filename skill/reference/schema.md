@@ -3,7 +3,7 @@
 `graph.json`・ビューア用ペイロード・ノード/エッジ ID・注釈（annotations.json）の形。
 数値は elsa-core を走らせたときの実出力にあわせてある。
 **レポート出力（`report.mjs --json`）の形は下の「レポート出力」に分けて書く**（このファイルでも
-値域を正本として宣言する。README は読み方の説明）。
+値域を正本として宣言する。読み方の説明は `../../docs/review-usage.md`）。
 
 ## レポート出力（`report.mjs --json`）
 

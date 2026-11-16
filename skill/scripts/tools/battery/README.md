@@ -236,7 +236,7 @@ Astra 問 2 で「実行系の制御（JSON を書かない、JSON が壊れて�
 見張り番を**直接呼んでいるファイル**別の一覧（Astra 第 61 ラウンド 問 5 の機械検査 `readme_guard_names_match_code` はこの箇条書きと上の「名前」列だけを読む。歴史説明に旧名を書くのは自由だが、この一覧と「名前」列に旧名や実在しない名を残すと失敗する。上の表は判定のまとめで道具と対応付けていないので、道具別の対応はここで宣言する）:
 
 <!-- 見張り番の道具別一覧 -->
-- `_inputs.py`（共有ヘルパー。各道具はここを経由して呼ぶ。直接呼ぶのは下の 3 ファイル）: `canonical-id` / `child-fail` / `cond-args` / `cond-case` / `cond-graph` / `cond-keys` / `cond-kind-args` / `condition-set` / `cov-keys` / `cov-shape` / `coverage` / `dup-built` / `dup-condition` / `dup-fixture` / `dup-id` / `fixture-set` / `fixture-shape` / `fp-bytes` / `fp-ledger-extra` / `fp-mode` / `fp-sha` / `fp-structural` / `fp-type` / `fp-unregistered` / `json-empty` / `json-missing` / `json-parse` / `out-exists` / `path-count` / `path-cwd-only` / `path-empty` / `perm-cap` / `perm-count` / `perm-declared` / `perm-edges` / `perm-expected` / `perm-runs-min` / `proj-buckets` / `proj-fields` / `report-shape` / `rows-zero` / `trial-count` / `v1-derivation` / `own-shape` / `exempt-loader-name` / `exempt-dup-entry` / `json-dup-key` / `box-shape` / `exempt-path-overlap` / `guard-callers-shape`
+- `_inputs.py`（共有ヘルパー。各道具はここを経由して呼ぶ。直接呼ぶのは `_inputs.py` を読む下の道具だけ）: `canonical-id` / `child-fail` / `cond-args` / `cond-case` / `cond-graph` / `cond-keys` / `cond-kind-args` / `condition-set` / `cov-keys` / `cov-shape` / `coverage` / `dup-built` / `dup-condition` / `dup-fixture` / `dup-id` / `fixture-set` / `fixture-shape` / `fp-bytes` / `fp-ledger-extra` / `fp-mode` / `fp-sha` / `fp-structural` / `fp-type` / `fp-unregistered` / `json-empty` / `json-missing` / `json-parse` / `out-exists` / `path-count` / `path-cwd-only` / `path-empty` / `perm-cap` / `perm-count` / `perm-declared` / `perm-edges` / `perm-expected` / `perm-runs-min` / `proj-buckets` / `proj-fields` / `report-shape` / `rows-zero` / `trial-count` / `v1-derivation` / `own-shape` / `exempt-loader-name` / `exempt-dup-entry` / `json-dup-key` / `box-shape` / `exempt-path-overlap` / `guard-callers-shape`
 - `check-dir-rule.py`: `dir-rule-counters` / `dir-rule-report` / `dir-rule-v1`
 - `count-none.py`: `none-counters` / `none-expectations`
 - `edge-order.py`: `edge-child-fail` / `edge-group-empty` / `edge-json-parse` / `edge-out-shape`
@@ -425,6 +425,18 @@ Codex P2-3 / Astra 問 3 の裁定 2）。差分に `boxNames` と `exemptions` 
 から選ぶ（未登録の記録を選ぶと階級の検査自体が働かず、差分が 0 件になった）。実測: 139 本の呼び出しから
 名前組 119 / 単独名指し 109 を導き、読めない物は 0。汚れた記録を混ぜても 3 形すべてが差分 1 件を出す
 事は `out/tmp-r69/probeH7.py` で測る
+
+第 73 ラウンドの双人レビュー（Codex P2 2 件 / agy P2 4 件）で、細工の作り方がもう一段本物に近づいた。
+① 混入の名前を既存の記録・登録と衝突しない選び方にした（固定の名前が既に有る日、細工は「未登録の
+混入」ではなく「二重計上」に化けていた）。② 記録の書き換えは控制名ではなく**記録の位置**でする形に
+した（同名の先頭記録を掴んで、選んだ物と違う記録を上書きし変更ゼロになり得た）。③ 各細工が「自分は
+どの診断を増やすべきか」の目印を添え、自己検査は**その目印の件数**が増えたかで確かめる（別の診断が
+増えただけで「検出した」と通るのを防ぐ）。`_negative_calls()` は `*args` の展開を動的と読む様にし、
+`dyn` の初期化を `guards` の読み取りより前へ寄せ（後に初期化して上書きしていた）、式の `clean` は
+単独名指しの控制だけを失敗にする。文書側は追跡下の `check-invariants46.py` に残っていた U+8FC7 を直し、
+**この検査器自身の持ち物として** `japanese_glyphs_only` を足した（手元の字形検査は JIS で符号化できる
+変体字を明示リストに足すまで素通りする為）。frozen な `battery/r43-before.mjs` の注釈に残る U+5E76 は
+昔の物なので意図的にそのまま（新しい控制の対象にも入れない）
 
 **スイッチにしない判定は 4 種類だけ**（Astra 裁定 問 1: 「消すと後で壊れる」という理由だけでは、
 入力契約の判定を例外へ移さない）。①**引数が足りない**（調べるグラフも `report.mjs` も渡されて

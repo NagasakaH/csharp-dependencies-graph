@@ -2881,6 +2881,7 @@ def _negative_calls(path):
         if not (isinstance(node, ast.Call) and getattr(node.func, 'id', '') == 'negative'):
             continue
         why = []
+        clean, dyn, dyn_clean = True, False, False
         label = _const_str(node.args[0]) if node.args else None
         for kw in node.keywords:
             if kw.arg == 'name':
@@ -2910,7 +2911,6 @@ def _negative_calls(path):
                 dyn = True                # `guards=FAKE` の様な動的な名前。単独登録しない
         # clean: 位置 4 番目かキーワード。階級は実行器と同じくこの値だけで決まる
         cnode = node.args[4] if len(node.args) >= 5 else None
-        clean, dyn = True, False
         for kw in node.keywords:
             if kw.arg != 'clean':
                 continue
@@ -2920,20 +2920,23 @@ def _negative_calls(path):
         has_fb = len(node.args) >= 6 or any(kw.arg == 'fallback' for kw in node.keywords)
         if any(kw.arg is None for kw in node.keywords):
             dyn = True                    # `**kwargs` の展開。単独名指しの時のみ失敗にする
-        if cnode is None:
-            pass
+        # `*args` の展開も位置引数の番号がズレるので静的に読めない（agy 第 73 ラウンド P2-1）。
+        # ズレた番号で `guards` / `clean` を誤認しない様に、ここでは値を一切読まない
+        if any(isinstance(a, ast.Starred) for a in node.args):
+            dyn = True
+            names, cnode, clean, has_fb = None, None, True, False
+        dyn_clean = cnode is not None and not isinstance(cnode, ast.Constant)
+        if dyn_clean:
+            dyn = True                    # 式の `clean`。単独名指しの時のみ失敗にする
         elif isinstance(cnode, ast.Constant):
             clean = bool(cnode.value)
-        else:
-            why.append('clean に定数でなく式を渡している（階級が静的に決まらない）')
-            dyn = True
         # 静的に読めない事を失敗にするのは、**単独名指しとして登録される控制**だけにする
         # （`guards` を書かない控制と、`guards=FAKE` のように動的に組む控制（契約走査の偽名）は
         #  網羅へ登録されない為、読めなくても階級の検査を素通りしない）
         if names and len(names) == 1:
             if not label:
                 why.append('単独名指しの控制の説明が文字列定数でない（網羅の登録と照合できない）')
-            if dyn:
+            if dyn or dyn_clean:
                 why.append('単独名指しの控制が静的に読めない引数を持つ（階級が実行時とズレる）')
             if not clean and not has_fb:
                 why.append('clean=False は fallback に「OFF 後も残る別の診断の文面」を書く')
@@ -3921,34 +3924,49 @@ def _shrinking_control(mark):
 
 
 def _record_pollutions(tiers):
-    """本番の網羅記録にありそうな**混入の形**を `(ラベル, 細工, 案内)` で返す
+    """本番の網羅記録にありそうな**混入の形**を `(ラベル, 細工, 案内, 期待する診断の目印)` で返す
 
     細工は「実在の見張り番のキーに、実在の控制名と実在の階級を乗せる」までが本物なので、キー集合の
-    一致だけでは読めない（双人レビュー Codex P2-1・P2-2）。階級を反転させる細工は**キーをまたいで**
-    登録済みかつ宣言が単一の階級しか許さない控制を探す（先頭のキーだけ見て両階級を許す控制しか無い日は、作れる
-    細工があるのに自己検査が偽の失敗を出していた。双人レビュー Codex 第 71 ラウンド P2-2）
+    一致だけでは読めない。加えて第 73 ラウンドで双人レビューが同じ所を突いた:
+
+    - 混入の名前を既存の記録や登録と衝突させると、細工が「未登録の混入」ではなく「二重計上」に
+      化ける（Codex P2-1）。なので**まだ使われていない名前**を選んで足す
+    - 記録の書き換えを control 名で探すと同名の先頭記録を掴んで、**選んだ物と違う記録**を上書きし、
+      結果として変更ゼロになり得る（Codex P2-2）。なので**記録の位置**で書き換える
+    - 各細工は自分はどの診断を増やすべきか（4 番目の目印）を添える。自己検査は差分の**件数**をその
+      目印で数えて確かめる（別の診断が増えただけで「検出した」と通るのを防ぐ。agy P2-1）
     """
     out = []
-    victim = next((n for n in sorted(ran['singleton']) if ran['singleton'][n]), None)
-    if victim is None:
+    keys = [n for n in sorted(ran['singleton']) if ran['singleton'][n]]
+    if not keys:
         return out
+    used = {lbl for recs in ran['singleton'].values() for lbl, _ in recs}
+    used |= {lbl for lbl, _ in tiers}
+    intruder = next(f'網羅に有り得ない控制 {i}' for i in range(1000)
+                    if f'網羅に有り得ない控制 {i}' not in used)
+    victim = keys[0]
     out.append(('実在のキーへの未登録の混入',
-                lambda c: c[victim].append(('実行器の自己検査', 'clean')),
-                '実在の見張り番のキーへ登録の無い記録を足しても網羅の検査が黙っている'))
+                lambda c: c[victim].append((intruder, 'clean')),
+                '実在の見張り番のキーへ登録の無い記録を足しても網羅の検査が黙っている',
+                '登録が無いのに網羅へ載った'))
+    dup_key = next((n for n in keys if len(set(ran['singleton'][n])) == len(ran['singleton'][n])),
+                   victim)
     out.append(('同じ記録の二重計上',
-                lambda c: c[victim].append(list(c[victim])[0]),
-                '同じ記録が 2 件並んでも網羅の検査が黙っている'))
-    for n in sorted(ran['singleton']):
-        for lbl, tier in ran['singleton'][n]:
+                lambda c: c[dup_key].append(list(c[dup_key])[0]),
+                '同じ記録が 2 件並んでも網羅の検査が黙っている',
+                'が 2 件並んでいる'))
+    for n in keys:
+        for pos, (lbl, tier) in enumerate(ran['singleton'][n]):
             if (lbl, n) not in tiers:
                 continue                  # 未登録の記録は階級の検査自体が働かない（選んでも無意味）
             other = 'clean' if tier == 'fallback' else 'fallback'
             if other in tiers.get((lbl, n), set()):
                 continue                  # 宣言が両階級を許す控制では反則にならない
             out.append(('登録と逆の階級',
-                        lambda c, n=n, lbl=lbl, other=other: c[n].__setitem__(
-                            [r[0] for r in c[n]].index(lbl), (lbl, other)),
-                        f'控制「{lbl}」の階級を宣言が許さない `{other}` に替えても網羅の検査が黙っている'))
+                        lambda c, n=n, pos=pos, lbl=lbl, other=other: c[n].__setitem__(
+                            pos, (lbl, other)),
+                        f'控制「{lbl}」の階級を宣言が許さない `{other}` に替えても網羅の検査が黙っている',
+                        'が宣言と逆'))
             return out
     return out
 
@@ -4026,16 +4044,17 @@ def _runner_self_check():
         forms = _record_pollutions(tiers)
         if not forms:
             bad.append('網羅の記録が 1 件も無く、混入の細工を 1 つも測れない')
-        # 本番の記録自体が既に違反している時、細工の検出がそれに 隠れない様に差分で見る
-        # （双人レビュー agy 第 72 ラウンド P2-3: 別のキーの既存違反を先頭に返すだけ通っていた）
-        base_errs = set(singleton_record_errors(
-            {k: list(v) for k, v in ran['singleton'].items()}, registered, tiers))
-        for label, forge, why in forms:
+        # 本番の記録自体が既に違反している日に検出が隠れない様に、また**別の診断が増えただけ**で
+        # 通らない様に、細工が宣言した目印の件数で確かめる（agy 第 72 P2-3 / Codex・agy 第 73）
+        base = singleton_record_errors({k: list(v) for k, v in ran['singleton'].items()},
+                                       registered, tiers)
+        for label, forge, why, mark in forms:
             copy = {k: list(v) for k, v in ran['singleton'].items()}
             forge(copy)
-            got = set(singleton_record_errors(copy, registered, tiers))
-            if not got - base_errs:
-                bad.append(f'{label}: {why}（細工を足す前と同じ診断しか出ない）')
+            前 = sum(1 for e in base if mark in e)
+            後 = sum(1 for e in singleton_record_errors(copy, registered, tiers) if mark in e)
+            if 後 <= 前:
+                bad.append(f'{label}: {why}（目印「{mark}」の診断が {前} 件から {後} 件）')
         作れなかった = {'実在のキーへの未登録の混入', '同じ記録の二重計上',
                     '登録と逆の階級'} - {f[0] for f in forms}
         if 作れなかった:
@@ -4573,6 +4592,49 @@ def decisions_table_columns_hold():
 
 
 MD_FENCE_DOCS = ((BATTERY + '/README.md', 'README.md'), (DECISIONS_FILE, 'decisions.md'))
+
+
+def _cn_glyph_lines(rel_path):
+    """文書 1 本を走査し、中国語簡体字のコードポイントを `(行, 字)` で返す
+
+    一覧は JIS X 0213 で**符号化できてしまう**為、手元の字形検査（`~/.agents/scripts/check-cn-glyphs.py`）が
+    自動では落とさない字だけを集める（双人レビュー agy 第 73 ラウンド P2-3: 追跡下の
+    `check-invariants46.py` の U+8FC7 を既存の検査が見逃していた）。対応する日本表記は
+    価・関・検・験・変・間・聞・長・門・説・語・読・車・馬・鳥・魚・島・書・買・発・電・風・飛・東・
+    頁・業・術・機・権・図・夢・極・遷・聴・復・創・撃・欠・陥
+    （U+4E8E は日本語で使わない字なので日本表記の対応を書かない）
+    """
+    cps = (0x4ef7, 0x5173, 0x68c0, 0x9a8c, 0x53d8, 0x95f4, 0x95fb, 0x957f, 0x95e8, 0x8bf4,
+           0x8bed, 0x8bfb, 0x8f66, 0x9a6c, 0x9e1f, 0x9c7c, 0x5c9b, 0x4e66, 0x4e70, 0x53d1,
+           0x7535, 0x98ce, 0x98de, 0x4e1c, 0x9875, 0x4e1a, 0x672f, 0x673a, 0x6743, 0x56fe,
+           0x68a6, 0x6781, 0x8fc1, 0x542c, 0x590d, 0x521b, 0x51fb, 0x4e8e, 0x7f3a, 0x9677)
+    bad = set(chr(c) for c in cps)
+    out = []
+    for n, line in enumerate(REPO.joinpath(rel_path).read_text(encoding='utf-8').splitlines(), 1):
+        for c in line:
+            if c in bad:
+                out.append((n, f'U+{ord(c):04X}'))
+    return out
+
+
+def japanese_glyphs_only():
+    """追跡下の一覧対象に中国語簡体字が混ざっていないか（AGENTS.md の全セッション共通ルール）
+
+    「手元の字形検査を通った」では足りない。あの検査は JIS で符号化できない字しか自動で落とさず、
+    符号化できる変体字（上の一覧）は明示リストに足すまで素通りする。fresh clone の人にも同じ約束を
+    守ってもらう為、**この検査器の中にリストを持つ**。frozen な `battery/r43-before.mjs` の注釈に
+    残る U+5E76 は昔の物なので対象に含めない
+    """
+    for rel in sorted(p.relative_to(REPO).as_posix() for d in ('skill', 'docs')
+                      for p in (REPO / d).rglob('*')
+                      if p.is_file() and p.suffix in ('.md', '.py', '.mjs', '.html')):
+        for n, where in _cn_glyph_lines(rel)[:2]:
+            failed.append(f'{rel}:{n}: 日本表記ではない字形 {where} が混ざっている'
+                          '（AGENTS.md の一覧を直す）')
+    for n, where in _cn_glyph_lines('README.md')[:2]:
+        if n:
+            failed.append(f'README.md:{n}: 日本表記ではない字形 {where} が混ざっている')
+
 
 
 def fence_form_bypass():
@@ -5572,6 +5634,7 @@ def main():
         positive('見張り番の対応表 guard-owners.json が今の走査と一致している', guard_owner_ledger_holds)
         positive('豁免が名乗った import と名前だけを許すことを対で確かめる', guard_exemption_scope_holds)
         positive('README と決めの表のコードフェンスが許可した形だけになっている', markdown_fences_hold)
+        positive('追跡下の一覧対象が日本表記の漢字だけを使う', japanese_glyphs_only)
         positive('負控制の実行器が 6 観測点と網羅の記録契約を守っている', _runner_self_check)
 
         # 追跡下のファイルへの変更が残っていないか（制御が途中で落ちても戻す）
